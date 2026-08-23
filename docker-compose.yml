@@ -1,0 +1,48 @@
+# Services for the toll booth route set pipeline. Driven by the Makefile;
+# `docker compose up` on its own starts only the query server.
+#
+# OSRM_OPTIMAL_PATH comes from .env (see .env.example) and must be an absolute
+# path outside this repository -- the graph is ~25 GB.
+
+services:
+  # Long-running query server for the "optimal" (no traffic) graph.
+  # Service name and container name are deliberately identical so the Docker
+  # name and the URL the builder calls are the same string.
+  osrm-optimal:
+    container_name: osrm-optimal
+    image: ghcr.io/project-osrm/osrm-backend:26.8-debian
+    # MLD must match the partition/customize preprocessing in `make setup_osrm`.
+    # No -t: osrm-routed already defaults to hardware concurrency.
+    # --max-table-size: the route search solves d(u,v) == d(u,b) + d(b,v) with
+    # /table to find endpoint pairs whose fastest route provably crosses a
+    # booth. The default of 100 locations is too small for that.
+    command: osrm-routed --algorithm mld --max-table-size 2000 /osrm/france-latest.osrm
+    volumes:
+      - "${OSRM_OPTIMAL_PATH}:/osrm"
+    ports:
+      # Localhost only. Consuming scripts that are not on this Compose network
+      # reach the same instance here.
+      - "127.0.0.1:5000:5000"
+    # No restart policy on purpose: osrm-routed exits immediately when the graph
+    # is missing, and a restart policy turns that into a silent crash loop.
+    # The Makefile starts this service explicitly when it is needed.
+
+  # One-shot osrm-extract / osrm-partition / osrm-customize.
+  # Named generically: a future traffic instance is a second *server* service,
+  # not a second tools container.
+  osrm-tools:
+    image: ghcr.io/project-osrm/osrm-backend:26.8-debian
+    volumes:
+      - "${OSRM_OPTIMAL_PATH}:/osrm"
+    profiles: ["tools"]
+
+  # Our own image: the download, the PBF extraction, and the route search.
+  # Deliberately no depends_on: steps 1 and 3 run the builder long before the
+  # graph exists, and starting osrm-optimal then would only crash it. Step 4
+  # brings the server up explicitly and the script waits for it.
+  builder:
+    build: ./builder
+    volumes:
+      - "./data:/data"
+      - "${OSRM_OPTIMAL_PATH}:/osrm"
+    profiles: ["tools"]
