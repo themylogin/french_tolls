@@ -1,11 +1,15 @@
 # Toll booth route set pipeline.
 #
-#   make all   -> download_pbf -> setup_osrm -> build_osm_toll_booths -> build_route_set
+#   make all   -> download_pbf -> setup_osrm -> build_osm_toll_booths
+#                 -> build_route_set -> build_vinci_toll_booths
 #
-# Every step is skipped when its output is already in place. Skipping is
-# existence-based, not timestamp-based: prerequisites are declared order-only
-# (the `|` in the rules below) so re-touching an upstream file never triggers a
-# fresh half-hour of OSRM preprocessing.
+# The first four steps are skipped when their output is already in place.
+# Skipping is existence-based, not timestamp-based: prerequisites are declared
+# order-only (the `|` in the rules below) so re-touching an upstream file never
+# triggers a fresh half-hour of OSRM preprocessing.
+#
+# The fifth step is resumable rather than skipped: it always runs, reads its own
+# output to see what is left, and does nothing when that output is complete.
 #
 # All work runs in containers. The host needs only Docker, Compose, and coreutils.
 
@@ -26,6 +30,7 @@ PLAZAS       := $(DATA_DIR)/plazas.osm.pbf
 ROUTE_SET    := $(DATA_DIR)/route_set.yaml
 UNCOVERED    := $(DATA_DIR)/uncovered_booths.json
 EXCLUDED     := $(DATA_DIR)/excluded_booths.json
+VINCI        := $(DATA_DIR)/vinci_toll_booth.yaml
 
 OSRM_DIR   := $(strip $(OSRM_OPTIMAL_PATH))
 OSRM_BASE  := $(OSRM_DIR)/france-latest
@@ -54,9 +59,11 @@ RUN_BUILDER := $(COMPOSE) run --rm --user $(HOST_USER) builder
 RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-tools
 
 .PHONY: all download_pbf setup_osrm build_osm_toll_booths build_route_set \
-        guard-osrm-path update_route_set clean clean-osrm
+        build_vinci_toll_booths guard-osrm-path guard-ulys-key update_route_set \
+        clean clean-osrm
 
-all: download_pbf setup_osrm build_osm_toll_booths build_route_set
+all: download_pbf setup_osrm build_osm_toll_booths build_route_set \
+     build_vinci_toll_booths
 
 # --------------------------------------------------------------------------
 # Configuration guard
@@ -75,6 +82,17 @@ guard-osrm-path:
 	    *)  echo "ERROR: OSRM_OPTIMAL_PATH must be an absolute path (got '$(OSRM_DIR)')."; \
 	        exit 1;; \
 	esac
+
+# Checked before step 5 does any work: the route search that precedes the first
+# request takes minutes, and finding out afterwards that the key is missing
+# wastes all of it.
+guard-ulys-key:
+	@if [ -z "$(strip $(ULYS_SUBSCRIPTION_KEY))" ]; then \
+	    echo "ERROR: ULYS_SUBSCRIPTION_KEY is unset or empty."; \
+	    echo "       Copy .env.example to .env and set it; see the comment there"; \
+	    echo "       for where to read the key from."; \
+	    exit 1; \
+	fi
 
 # --------------------------------------------------------------------------
 # Step 1 -- download_pbf
@@ -154,6 +172,7 @@ $(ROUTE_SET): | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
 	$(RUN_BUILDER) python3 build_route_set.py \
 	    --filtered /data/filtered.osm.pbf \
 	    --booths /data/osm_toll_booths.yaml \
+	    --plazas /data/plazas.osm.pbf \
 	    --out /data/route_set.yaml \
 	    --uncovered /data/uncovered_booths.json \
 	    --osrm http://osrm-optimal:5000
@@ -167,14 +186,35 @@ update_route_set: guard-osrm-path | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
 	$(RUN_BUILDER) python3 build_route_set.py \
 	    --filtered /data/filtered.osm.pbf \
 	    --booths /data/osm_toll_booths.yaml \
+	    --plazas /data/plazas.osm.pbf \
 	    --out /data/route_set.yaml \
 	    --uncovered /data/uncovered_booths.json \
 	    --osrm http://osrm-optimal:5000
 
 # --------------------------------------------------------------------------
-# Builder image (internal prerequisite -- not one of the four steps)
+# Step 5 -- build_vinci_toll_booths
 # --------------------------------------------------------------------------
-$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py
+# The only resumable step, so unlike the first four it is phony and always
+# executes. It reads data/vinci_toll_booth.yaml to learn which routes it has
+# already queried and asks about the rest; on a complete file it issues no
+# request at all. A file target would instead leave a partial run -- one killed
+# halfway through 747 requests -- permanently unfinished, because the pipeline
+# skips on existence rather than on content.
+build_vinci_toll_booths: guard-osrm-path guard-ulys-key | $(ROUTE_SET) $(BUILDER_STAMP)
+	@echo "==> build_vinci_toll_booths: $(VINCI)"
+	$(COMPOSE) up -d osrm-optimal
+	$(RUN_BUILDER) python3 build_vinci_toll_booths.py \
+	    --filtered /data/filtered.osm.pbf \
+	    --booths /data/osm_toll_booths.yaml \
+	    --excluded /data/excluded_booths.json \
+	    --route-set /data/route_set.yaml \
+	    --out /data/vinci_toll_booth.yaml \
+	    --osrm http://osrm-optimal:5000
+
+# --------------------------------------------------------------------------
+# Builder image (internal prerequisite -- not one of the five steps)
+# --------------------------------------------------------------------------
+$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py
 	@mkdir -p $(DATA_DIR)
 	$(COMPOSE) build builder
 	@touch $@
@@ -183,7 +223,7 @@ $(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/bu
 # Housekeeping
 # --------------------------------------------------------------------------
 clean:
-	rm -f $(BOOTHS) $(ROUTE_SET) $(UNCOVERED) $(EXCLUDED) $(FILTERED_PBF) $(PLAZAS) $(BUILDER_STAMP)
+	rm -f $(BOOTHS) $(ROUTE_SET) $(UNCOVERED) $(EXCLUDED) $(VINCI) $(FILTERED_PBF) $(PLAZAS) $(BUILDER_STAMP)
 
 # Drops the ~25 GB graph. The extract in data/ is kept.
 clean-osrm: guard-osrm-path

@@ -48,6 +48,16 @@ BOOTH_TAGS = (("barrier", "toll_booth"), ("highway", "toll_gantry"))
 PLACE_VALUES = ("city", "town", "village", "hamlet", "isolated_dwelling", "locality")
 
 
+class LatLon(list):
+    """A [lat, lon] pair, dumped inline rather than as two block items."""
+
+
+yaml.SafeDumper.add_representer(
+    LatLon,
+    lambda dumper, data: dumper.represent_sequence(
+        "tag:yaml.org,2002:seq", data, flow_style=True),
+)
+
 
 def run_tags_filter(pbf: str, filtered: str) -> None:
     """Reduce the full extract to booths + endpoint candidates.
@@ -135,15 +145,41 @@ def main() -> int:
         json.dump({str(k): v for k, v in sorted(dropped.items())}, fh, indent=2)
         fh.write("\n")
 
-    groups, aliases = booth_groups.group_booths(kept, args.plazas)
+    groups, aliases, bidirectional = booth_groups.group_booths(kept, args.plazas)
 
     representatives = sorted(groups)
     alias_map = {b: rep for b, rep in sorted(aliases.items()) if b != rep}
 
+    # Each entry carries the node's *own* position, aliases included. Downstream
+    # matching runs against individual lanes: the representative is only the
+    # smallest id in its group, and group members lie a median 15 m and up to
+    # several hundred metres apart, so an alias that echoed its representative's
+    # position would be worse than useless.
+    missing = [i for i in [*representatives, *alias_map] if i not in located]
+    if missing:
+        print(f"ERROR: {len(missing)} retained booth(s) have no location and"
+              f" cannot be published: {missing[:5]}", file=sys.stderr)
+        return 1
+
+    # `bidirectional` marks a booth a route can drive through either way, which
+    # makes it two tolls rather than one. Position alone cannot show that, and a
+    # consumer needs it to know the booth is two coverage targets.
+    def entry(node_id):
+        lat, lon = located[node_id]
+        out = {"latlon": LatLon([round(lat, 7), round(lon, 7)])}
+        if node_id in bidirectional:
+            out["bidirectional"] = True
+        return out
+
+    booths_out = {i: entry(i) for i in representatives}
+    aliases_out = {}
+    for alias, rep in alias_map.items():
+        aliases_out[alias] = {"parent_id": rep, **entry(alias)}
+
     tmp = args.out + ".part"
     with open(tmp, "w", encoding="utf-8") as fh:
         yaml.safe_dump(
-            {"toll_booths": representatives, "aliases": alias_map},
+            {"toll_booths": booths_out, "aliases": aliases_out},
             fh, default_flow_style=False, sort_keys=False, width=100,
         )
     os.replace(tmp, args.out)

@@ -45,4 +45,9 @@ services:
     volumes:
       - "./data:/data"
       - "${OSRM_OPTIMAL_PATH}:/osrm"
+    # Exporting a variable on the host is not enough: a container sees only what
+    # Compose declares for it. build_vinci_toll_booths needs the Ulys key, and
+    # this is the one place that carries it across the boundary.
+    environment:
+      ULYS_SUBSCRIPTION_KEY: "${ULYS_SUBSCRIPTION_KEY:-}"
     profiles: ["tools"]

@@ -32,6 +32,11 @@ adding booths to the inventory costs only the search for what they need.
 
 The inventory is grouped: parallel lanes of one plaza share a representative id.
 Traversing any lane covers the group, so `covers` records representatives.
+
+A booth a car can drive through either way is two tolls, not one, so it is two
+coverage targets -- one per approach. `covers` records the node the route
+arrived from for those booths, and the search is not done until both directions
+have been driven.
 """
 
 import argparse
@@ -46,6 +51,8 @@ import time
 import osmium
 import requests
 import yaml
+
+import booth_groups
 
 PLACE_VALUES = ("city", "town", "village", "hamlet", "isolated_dwelling", "locality")
 
@@ -264,18 +271,35 @@ class Osrm:
             return None
         return payload.get("durations")
 
-    def cover_many(self, pairs, places, traversable, resolve):
-        """Route each (from, to) pair; return {pair: frozenset(booths hit)}."""
+    def cover_many(self, pairs, places, traversable, resolve, bidirectional):
+        """Route each (from, to) pair; return {pair: frozenset(targets hit)}.
+
+        A target is (representative, approach). `approach` is the node the route
+        arrived from for a booth a car can drive through either way, and None
+        otherwise: passing such a gare northbound does not pay the southbound
+        toll, so the two directions are separate things to cover.
+        """
         results = {}
 
         def work(pair):
             nodes = self.route_nodes(places[pair[0]], places[pair[1]])
             if nodes is None:
                 return pair, None
-            # Map every traversed lane onto its group representative.
-            return pair, frozenset(
-                resolve.get(n, n) for n in nodes if n in traversable
-            )
+            hits = set()
+            prev = None
+            for n in nodes:
+                if n in traversable:
+                    # Map every traversed lane onto its group representative.
+                    rep = resolve.get(n, n)
+                    if rep in bidirectional:
+                        # No predecessor means the route starts on the booth, so
+                        # there is no direction to record and nothing to claim.
+                        if prev is not None:
+                            hits.add((rep, prev))
+                    else:
+                        hits.add((rep, None))
+                prev = n
+            return pair, frozenset(hits)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as pool:
             for pair, covered in pool.map(work, pairs):
@@ -517,9 +541,42 @@ def yaml_scalar(value):
     return json.dumps(value, ensure_ascii=False)
 
 
+def coverage_targets(booths, bidirectional, plaza_pbf):
+    """Every (representative, approach) pair the route set has to cover.
+
+    A one-way booth is one target. A booth a car can drive through either way is
+    one target per approach, because each direction is a separate toll. The
+    approaches come from the same through-road graph the grouping step uses, so
+    the targets and the `prev_node_id` values a route reports are drawn from one
+    definition of the road network.
+    """
+    targets = {(b, None) for b in booths if b not in bidirectional}
+    if not bidirectional:
+        return targets
+    print(f"==> reading approaches for {len(bidirectional)} two-way booth(s)")
+    graph = booth_groups.GraphBuilder(bidirectional)
+    graph.apply_file(plaza_pbf, locations=True, idx="flex_mem")
+    counts = collections.Counter()
+    for b in sorted(bidirectional):
+        approaches = sorted(graph.rev.get(b, {}))
+        counts[len(approaches)] += 1
+        # A booth with no approach at all is still a target, so it is reported
+        # as uncovered rather than silently dropped from the universe.
+        for approach in approaches or [None]:
+            targets.add((b, approach))
+    print(f"    approaches per two-way booth: {dict(sorted(counts.items()))}")
+    return targets
+
+
+def target_key(target):
+    """Sort key for (representative, approach); None sorts before any node id."""
+    node_id, approach = target
+    return node_id, -1 if approach is None else approach
+
+
 def write_route_set(path, selected, places):
     routes = [
-        {"from": a, "to": b, "covers": sorted(cov)}
+        {"from": a, "to": b, "covers": sorted(cov, key=target_key)}
         for (a, b), cov in sorted(selected.items())
     ]
     referenced = sorted({r["from"] for r in routes} | {r["to"] for r in routes})
@@ -534,7 +591,11 @@ def write_route_set(path, selected, places):
     for r in routes:
         lines.append(f"  - from: {r['from']}")
         lines.append(f"    to: {r['to']}")
-        lines.append("    covers: [" + ", ".join(str(c) for c in r["covers"]) + "]")
+        lines.append("    covers:")
+        for node_id, approach in r["covers"]:
+            lines.append(f"      - node_id: {node_id}")
+            if approach is not None:
+                lines.append(f"        prev_node_id: {approach}")
 
     tmp = path + ".part"
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -562,7 +623,8 @@ def load_existing(path, places):
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--filtered", required=True, help="filtered extract from step 3")
-    ap.add_argument("--booths", required=True, help="booth inventory JSON")
+    ap.add_argument("--booths", required=True, help="booth inventory YAML")
+    ap.add_argument("--plazas", required=True, help="carved plaza-neighbourhood extract")
     ap.add_argument("--out", required=True, help="route set YAML")
     ap.add_argument("--uncovered", required=True, help="uncovered booth report JSON")
     ap.add_argument("--osrm", required=True, help="base URL of the OSRM instance")
@@ -574,10 +636,15 @@ def main() -> int:
     aliases = dict(inventory.get("aliases") or {})
     booths = set(booth_ids)
     # A route traversing any lane of a plaza covers that plaza, so alias members
-    # resolve to their group representative before coverage is recorded.
-    resolve = dict(aliases)
+    # resolve to their group representative before coverage is recorded. The
+    # inventory carries a per-node entry rather than a bare parent id; only the
+    # parent is needed here, the positions serve the gare mapping step.
+    resolve = {alias: entry["parent_id"] for alias, entry in aliases.items()}
     traversable = booths | set(aliases)
-    print(f"==> {len(booths)} booth groups ({len(aliases)} aliases) in the inventory")
+    bidirectional = {b for b, entry in inventory["toll_booths"].items()
+                     if entry.get("bidirectional")}
+    print(f"==> {len(booths)} booth groups ({len(aliases)} aliases) in the inventory,"
+          f" {len(bidirectional)} of them two-way")
 
     print("==> loading endpoint candidates")
     pc = PlaceCollector()
@@ -594,8 +661,11 @@ def main() -> int:
     print(f"==> waiting for {args.osrm}")
     osrm.wait_ready()
 
+    targets = coverage_targets(booths, bidirectional, args.plazas)
+    print(f"    {len(targets)} coverage target(s) over {len(booths)} group(s)")
+
     index = PlaceIndex(places)
-    uncovered = set(booths)
+    uncovered = set(targets)
     selected = {}
     tried = set()
 
@@ -610,23 +680,23 @@ def main() -> int:
     existing = load_existing(args.out, places)
     if existing:
         print(f"==> resuming from {len(existing)} existing route(s)")
-        for pair, covered in osrm.cover_many(existing, places, traversable, resolve).items():
+        for pair, covered in osrm.cover_many(existing, places, traversable, resolve, bidirectional).items():
             selected[pair] = covered
             uncovered -= covered
         tried.update(existing)
         dropped = len(existing) - len(selected)
         print(f"    kept {len(selected)}"
               + (f", dropped {dropped} that no longer cover anything" if dropped else "")
-              + f", {len(booths) - len(uncovered)}/{len(booths)} covered")
+              + f", {len(targets) - len(uncovered)}/{len(targets)} covered")
 
     print(f"==> wave A: {WAVE_A_SIZE} dispersed cities")
     seeds = dispersed_places(places, WAVE_A_SIZE)
     pairs = wave_a_pairs(seeds)
     tried.update(pairs)
     print(f"    routing {len(pairs)} ordered pairs")
-    candidates = osrm.cover_many(pairs, places, traversable, resolve)
+    candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional)
     added = greedy_select(candidates, uncovered, selected)
-    print(f"    +{added} routes, {len(booths) - len(uncovered)}/{len(booths)} covered")
+    print(f"    +{added} routes, {len(targets) - len(uncovered)}/{len(targets)} covered")
 
     def label(st):
         (a0, a1), (b0, b1) = st
@@ -646,7 +716,8 @@ def main() -> int:
         for rnd in range(1, MAX_ROUNDS + 1):
             if not uncovered:
                 break
-            pending = [b for b in sorted(uncovered) if b not in attempted]
+            pending = [b for b in sorted({t[0] for t in uncovered})
+                       if b not in attempted]
             if not pending:
                 break
             batch = pending[:WAVE_B_BATCH]
@@ -657,18 +728,18 @@ def main() -> int:
             tried.update(pairs)
             print(f"==> wave B {label(strategy)} round {rnd}: "
                   f"{len(batch)} groups, {len(pairs)} pairs ({len(pending)} pending)")
-            candidates = osrm.cover_many(pairs, places, traversable, resolve)
+            candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional)
             added = greedy_select(candidates, uncovered, selected)
-            print(f"    +{added} routes, {len(booths) - len(uncovered)}/{len(booths)} covered")
+            print(f"    +{added} routes, {len(targets) - len(uncovered)}/{len(targets)} covered")
         print(f"==> wave B {label(strategy)} exhausted; "
               f"{len(uncovered)} still uncovered")
 
     # Wave C: solve for endpoints rather than guess them. Runs last, on whatever
     # the geometric strategies could not reach.
     if uncovered:
-        print(f"==> wave C: solving endpoints for {len(uncovered)} group(s)")
+        print(f"==> wave C: solving endpoints for {len(uncovered)} target(s)")
         for rnd in range(1, MAX_ROUNDS + 1):
-            pending = sorted(b for b in uncovered if b in bc.coords)
+            pending = sorted(b for b in {t[0] for t in uncovered} if b in bc.coords)
             if not pending:
                 break
             batch = pending[:WAVE_B_BATCH]
@@ -687,9 +758,9 @@ def main() -> int:
                 break
             tried.update(pairs)
             print(f"    round {rnd}: {len(batch)} groups, {len(pairs)} solved pair(s)")
-            candidates = osrm.cover_many(pairs, places, traversable, resolve)
+            candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional)
             added = greedy_select(candidates, uncovered, selected)
-            print(f"    +{added} routes, {len(booths) - len(uncovered)}/{len(booths)} covered")
+            print(f"    +{added} routes, {len(targets) - len(uncovered)}/{len(targets)} covered")
             if added == 0:
                 break
 
@@ -700,11 +771,16 @@ def main() -> int:
     union = set()
     for r in routes:
         union.update(r["covers"])
-    missing = sorted(booths - union)
+    missing = sorted(targets - union, key=target_key)
 
     tmp = args.uncovered + ".part"
     with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(missing, fh, indent=2)
+        json.dump(
+            [{"node_id": b} if approach is None
+             else {"node_id": b, "prev_node_id": approach}
+             for b, approach in missing],
+            fh, indent=2,
+        )
         fh.write("\n")
     os.replace(tmp, args.uncovered)
 
@@ -712,15 +788,18 @@ def main() -> int:
     print("==> coverage")
     print(f"    routes:    {len(routes)}")
     print(f"    places:    {len(referenced)}")
+    print(f"    groups:    {len(booths)} ({len(bidirectional)} two-way)")
     print(f"    covered:   {len(union)}")
     print(f"    uncovered: {len(missing)}")
-    print(f"    total:     {len(booths)}")
+    print(f"    total:     {len(targets)} target(s)")
     if missing:
-        print(f"    !! {len(missing)} booth(s) NOT covered -- see {args.uncovered}")
+        one_way = sum(1 for _, a in missing if a is None)
+        print(f"    !! {len(missing)} target(s) NOT covered -- see {args.uncovered}"
+              f" ({one_way} booth(s), {len(missing) - one_way} direction(s))")
         print("       Commonly per-lane mapping at a plaza (only one lane is")
         print("       reachable per route) or booths not attached to any way.")
     else:
-        print("    all booths covered")
+        print("    all targets covered")
     return 0
 
 

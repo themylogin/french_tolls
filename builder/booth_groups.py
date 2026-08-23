@@ -16,7 +16,13 @@ The radius has to be tight, or two booths eventually "reconverge" by looping
 round an interchange, which merges a mainline barrier with a slip-road barrier
 -- booths one route drives straight through, one after the other.
 
-Reach is measured in metres along the road.
+Reach is measured in metres along the road, over the *through* road classes
+only -- the graph a route between two place nodes actually sees. See
+GraphBuilder for why service roads have to stay out of it.
+
+A booth on a two-way through road is never grouped. The (P, S) rule separates
+opposite directions by way of one-way restrictions, and a bidirectional slip
+road has none.
 
 Grouping decisions are purely topological. Distance is used in exactly one
 place, and it decides nothing: a grid of cells around booths bounds how much of
@@ -55,14 +61,23 @@ THROUGH_CLASSES = {
     "secondary", "secondary_link", "tertiary", "tertiary_link",
 }
 
-# highway values the car profile will drive.
-ROUTABLE = {
-    "motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link",
-    "secondary", "secondary_link", "tertiary", "tertiary_link", "unclassified",
-    "residential", "living_street", "service", "road", "track",
-}
 # Values that are one-way by default even without an explicit oneway tag.
 IMPLICIT_ONEWAY = {"motorway", "motorway_link", "trunk_link"}
+
+
+def two_way(highway, oneway, junction=None):
+    """Whether the car profile can drive this way in both directions.
+
+    The single place that decides direction, so the graph edges and the
+    `bidirectional` flag in the inventory can never disagree.
+    """
+    if oneway in ("yes", "true", "1", "-1", "reverse"):
+        return False
+    if oneway == "no":
+        return True
+    if junction in ("roundabout", "circular") or highway in IMPLICIT_ONEWAY:
+        return False
+    return True
 
 
 def carve_neighbourhoods(source_pbf, booth_coords, out_pbf, workdir):
@@ -139,30 +154,43 @@ def segment_m(a, b):
 
 
 class GraphBuilder(osmium.SimpleHandler):
-    """Directed adjacency over routable ways, weighted by length in metres."""
+    """Directed adjacency over through roads, weighted by length in metres.
 
-    def __init__(self):
+    Only the classes a route between two place nodes can traverse -- the same
+    set the through-road filter keeps booths for. Admitting `service` and
+    `track` would put a toll plaza's own maintenance roads in the graph, and
+    those connect every lane to every other lane and to the adjoining slip
+    roads. At Saint-Michel-de-Maurienne that manufactured a shared predecessor
+    between the ramp gare and the mainline barrier, reachable only by twenty
+    three-metre hops across the forecourt through an `access=private` way.
+    Access tags are not read at all, so the class filter is the only defence.
+    """
+
+    def __init__(self, booths=frozenset()):
         super().__init__()
         self.fwd = collections.defaultdict(dict)
         self.rev = collections.defaultdict(dict)
+        self.booths = booths
+        self.two_way = set()  # booth nodes lying on a two-way through road
 
     def way(self, w):
         hv = w.tags.get("highway")
-        if hv not in ROUTABLE:
+        if hv not in THROUGH_CLASSES:
             return
         oneway = w.tags.get("oneway")
-        if oneway in ("yes", "true", "1"):
-            fwd_ok, rev_ok = True, False
-        elif oneway in ("-1", "reverse"):
+        if oneway in ("-1", "reverse"):
             fwd_ok, rev_ok = False, True
-        elif oneway == "no":
+        elif two_way(hv, oneway, w.tags.get("junction")):
             fwd_ok, rev_ok = True, True
-        elif w.tags.get("junction") in ("roundabout", "circular") or hv in IMPLICIT_ONEWAY:
+        else:
             # Motorways and links are one-way by default; without this every
             # plaza lane looks bidirectional and P/S stop meaning anything.
             fwd_ok, rev_ok = True, False
-        else:
-            fwd_ok, rev_ok = True, True
+
+        if fwd_ok and rev_ok:
+            for n in w.nodes:
+                if n.ref in self.booths:
+                    self.two_way.add(n.ref)
 
         nodes = [(n.ref, (n.location.lat, n.location.lon))
                  for n in w.nodes if n.location.valid()]
@@ -242,17 +270,17 @@ def reachable(adj, start, booths, max_m):
 
 
 def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M):
-    """Return ({representative: [members]}, {member: representative}).
+    """Return ({representative: [members]}, {member: representative}, {two-way}).
 
     Purely topological: a group is the largest set of booths sharing one common
     predecessor and one common successor.
     """
     print("    building local road graph")
-    g = GraphBuilder()
+    booths = set(booth_ids)
+    g = GraphBuilder(booths)
     # locations=True resolves each way node's coordinate so segments can be
     # measured; without it every length would be zero.
     g.apply_file(plaza_pbf, locations=True, idx="flex_mem")
-    booths = set(booth_ids)
     keep = significant_nodes(g, booths)
     fwd = contract(g.fwd, keep)
     rev = contract(g.rev, keep)
@@ -287,6 +315,12 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M):
         if rx != ry:
             parent[max(rx, ry)] = min(rx, ry)
 
+    # A booth on a two-way road is never anyone's alternative. The (P, S) rule
+    # keeps opposite directions apart by way of one-way restrictions, and a
+    # bidirectional slip road has none -- so the entry gare and the exit gare of
+    # one interchange would otherwise merge into a single coverage target.
+    print(f"    {len(g.two_way)} booth(s) on a two-way through road, never grouped")
+
     # A node shared by an implausible number of booths is a distant part of the
     # network rather than a plaza's split point.
     for members in by_pred.values():
@@ -294,7 +328,11 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M):
             continue
         ordered = sorted(members)
         for i, x in enumerate(ordered):
+            if x in g.two_way:
+                continue
             for y in ordered[i + 1:]:
+                if y in g.two_way:
+                    continue
                 if find(x) != find(y) and succs[x] & succs[y]:
                     union(x, y)
 
@@ -304,4 +342,4 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M):
     groups = {rep: sorted(members) for rep, members in groups.items()}
     assigned = {b: rep for rep, members in groups.items() for b in members}
 
-    return groups, assigned
+    return groups, assigned, g.two_way & booths

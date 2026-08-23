@@ -40,6 +40,10 @@ A toll plaza is frequently mapped as one booth node per lane on parallel ways. A
 
 Two booths SHALL be treated as alternatives when they share a common predecessor node **and** a common successor node, where the path from that predecessor through the booth to that successor traverses no other toll booth. Reachability SHALL be evaluated over the drivable road graph, honouring one-way restrictions, bounded by distance travelled along the road.
 
+That graph SHALL be built only from the road classes a route between two place nodes can traverse — the same classes the through-road rule uses to decide which booths enter the inventory. Service roads, tracks, and other classes outside that set SHALL NOT contribute connections. A toll plaza's internal access roads connect every lane to every other lane and to the adjoining slip roads, so admitting them manufactures a shared predecessor between booths that no car can drive between.
+
+A booth lying on a through road the car profile can traverse in **both** directions SHALL NOT be grouped with any other booth. The rule above keeps opposite directions apart by way of one-way restrictions; on a bidirectional road there are none, so the two gares of one interchange would otherwise merge.
+
 A group SHALL be the transitive closure of that relation, so the outer lanes of a wide plaza join through the lanes between them.
 
 The bound SHALL be tight — on the order of a kilometre, comfortably longer than a plaza and comfortably shorter than an interchange loop. Given a generous bound any two booths eventually "reconverge" by looping around an interchange, which merges a mainline barrier with a slip-road barrier: booths that a single route drives through one after the other.
@@ -63,6 +67,11 @@ Grouping decisions SHALL NOT be made on geometric proximity. Distance MAY be use
 - **WHEN** two booths at one interchange share nodes only by way of a path that loops around that interchange
 - **THEN** they form separate groups, because that path is longer than the distance bound
 
+#### Scenario: A plaza service road does not connect two booths
+
+- **WHEN** a slip-road booth and a mainline booth share a predecessor only by way of the toll plaza's own service roads or tracks
+- **THEN** they form separate groups, because those classes are absent from the graph grouping is evaluated over
+
 #### Scenario: No route traverses two booths of one group
 
 - **WHEN** every route in the generated route set is examined against the grouping
@@ -77,6 +86,21 @@ Grouping decisions SHALL NOT be made on geometric proximity. Distance MAY be use
 
 - **WHEN** two booths serve opposite directions of a one-way pair
 - **THEN** the one-way restrictions give them no common predecessor and successor, and they form separate groups
+
+#### Scenario: A booth on a two-way road is never grouped
+
+- **WHEN** a booth lies on a through road the car profile can traverse in both directions, such as a slip road tagged `oneway=no`
+- **THEN** it forms a group of its own, whatever predecessors and successors it shares
+
+#### Scenario: Two gares of one bidirectional interchange
+
+- **WHEN** two booths serve the entry and the exit of one interchange whose slip roads are bidirectional, so each is reachable from the other
+- **THEN** they form separate groups
+
+#### Scenario: A plaza of one-way lanes inside a turnaround loop
+
+- **WHEN** every lane of a plaza is one-way and the lanes are mutually reachable only by way of a turnaround loop within the distance bound
+- **THEN** they still form a single group, because they remain alternatives no single route traverses twice
 
 #### Scenario: Distance does not decide grouping
 
@@ -130,38 +154,73 @@ A booth SHALL be retained when any way it belongs to is a through road, so a boo
 
 The system SHALL write the booth inventory to `data/osm_toll_booths.yaml` as a mapping with two top-level keys.
 
-`toll_booths` SHALL list one representative OSM node id per group, in ascending numeric order and without duplicates. The representative SHALL be the smallest node id in its group.
+`toll_booths` SHALL map one representative OSM node id per group to that node's details. The representative SHALL be the smallest node id in its group.
 
-`aliases` SHALL map every non-representative booth id to its group's representative. Every *retained* booth SHALL appear exactly once, either in `toll_booths` or as a key in `aliases`; booths excluded by the through-road rule appear in neither.
+`aliases` SHALL map every non-representative booth id to that node's details together with `parent_id`, the id of its group's representative. Every *retained* booth SHALL appear exactly once, either in `toll_booths` or in `aliases`; booths excluded by the through-road rule appear in neither.
+
+Every entry, representative and alias alike, SHALL carry `latlon`, a two-element list holding **that node's own** position in latitude, longitude order. An alias SHALL NOT repeat its representative's position: consumers match against individual lanes, and the members of one group are a median of 15 metres and up to several hundred metres apart.
+
+An entry SHALL carry `bidirectional: true` when its booth lies on a through road the car profile can traverse in both directions. The key SHALL be absent otherwise. Such a booth is two tolls rather than one, and a consumer cannot tell that from position alone.
+
+Keys under both `toll_booths` and `aliases` SHALL be written in ascending numeric order and without duplicates, so that regenerating an unchanged inventory produces an unchanged file.
 
 ```yaml
 toll_booths:
-  - 618833
-  - 12608140
+  13380042:
+    latlon: [48.3955158, 1.3849458]
+  81055576:
+    latlon: [49.0371990, 0.4416040]
+    bidirectional: true
 aliases:
-  2408917631: 12608140
-  2408917632: 12608140
+  13380044:
+    parent_id: 13380042
+    latlon: [48.3955521, 1.3849902]
 ```
 
 #### Scenario: Inventory is written
 
 - **WHEN** the booth extraction step completes successfully
-- **THEN** `data/osm_toll_booths.yaml` parses as YAML with `toll_booths` and `aliases` keys, and `toll_booths` is sorted ascending with no repeated id
+- **THEN** `data/osm_toll_booths.yaml` parses as YAML with `toll_booths` and `aliases` keys, each a mapping whose keys ascend numerically with no repeated id
 
 #### Scenario: Every booth is accounted for
 
 - **WHEN** the inventory is compared against the retained booths from the source extract
-- **THEN** each retained booth appears exactly once, either as a representative or as an alias key, and no id appears in both
+- **THEN** each retained booth appears exactly once, either under `toll_booths` or under `aliases`, and no id appears in both
 
 #### Scenario: Representative is the smallest id
 
 - **WHEN** any group of booths is inspected
-- **THEN** its representative is the numerically smallest id among its members, and every other member maps to it in `aliases`
+- **THEN** its representative is the numerically smallest id among its members, and every other member carries that id as its `parent_id`
 
 #### Scenario: Alias targets are representatives
 
-- **WHEN** any value in `aliases` is looked up
-- **THEN** it appears in `toll_booths`, and it is never itself an alias key
+- **WHEN** any `parent_id` in `aliases` is looked up
+- **THEN** it is a key of `toll_booths`, and it is never itself a key of `aliases`
+
+#### Scenario: Every booth carries its own position
+
+- **WHEN** any entry under `toll_booths` or `aliases` is inspected
+- **THEN** its `latlon` is that node's own position in the source extract, in latitude, longitude order
+
+#### Scenario: An alias does not inherit its representative's position
+
+- **WHEN** a group whose members lie metres apart is inspected
+- **THEN** each alias carries its own distinct `latlon`, not a copy of the representative's
+
+#### Scenario: A bidirectional booth is flagged
+
+- **WHEN** a booth lies on a slip road tagged `oneway=no`
+- **THEN** its entry carries `bidirectional: true`, and it is a representative with no aliases
+
+#### Scenario: A one-way booth carries no flag
+
+- **WHEN** a booth lies only on one-way ways
+- **THEN** its entry has no `bidirectional` key
+
+#### Scenario: Regenerating is stable
+
+- **WHEN** the extraction step runs twice against the same extract
+- **THEN** the two inventory files are byte-identical
 
 ### Requirement: Route endpoint candidates
 
