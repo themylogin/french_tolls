@@ -224,13 +224,19 @@ aliases:
 
 ### Requirement: Route endpoint candidates
 
-The system SHALL treat an OSM node as an eligible route endpoint if and only if it carries a `place` tag whose value is `city`, `town`, `village`, `hamlet`, `isolated_dwelling`, or `locality`.
+The system SHALL treat an OSM node as an eligible route endpoint if and only if it carries a `place` tag whose value is `city`, `town`, `village`, `hamlet`, `isolated_dwelling`, or `locality`, AND a car can start and finish a trip there.
 
-The smaller values are included because they are frequently the only settlements in an area a booth serves: mountain valleys and motorway interchange catchments often contain no city, town, or village at all, leaving such a booth with no endpoint to anchor a route on. This is a coverage requirement, not a preference — restricted to city, town, and village, some booths are provably unreachable by any endpoint pair. Endpoint candidates SHALL retain their node id, their coordinates, and their `name` tag — the coordinates because route requests are issued by coordinate while the route set records node ids, and the name because the route set resolves each endpoint it references.
+A node satisfies the second condition when the routing engine snaps it to a position no further than a stated maximum distance away, and the road segment it snaps to is not of a class that carries no local access. The classes that carry no local access are `motorway`, `motorway_link`, and `trunk_link`. `trunk` is not among them: in France it covers ordinary roads with property access as well as motorway-grade routes.
+
+The maximum snap distance SHALL be a single stated value, so that it can be raised when a booth proves uncoverable without it. It SHALL NOT vary by `place` value.
+
+The smaller `place` values are included because they are frequently the only settlements in an area a booth serves: mountain valleys and motorway interchange catchments often contain no city, town, or village at all, leaving such a booth with no endpoint to anchor a route on. This is a coverage requirement, not a preference — restricted to city, town, and village, some booths are provably unreachable by any endpoint pair. The reachability condition narrows this pool without contradicting it: a locality remains eligible by tag, and is disqualified only by where it sits relative to the road network.
+
+Endpoint candidates SHALL retain their node id, their coordinates, and their `name` tag — the coordinates because route requests are issued by coordinate while the route set records node ids, and the name because the route set resolves each endpoint it references.
 
 #### Scenario: Eligible place node
 
-- **WHEN** the source extract contains a node tagged `place=town`
+- **WHEN** the source extract contains a node tagged `place=town` that snaps within the maximum distance to a road carrying local access
 - **THEN** that node is available as a candidate `from` or `to` endpoint, carrying its id, coordinates, and name
 
 #### Scenario: Ineligible place value
@@ -240,18 +246,38 @@ The smaller values are included because they are frequently the only settlements
 
 #### Scenario: Small settlements are eligible
 
-- **WHEN** a node is tagged `place=hamlet`, `place=isolated_dwelling`, or `place=locality`
+- **WHEN** a node is tagged `place=hamlet`, `place=isolated_dwelling`, or `place=locality` and satisfies the reachability condition
 - **THEN** it is available as a route endpoint
 
 #### Scenario: A booth whose only nearby settlements are small
 
-- **WHEN** every settlement near a booth is a hamlet, isolated dwelling, or locality
+- **WHEN** every settlement near a booth is a hamlet, isolated dwelling, or locality that satisfies the reachability condition
 - **THEN** those are still eligible endpoints, so the booth can be covered
 
 #### Scenario: Place tagged on an area
 
 - **WHEN** a city is mapped as a way or relation tagged `place=city`
 - **THEN** it is not available as a route endpoint
+
+#### Scenario: A place too far from any road
+
+- **WHEN** a node tagged `place=locality` names a field whose nearest routable segment is further away than the maximum snap distance
+- **THEN** it is not an eligible route endpoint
+
+#### Scenario: A place whose nearest road is a motorway
+
+- **WHEN** a node tagged `place=locality` sits beside a motorway and the routing engine snaps it onto the motorway carriageway
+- **THEN** it is not an eligible route endpoint, whatever the snap distance
+
+#### Scenario: A place inside a toll plaza
+
+- **WHEN** a place node sits within a toll plaza and snaps onto a `motorway_link` between the barriers
+- **THEN** it is not an eligible route endpoint, even though the snap distance is a few metres
+
+#### Scenario: A trunk road is not excluded
+
+- **WHEN** a place node snaps to a segment tagged `highway=trunk` within the maximum snap distance
+- **THEN** it remains an eligible route endpoint
 
 ### Requirement: Endpoint candidates are handed to route generation
 
@@ -278,9 +304,13 @@ The system SHALL derive both the booth inventory and the endpoint candidates fro
 
 ### Requirement: Hand-maintained booth overrides
 
-The extraction step SHALL read `data/osm_toll_booths_overrides.yaml`, a hand-maintained input recording decisions about individual booths that no rule can derive from the extract. A missing file SHALL be treated as an empty set of overrides.
+The extraction step SHALL read `data/osm_toll_booths_overrides.yaml`, a hand-maintained input recording decisions that no rule can derive from the extract. A missing file SHALL be treated as an empty set of overrides.
 
-The file SHALL be a mapping with one top-level key, `toll_booths`, whose keys are OSM node ids. An entry SHALL carry at least one of `type`, `parent_id`, `vinci`, or `price`.
+The file SHALL be a mapping with two permitted top-level keys. `toll_booths` holds decisions about individual booths, keyed by OSM node id; an entry SHALL carry at least one of `type`, `parent_id`, `vinci`, or `price`. `duplicate_gares` holds operator numbers of gares that one route may legitimately pay twice.
+
+A top-level key that is neither SHALL stop the step. A mistyped section name would otherwise read as an absent section, and every entry beneath it would be dropped without a word.
+
+Operator numbers in `duplicate_gares` SHALL be compared as strings. They carry leading zeros, which YAML reads away when the value is unquoted, so `04210` and `"04210"` SHALL name the same gare.
 
 ```yaml
 toll_booths:
@@ -299,9 +329,13 @@ toll_booths:
   1391610490:
     type: absent_passthrough
     price: 1.4
+
+duplicate_gares:
+  # the road that would let a driver carry on is not built yet
+  - "04210"
 ```
 
-Different steps consume different keys. `type: ignore` and `parent_id` decide what the inventory contains and are applied by the extraction step; `vinci`, the `absent_*` types, and `price` are consumed by the gare mapping step. Editing one of the first kind therefore requires rebuilding the inventory before the effect is visible.
+Different steps consume different keys. `type: ignore` and `parent_id` decide what the inventory contains and are applied by the extraction step; `vinci`, the `absent_*` types, `price`, and `duplicate_gares` are consumed by the gare mapping step. Editing one of the first kind therefore requires rebuilding the inventory before the effect is visible.
 
 #### Scenario: Overrides are read
 
@@ -322,6 +356,21 @@ Different steps consume different keys. `type: ignore` and `parent_id` decide wh
 
 - **WHEN** an entry carries a key other than `type`, `parent_id`, `vinci`, or `price`
 - **THEN** the step stops and names the entry and the key
+
+#### Scenario: An unknown top-level section
+
+- **WHEN** the file carries a top-level key other than `toll_booths` or `duplicate_gares`
+- **THEN** the step stops and names it, rather than silently ignoring everything under it
+
+#### Scenario: A gare number written without quotes
+
+- **WHEN** `duplicate_gares` lists `04210` unquoted, which YAML reads as an integer
+- **THEN** it still names gare `04210`, with the leading zero intact
+
+#### Scenario: duplicate_gares is not a list
+
+- **WHEN** `duplicate_gares` carries something other than a list
+- **THEN** the step stops and names what it found
 
 ### Requirement: An ignored booth is treated as absent
 
@@ -430,11 +479,17 @@ The override file SHALL NOT be declared a prerequisite of the inventory. Doing s
 
 ### Requirement: Forced group membership
 
-A booth whose override is `parent_id` SHALL be placed in the group of the named booth, without any topological test. The forced membership SHALL be applied after the grouping rules have run, and SHALL merge the overridden booth's whole group into the target's group, since a group cannot be split by fiat.
+A booth whose override is `parent_id` naming another booth SHALL be placed in the group of the named booth, without any topological test. The forced membership SHALL be applied after the grouping rules have run, and SHALL merge the overridden booth's whole group into the target's group.
 
-The target SHALL be a group representative after the grouping rules have run. A target that is itself an alias of some other group is not a group, and naming one SHALL stop the step.
+A booth whose override is `parent_id` with a null value SHALL be kept in a group of its own, whatever the topology says. This is the only way a group is split by hand, and it splits in one direction only: the named booth is held out and the rest of its group stays together. It exists because the topological rule can be correct that two lanes are alternatives and still reach a wrong result — the operator sometimes charges two lanes of one plaza as different gares, and one group can carry only one gare.
 
-The representative of the merged group SHALL follow the usual rule — the smallest node id among its members.
+An isolated booth SHALL take no part in the pairing relation, in either position, rather than being detached after the rules have run. Grouping is a transitive closure, so a booth left in the relation still chains its neighbours to each other even when it is removed from the result.
+
+A booth SHALL NOT both state a null `parent_id` and be named as another booth's `parent_id` target. Either spelling of that combination SHALL stop the step.
+
+The target of a non-null `parent_id` SHALL be a group representative after the grouping rules have run. A target that is itself an alias of some other group is not a group, and naming one SHALL stop the step.
+
+The representative of any group SHALL follow the usual rule — the smallest node id among its members.
 
 #### Scenario: Booth is forced into a group
 
@@ -456,11 +511,36 @@ The representative of the merged group SHALL follow the usual rule — the small
 - **WHEN** a booth that the two-way rule would leave ungrouped carries `parent_id`
 - **THEN** the override wins and it joins the named group
 
+#### Scenario: A booth is held out of every group
+
+- **WHEN** a booth carries `parent_id` with a null value and the topological rule would otherwise group it with another lane
+- **THEN** it appears in the inventory as its own group representative, not as an alias
+
+#### Scenario: The rest of the group stays together
+
+- **WHEN** a booth carrying a null `parent_id` belongs to a plaza of several lanes
+- **THEN** the other lanes remain one group and only the named booth is separated
+
+#### Scenario: An isolated booth does not chain its neighbours
+
+- **WHEN** two lanes are related to each other only through a booth carrying a null `parent_id`
+- **THEN** those two lanes are not grouped, because the isolated booth never enters the relation
+
+#### Scenario: Isolation and forced membership conflict
+
+- **WHEN** one booth states a null `parent_id` and another names it as its `parent_id` target
+- **THEN** the step stops and names the entry
+
+#### Scenario: Two lanes the operator charges separately
+
+- **WHEN** two lanes of one plaza are topologically alternatives but the operator reports a different gare for each
+- **THEN** holding one out with a null `parent_id` makes them two coverage targets, so each can carry its own gare
+
 ### Requirement: Every override is checked against the extract
 
 The system SHALL validate every override against the booths found in the source extract, and SHALL stop and name the offending entry when one does not apply. An override that has gone stale — because the node was retagged, deleted, or renumbered upstream — otherwise produces a silently wrong inventory.
 
-An overridden node SHALL be a booth in the source extract. A `parent_id` target SHALL be a booth that survived the through-road filter. A `type` value SHALL be one of `ignore`, `absent_enter`, `absent_exit`, `absent_passthrough`, `enter`, `exit`, or `passthrough`.
+An overridden node SHALL be a booth in the source extract, whether it is named by `type`, `parent_id`, `vinci`, or a null `parent_id`. A non-null `parent_id` target SHALL be a booth that survived the through-road filter. A `type` value SHALL be one of `ignore`, `absent_enter`, `absent_exit`, `absent_passthrough`, `enter`, `exit`, or `passthrough`.
 
 `enter`, `exit` and `passthrough` SHALL be accepted and SHALL have no effect on the inventory. They record how a booth relates to a border crossing, which nothing consumes yet; accepting them keeps the existing file valid, and enumerating them means a mistyped `ignore` fails instead of passing unnoticed.
 
@@ -488,3 +568,31 @@ An overridden node SHALL be a booth in the source extract. A `parent_id` target 
 
 - **WHEN** a booth carries `type: enter`, `type: exit`, or `type: passthrough`
 - **THEN** the inventory is exactly as it would have been without that entry
+
+#### Scenario: An isolated node is checked too
+
+- **WHEN** an override carries a null `parent_id` for a node the extract does not carry as a toll booth
+- **THEN** the step stops and names that node
+
+### Requirement: The no-access road classes are available to route generation
+
+The extraction step SHALL persist the ways of the classes that carry no local access, covering the whole source extract, so that the route generation step can decide whether a candidate's snapped segment belongs to one of them.
+
+This is required because the routing engine reports the snapped segment's node ids and its name, but not its road class, and a large share of the segments involved carry no name at all.
+
+The persisted set is an internal intermediate and is NOT part of the published output contract.
+
+#### Scenario: No-access ways are persisted
+
+- **WHEN** the extraction step completes
+- **THEN** an artefact holding every `motorway`, `motorway_link`, and `trunk_link` way in the source extract is available to the route generation step
+
+#### Scenario: Class is decided without the way's name
+
+- **WHEN** a candidate snaps onto an unnamed segment
+- **THEN** its class is still determined, from the persisted ways rather than from the name the routing engine reports
+
+#### Scenario: Re-running extraction reuses the persisted ways
+
+- **WHEN** the extraction step runs again while the artefact is already present
+- **THEN** it is reused rather than rebuilt, in the same way the filtered and carved extracts are

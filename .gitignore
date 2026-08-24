@@ -19,9 +19,15 @@
 # route reached. Both are still produced on every run — build_vinci_toll_booths
 # reads excluded_booths.json to name the nearest excluded booth when a placemark
 # matches nothing — they are simply not carried in the repository.
+#
+# endpoint_snap.json is a cache, not a report: 25 MB of how far the router puts
+# the start of a trip from each of a million place nodes. It is derived from the
+# extract and the routing graph, both of which stay out of the repository, so
+# carrying it here would commit a measurement no one could check.
 /data/.builder-image.stamp
 /data/plaza_cells.geojson
 /data/excluded_booths.json
 /data/uncovered_booths.json
+/data/endpoint_snap.json
 
 __pycache__/

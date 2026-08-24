@@ -48,6 +48,20 @@ BOOTH_TAGS = (("barrier", "toll_booth"), ("highway", "toll_gantry"))
 # and by 250 once localities count.
 PLACE_VALUES = ("city", "town", "village", "hamlet", "isolated_dwelling", "locality")
 
+# Road classes a car cannot join from the land beside them. A place node that
+# snaps onto one of these is not a place a trip can start: the route the engine
+# returns begins in motorway traffic, leaves at the next interchange and comes
+# back on the opposite carriageway, paying both sides of the first plaza it
+# meets. Step 4 needs the *class* of the segment a candidate snapped to, and
+# /nearest reports the segment's name and node ids but never its class -- so the
+# ways are carried across the step boundary and the node ids matched against
+# them there.
+#
+# `trunk` is deliberately absent: in France it covers ordinary two-way roads
+# with property access as well as motorway-grade routes.
+NO_ACCESS_CLASSES = ("motorway", "motorway_link", "trunk_link")
+
+
 class LatLon(list):
     """A [lat, lon] pair, dumped inline rather than as two block items."""
 
@@ -89,6 +103,27 @@ def run_tags_filter(pbf: str, filtered: str) -> None:
     print(f"    filtered extract: {os.path.getsize(filtered) / 1e6:.1f} MB")
 
 
+def run_no_access_filter(pbf: str, out: str) -> None:
+    """Extract the ways of the classes a car cannot join from beside them.
+
+    Filtered to three classes rather than every highway way: the question step 4
+    asks is one yes/no test per candidate, and a node-to-class map for all of
+    France would be a hundred million entries to answer it.
+    """
+    if os.path.exists(out):
+        # Same reasoning as run_tags_filter: derived from the source extract and
+        # a fixed class list, so it cannot go stale while the source is unchanged.
+        print(f"==> reusing {out} ({os.path.getsize(out) / 1e6:.1f} MB)")
+        return
+    tmp = out + ".part"
+    cmd = ["osmium", "tags-filter", "--overwrite", "-f", "pbf",
+           "-o", tmp, pbf, "w/highway=" + ",".join(NO_ACCESS_CLASSES)]
+    print("==> " + " ".join(cmd))
+    subprocess.run(cmd, check=True)
+    os.replace(tmp, out)
+    print(f"    no-access ways: {os.path.getsize(out) / 1e6:.1f} MB")
+
+
 class Collector(osmium.SimpleHandler):
     """Single pass over the filtered extract."""
 
@@ -121,6 +156,8 @@ def main() -> int:
     ap.add_argument("--plazas", required=True, help="carved plaza-neighbourhood extract")
     ap.add_argument("--excluded", required=True, help="booths dropped as off the through-road network")
     ap.add_argument("--overrides", required=True, help="hand-maintained booth overrides YAML")
+    ap.add_argument("--no-access", required=True,
+                    help="extract of ways a car cannot join, kept for step 4")
     args = ap.parse_args()
 
     if not os.path.exists(args.pbf):
@@ -128,6 +165,7 @@ def main() -> int:
         return 1
 
     run_tags_filter(args.pbf, args.filtered)
+    run_no_access_filter(args.pbf, args.no_access)
 
     print("==> reading filtered extract")
     collector = Collector()
@@ -173,7 +211,7 @@ def main() -> int:
 
     try:
         groups, aliases, bidirectional = booth_groups.group_booths(
-            kept, args.plazas, forced=forced)
+            kept, args.plazas, forced=forced, isolated=ov.isolated)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

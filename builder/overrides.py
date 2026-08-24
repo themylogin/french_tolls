@@ -25,6 +25,16 @@ none at all, because it looks like the exception is handled when it is not.
       13719126553:
         # exit through the service roads, not currently supported by scripts
         parent_id: 635884768
+      26024647:
+        # the topology says this lane is an alternative to 25315120, and it is --
+        # but the operator charges the two as different gares, so they cannot be
+        # one coverage target. A null parent keeps the booth in its own group.
+        parent_id: null
+
+    duplicate_gares:
+      # the road that would let a driver go straight on is not built yet, so the
+      # fastest route really does come back through this gare and pay it twice
+      - "04210"
 """
 
 import os
@@ -56,6 +66,11 @@ PRICED_TYPES = ("absent_passthrough",)
 
 KEYS = ("type", "parent_id", "vinci", "price")
 
+# Top-level sections. Enumerated for the same reason the type values are: a
+# mistyped section name would otherwise be read as an empty one and every entry
+# under it would vanish without a word.
+SECTIONS = ("toll_booths", "duplicate_gares")
+
 
 class OverrideError(Exception):
     """A stale or malformed override. Never applied approximately."""
@@ -65,20 +80,29 @@ class Overrides:
     """ignored booths, forced group parents, and gares stated by hand."""
 
     def __init__(self, ignored=None, forced=None, vinci=None, absent=None,
-                 price=None):
+                 price=None, isolated=None, duplicate_gares=None):
         self.ignored = ignored or set()
         self.forced = forced or {}
         self.vinci = vinci or {}
         self.absent = absent or {}   # booth -> which absent_* type
         self.price = price or {}     # booth -> stated charge
+        self.isolated = isolated or set()  # booths kept out of every group
+        # Gares a single route may legitimately pay twice. Normally that means a
+        # route turned around, which no car does -- but where the road that would
+        # let a driver go straight on is missing or unbuilt, the detour back
+        # through the same gare is the real fastest route and is charged twice.
+        self.duplicate_gares = duplicate_gares or set()
 
     def __bool__(self):
-        return bool(self.ignored or self.forced or self.vinci or self.absent)
+        return bool(self.ignored or self.forced or self.vinci or self.absent
+                    or self.isolated or self.duplicate_gares)
 
     def summary(self):
         return (f"{len(self.ignored)} ignored, {len(self.absent)} absent from the"
                 f" operator, {len(self.forced)} forced into a group,"
-                f" {len(self.vinci)} gare(s) stated by hand")
+                f" {len(self.isolated)} kept out of every group,"
+                f" {len(self.vinci)} gare(s) stated by hand,"
+                f" {len(self.duplicate_gares)} gare(s) payable twice")
 
 
 def load(path):
@@ -87,9 +111,29 @@ def load(path):
         return Overrides()
     with open(path, encoding="utf-8") as fh:
         doc = yaml.safe_load(fh) or {}
+    unknown_sections = sorted(set(doc) - set(SECTIONS))
+    if unknown_sections:
+        raise OverrideError(
+            f"unknown top-level section(s) {', '.join(unknown_sections)};"
+            f" expected one of {', '.join(SECTIONS)}")
     entries = doc.get("toll_booths") or {}
 
-    ignored, forced, vinci, absent, price = set(), {}, {}, {}, {}
+    # Operator numbers carry leading zeros. Unquoted, YAML reads 04210 as an
+    # integer and drops the zero, so they are normalised to strings here and
+    # compared as strings everywhere.
+    duplicate_gares = set()
+    listed = doc.get("duplicate_gares")
+    if listed is not None:
+        if not isinstance(listed, list):
+            raise OverrideError(
+                f"duplicate_gares must be a list, got {type(listed).__name__}")
+        for value in listed:
+            if isinstance(value, (dict, list)) or value is None:
+                raise OverrideError(
+                    f"duplicate_gares: {value!r} is not an operator number")
+            duplicate_gares.add(str(value))
+
+    ignored, forced, vinci, absent, price, isolated = set(), {}, {}, {}, {}, set()
     for node_id, entry in sorted(entries.items()):
         entry = entry or {}
         where = f"override for booth {node_id}"
@@ -136,7 +180,15 @@ def load(path):
             price[node_id] = float(value)
 
         if "parent_id" in entry:
-            forced[node_id] = entry["parent_id"]
+            # A null parent is the opposite of a forced one: it says the booth
+            # belongs in no group but its own. The topological rule is right
+            # about such a lane being an alternative and still wrong about the
+            # consequence, because the operator charges the two lanes as
+            # different gares -- so they cannot be one coverage target.
+            if entry["parent_id"] is None:
+                isolated.add(node_id)
+            else:
+                forced[node_id] = entry["parent_id"]
 
         if "vinci" in entry:
             gare = entry["vinci"] or {}
@@ -153,13 +205,22 @@ def load(path):
             # compared as strings everywhere.
             vinci[node_id] = {"id": str(gare["id"]), "name": str(gare["name"])}
 
-    return Overrides(ignored, forced, vinci, absent, price)
+    # A booth cannot be kept out of every group and pulled into one at the same
+    # time, whichever end of the relation states it. Both spellings are checked
+    # here rather than left to whichever rule happens to run last.
+    for child, target in sorted(forced.items()):
+        if target in isolated:
+            raise OverrideError(
+                f"override for booth {child}: parent_id names {target}, which"
+                f" states parent_id: null and so has no group to join")
+    return Overrides(ignored, forced, vinci, absent, price, isolated,
+                     duplicate_gares)
 
 
 def check_against_extract(ov, booths):
     """Every overridden node must be a toll booth in the source extract."""
     for node_id in sorted(set(ov.ignored) | set(ov.forced) | set(ov.vinci)
-                          | set(ov.absent)):
+                          | set(ov.absent) | set(ov.isolated)):
         if node_id not in booths:
             raise OverrideError(
                 f"override for booth {node_id}: the extract does not carry that"

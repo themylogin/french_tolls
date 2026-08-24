@@ -87,6 +87,9 @@ toll_booths:
 
   # etc.
 
+  # 06024 SOPHIA
+  26024647:
+    parent_id: null  # Wants to merge with 25315120 which is 06013 ANTIBES EST
   # Péage de Montreuil-aux-Lions
   # exit through the service roads, not currently supported by scripts
   13719126553:
@@ -105,3 +108,8 @@ toll_booths:
   # fixed by changeset 187906917
   1581498325:
     type: enter
+
+# It is allowed to go through these gares twice
+duplicate_gares:
+  # Way: 294125300 is under construction
+  - "04210"

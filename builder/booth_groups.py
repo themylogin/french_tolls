@@ -281,14 +281,24 @@ def reachable(adj, start, booths, max_m):
     return seen
 
 
-def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None):
+def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None,
+                 isolated=None):
     """Return ({representative: [members]}, {member: representative}, {two-way}).
 
-    Topological, with one exception: `forced` maps a booth to a booth whose group
-    it must join whatever the topology says. Some booths cannot be grouped from
-    the data -- a lane whose only approach is tagged `service` is invisible to a
-    graph built from through roads -- and the alternative to stating those by
-    hand is a heuristic that misfires elsewhere.
+    Topological, with two exceptions.
+
+    `forced` maps a booth to a booth whose group it must join whatever the
+    topology says. Some booths cannot be grouped from the data -- a lane whose
+    only approach is tagged `service` is invisible to a graph built from through
+    roads -- and the alternative to stating those by hand is a heuristic that
+    misfires elsewhere.
+
+    `isolated` is the opposite: booths that stay in a group of their own. The
+    topological rule can be right that two lanes are alternatives and still be
+    wrong about the consequence, because the operator sometimes charges two
+    lanes of one plaza as different gares. Grouping them makes one coverage
+    target out of two tolls, and no route can then pay both without the mapping
+    step reporting one gare twice.
     """
     print("    building local road graph")
     booths = set(booth_ids)
@@ -338,15 +348,23 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None):
 
     # A node shared by an implausible number of booths is a distant part of the
     # network rather than a plaza's split point.
+    # A booth held out by hand takes no part in the relation at all, in either
+    # position. Excluding it here rather than unpicking a group afterwards is
+    # what keeps it out: grouping is a transitive closure, so a booth left in
+    # the relation would still chain two of its neighbours together.
+    isolated = set(isolated or ())
+    if isolated:
+        print(f"    {len(isolated)} booth(s) kept out of every group by override")
+
     for members in by_pred.values():
         if not 2 <= len(members) <= MAX_GROUP:
             continue
         ordered = sorted(members)
         for i, x in enumerate(ordered):
-            if x in g.two_way:
+            if x in g.two_way or x in isolated:
                 continue
             for y in ordered[i + 1:]:
-                if y in g.two_way:
+                if y in g.two_way or y in isolated:
                     continue
                 if find(x) != find(y) and succs[x] & succs[y]:
                     union(x, y)
@@ -356,6 +374,10 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None):
     # an alias of some other group, the group the override points at does not
     # exist and the entry has gone stale.
     for child, target in sorted((forced or {}).items()):
+        if child in isolated:
+            raise ValueError(
+                f"override parent_id: booth {child} states parent_id: null and"
+                f" cannot also be forced into the group of {target}")
         if child not in parent:
             raise ValueError(
                 f"override parent_id: booth {child} is not in the inventory")

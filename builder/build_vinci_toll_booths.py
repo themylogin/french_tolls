@@ -334,6 +334,62 @@ def placemark_point(entry):
     return decode_polyline(points[0], precision=5)[0]
 
 
+def double_paid(routes, booths, exempt=()):
+    """Routes whose covers resolve two booth groups to one gare.
+
+    A gare's booths are its carriageways, so meeting two of them usually means
+    the route left the road and came back on the other side, which no fastest
+    trip between two places a car can reach does. What produces it is an endpoint
+    the router snapped onto the carriageway itself, so the trip begins or ends in
+    traffic no driver can join. The toll is charged once and recorded twice.
+
+    `exempt` names the gares where it is real instead. Where the road that would
+    let a driver carry on does not exist yet, coming back through the same gare
+    is the fastest route there is -- inconvenient, and charged twice.
+
+    Booths with no gare recorded take no part: an override may mark a booth the
+    operator does not carry, and a booth with nothing to compare cannot conflict.
+    """
+    found = []
+    for route in routes:
+        per_gare = collections.defaultdict(list)
+        for cover in route["covers"]:
+            gare = booths.get(cover["node_id"])
+            if gare is not None:
+                per_gare[gare["id"]].append(cover["node_id"])
+        for gare_id, groups in sorted(per_gare.items()):
+            if str(gare_id) in exempt:
+                continue
+            unique = sorted(set(groups))
+            if len(unique) > 1:
+                found.append((route, gare_id, unique))
+    return found
+
+
+def double_paid_report(found, booths, places, collector):
+    """One block per offending route, naming the gare and every booth involved.
+
+    The endpoints are printed because they are the fault: one of the two is a
+    place the router could only reach by putting the trip on the carriageway.
+    """
+    lines = []
+    for route, gare_id, groups in found:
+        gare = booths[groups[0]]
+        a, b = places.get(route["from"]), places.get(route["to"])
+
+        def label(node_id, place):
+            name = (place or {}).get("name") or "(unnamed)"
+            return f"{name} ({node_id})"
+
+        lines.append(f"  {label(route['from'], a)} -> {label(route['to'], b)}")
+        lines.append(f"      pays gare {gare_id} {gare['name']} "
+                     f"{len(groups)} times:")
+        for group in groups:
+            lines.append(f"        {collector.names.get(group) or '(unnamed)':<24}"
+                         f" https://www.openstreetmap.org/node/{group}")
+    return lines
+
+
 def unmapped_report(unmapped, booths, members, positions, collector, routes):
     """The table a human needs to decide what to do with each unmapped booth.
 
@@ -692,6 +748,31 @@ def main() -> int:
     if skipped:
         print(f"    {len(skipped)} route(s) skipped by --survey; the unmapped "
               f"check above only covers the {len(done)} that were processed")
+
+    # No route can pay one gare twice. Runs on every invocation, including one
+    # with nothing outstanding, for the same reason the check above does: a run
+    # that skipped it would report success over a mapping known to be wrong.
+    found = double_paid(routes, booths, ov.duplicate_gares)
+    # A stale exemption is worse than none: it says a case is understood when the
+    # route that raised it may have gone. Reported, not fatal, in the same way an
+    # unconsumed hand-stated gare is.
+    doubled = {str(gid) for _, gid, _ in double_paid(routes, booths)}
+    unused = sorted(ov.duplicate_gares - doubled)
+    if unused:
+        print(f"    {len(unused)} gare(s) exempted from the duplicate check that"
+              f" no route pays twice: {', '.join(unused)}")
+    if found:
+        print(f"\nERROR: {len(found)} route(s) pay one gare twice.",
+              file=sys.stderr)
+        print(f"       A gare's booths are its carriageways, so a route meeting"
+              f" two of them turned around.\n"
+              f"       Look at the endpoints below: one of them is a place the"
+              f" router could only reach\n"
+              f"       by starting or ending the trip on the carriageway"
+              f" itself.\n", file=sys.stderr)
+        for line in double_paid_report(found, booths, places, collector):
+            print(line, file=sys.stderr)
+        return 1
     return 0
 
 

@@ -27,8 +27,16 @@ geometric tolerance and no false positives.
 Pairs are ordered, not unordered: a plaza is usually two nodes, one per
 carriageway, so A->B and B->A cover different sets.
 
+Endpoints are places a car can actually start and finish a trip at, not merely
+nodes carrying a `place` tag. A candidate the router snaps more than MAX_SNAP_M
+away, or onto a road no car can join from beside it, is dropped before the
+search begins: routing from such a node returns a trip that starts in motorway
+traffic, leaves at the next interchange and comes back on the opposite
+carriageway, paying one gare twice. The measurement is cached in --snap.
+
 An existing route set on disk is loaded and extended rather than rebuilt, so
-adding booths to the inventory costs only the search for what they need.
+adding booths to the inventory costs only the search for what they need. A route
+whose endpoints have since become ineligible is dropped rather than extended.
 
 The inventory is grouped: parallel lanes of one plaza share a representative id.
 Traversing any lane covers the group, so `covers` records representatives.
@@ -44,6 +52,7 @@ import collections
 import concurrent.futures
 import json
 import math
+import multiprocessing
 import os
 import sys
 import time
@@ -55,6 +64,36 @@ import yaml
 import booth_groups
 
 PLACE_VALUES = ("city", "town", "village", "hamlet", "isolated_dwelling", "locality")
+
+# A place tag says a name belongs to a spot on the map. It does not say a car can
+# start a trip there, and in France `place=locality` names fields, woods and farm
+# plots: 98% of them are more than 10 m from any routable way. OSRM snaps such a
+# node to whatever is nearest, and when that is the autoroute the resulting
+# "trip" begins in motorway traffic, leaves at the next interchange and returns
+# on the opposite carriageway -- paying both sides of one gare, which no car can
+# do. So eligibility is a tag test *and* a reachability test.
+#
+# 50 m was tried first and lost the two MENPENTI-PRADO 2 booths in Marseille.
+# The cause was not the booths but the city: Marseille's own `place=city` node
+# is 71.8 m from the nearest routable way, and at 50 m it -- along with 10 of
+# France's 66 cities -- stopped being an endpoint at all. Wave A seeds from
+# place=city, so the threshold was starving the backbone sweep as well.
+#
+# 100 m admits every city and 99% of towns and villages while still dropping
+# two thirds of localities. It is also the ceiling: at 200 m the Gros Speck ->
+# Le Mazet pair comes back, which is one of the nine routes this rule exists to
+# remove. The measurement is cached with distances rather than verdicts so that
+# moving between these values costs nothing.
+MAX_SNAP_M = 100.0
+
+# The sweep is the whole catalogue, and a Python client decoding two million JSON
+# responses is bound by the interpreter lock long before OSRM is bound by
+# anything. Processes step around that; threads inside each one keep the socket
+# busy while it parses.
+SNAP_PROCESSES = max(1, (os.cpu_count() or 4) - 4)
+SNAP_THREADS = 16          # per process
+SNAP_CHUNK = 5000          # ids handed to a worker at a time
+SNAP_ANCHOR_TRIES = 3      # nearest cities tried before giving up on a candidate
 
 WAVE_A_SIZE = 100          # dispersed cities seeding the backbone sweep
 WAVE_B_MIN_BEARING = 120.0 # degrees; pairs must bracket the booth
@@ -130,6 +169,23 @@ class BoothCollector(osmium.SimpleHandler):
     def node(self, n):
         if n.id in self.wanted and n.location.valid():
             self.coords[n.id] = (n.location.lat, n.location.lon)
+
+
+class NoAccessNodes(osmium.SimpleHandler):
+    """Node ids belonging to a way a car cannot join from the land beside it.
+
+    Step 3 carved these ways out of the source extract because /nearest reports
+    the snapped segment's name and node ids but never its class, and a large
+    share of the segments involved carry no name at all.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.nodes = set()
+
+    def way(self, w):
+        for n in w.nodes:
+            self.nodes.add(n.ref)
 
 
 # --------------------------------------------------------------------------
@@ -218,6 +274,29 @@ class Osrm:
         for leg in payload["routes"][0]["legs"]:
             nodes.extend(leg.get("annotation", {}).get("nodes", []))
         return nodes
+
+    def nearest(self, lat, lon, attempts=3):
+        """(metres to the snapped position, ids of the snapped segment's nodes).
+
+        Returns None when the query fails after retrying, which is treated as a
+        place with no measurement rather than a place at distance zero.
+        """
+        for _ in range(attempts):
+            try:
+                resp = self.session.get(
+                    f"{self.base_url}/nearest/v1/driving/{lon},{lat}",
+                    params={"number": 1}, timeout=60,
+                )
+            except requests.RequestException:
+                continue
+            if resp.status_code != 200:
+                continue
+            waypoints = resp.json().get("waypoints") or []
+            if not waypoints:
+                return None
+            w = waypoints[0]
+            return w["distance"], [n for n in w.get("nodes", []) if n]
+        return None
 
     def snap_to_booth(self, booth_id, lat, lon, candidates=8):
         """Snapped position and hint for the segment that holds this booth.
@@ -455,6 +534,152 @@ def solve_pairs(osrm, booth_xy, candidates, places, tried, booth_hint=None):
     return [pair for _, pair in solved[:SOLVE_KEEP]]
 
 
+# Worker state. Set in the parent before the pool is created, so each forked
+# child inherits it without any of it crossing a pipe.
+_W = {}
+
+
+def _snap_one(pid):
+    """(id, metres the router snaps this place, whether that segment is no-access).
+
+    Two queries, because the two questions have different answers.
+
+    /nearest reports the geometrically closest segment whether or not a car can
+    drive out of it. An `service=driveway` stub in its own little component
+    answers at 26 m while the router, asked for an actual trip, starts 300 m away
+    on the motorway. Measuring the first and believing it describes the second is
+    what let a place beside the A89 pass a 50 m test.
+
+    So the distance comes from a route to a real destination -- the nearest
+    place=city, which is certainly in the main component -- and the class comes
+    from a /nearest at the position that route actually starts from.
+    """
+    places, index, session, base = _W["places"], _W["index"], _W["session"], _W["base"]
+    p = places[pid]
+    for anchor in index.nearest((p["lat"], p["lon"]), SNAP_ANCHOR_TRIES):
+        if anchor == pid:
+            continue
+        q = places[anchor]
+        try:
+            resp = session.get(
+                f"{base}/route/v1/driving/"
+                f"{p['lon']},{p['lat']};{q['lon']},{q['lat']}",
+                params={"overview": "false"}, timeout=60,
+            )
+            payload = resp.json()
+            if payload.get("code") != "Ok":
+                continue
+            waypoint = payload["waypoints"][0]
+            distance = waypoint["distance"]
+            lon, lat = waypoint["location"]
+            near = session.get(
+                f"{base}/nearest/v1/driving/{lon},{lat}",
+                params={"number": 1}, timeout=60,
+            ).json()["waypoints"][0]
+            nodes = [n for n in near.get("nodes", []) if n]
+        except Exception:  # noqa: BLE001 - any failure means try the next anchor
+            continue
+        return pid, round(distance, 1), 1 if any(n in _W["blocked"] for n in nodes) else 0
+    return pid, None, None
+
+
+def _snap_chunk(ids):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=SNAP_THREADS) as pool:
+        return [r for r in pool.map(_snap_one, ids)]
+
+
+def measure_reachability(places, no_access_pbf, path, base_url):
+    """{place id: [metres, blocked]} for the whole catalogue, cached on disk.
+
+    `metres` is how far from the place the router puts the start of a trip, not
+    how far the nearest line on the map is -- see _snap_one. `blocked` marks a
+    place the router starts on a road a car cannot join from beside it.
+
+    The record holds the measurement rather than the eligibility verdict, so
+    MAX_SNAP_M can be raised without repeating the sweep.
+
+    Reused when it is already on disk, on the same reasoning as the carved
+    extracts in step 3: it is derived from the source extract and the routing
+    graph, and both of those are themselves governed by existence checks.
+    """
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            record = json.load(fh)
+        print(f"==> reusing {path} ({len(record)} measurement(s))")
+        return {int(k): v for k, v in record.items()}
+
+    print(f"==> reading no-access ways from {no_access_pbf}")
+    na = NoAccessNodes()
+    na.apply_file(no_access_pbf)
+    print(f"    {len(na.nodes)} node(s) on a road a car cannot join")
+
+    cities = {i: p for i, p in places.items() if p["place"] == "city"}
+    if not cities:
+        raise SystemExit("ERROR: no place=city node to anchor the reachability"
+                         " sweep on")
+    print(f"==> measuring reachability of {len(places)} candidate(s)"
+          f" against {len(cities)} city anchor(s)")
+    print(f"    {SNAP_PROCESSES} process(es) x {SNAP_THREADS} thread(s)")
+
+    session = requests.Session()
+    session.mount("http://", requests.adapters.HTTPAdapter(
+        pool_maxsize=SNAP_THREADS * 2))
+    _W.update(places=places, index=PlaceIndex(cities), session=session,
+              base=base_url.rstrip("/"), blocked=na.nodes)
+
+    ids = sorted(places)
+    chunks = [ids[i:i + SNAP_CHUNK] for i in range(0, len(ids), SNAP_CHUNK)]
+    out = {}
+    unroutable = 0
+    started = time.monotonic()
+    # fork, so every child inherits _W -- the catalogue and the 675k-node
+    # no-access set are read-only here and never cross a pipe.
+    with concurrent.futures.ProcessPoolExecutor(
+            max_workers=SNAP_PROCESSES,
+            mp_context=multiprocessing.get_context("fork")) as pool:
+        for n, rows in enumerate(pool.map(_snap_chunk, chunks), start=1):
+            for pid, distance, blocked in rows:
+                if distance is None:
+                    unroutable += 1
+                    continue
+                out[pid] = [distance, blocked]
+            if n % 20 == 0 or n == len(chunks):
+                done = min(n * SNAP_CHUNK, len(ids))
+                rate = done / max(time.monotonic() - started, 1e-9)
+                print(f"    {done}/{len(ids)} ({rate:.0f}/s)", flush=True)
+    if unroutable:
+        print(f"    {unroutable} candidate(s) reached no city anchor")
+
+    tmp = path + ".part"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({str(k): v for k, v in sorted(out.items())}, fh)
+    os.replace(tmp, path)
+    return out
+
+
+def eligible_places(places, snap):
+    """The candidates a car can actually start and finish a trip at."""
+    kept, far, blocked, unmeasured = {}, 0, 0, 0
+    for pid, p in places.items():
+        record = snap.get(pid)
+        if record is None:
+            unmeasured += 1
+            continue
+        distance, is_blocked = record
+        if is_blocked:
+            blocked += 1
+        elif distance > MAX_SNAP_M:
+            far += 1
+        else:
+            kept[pid] = p
+    print(f"    {len(kept)}/{len(places)} eligible"
+          f" ({100.0 * len(kept) / max(len(places), 1):.1f}%);"
+          f" dropped {far} beyond {MAX_SNAP_M:.0f} m,"
+          f" {blocked} on a road a car cannot join,"
+          f" {unmeasured} unmeasured")
+    return kept
+
+
 class PlaceIndex:
     """Grid index over place nodes for nearest-neighbour lookups."""
 
@@ -605,7 +830,14 @@ def write_route_set(path, selected, places):
 
 
 def load_existing(path, places):
-    """(from, to) pairs from a previous route set, if one is on disk."""
+    """(from, to) pairs from a previous route set, if one is on disk.
+
+    `places` is the *eligible* catalogue, so a route written before the
+    reachability rule tightened is dropped here rather than carried forward. It
+    has to go at this point: the greedy pass never revisits a route it has
+    already accepted, so one kept now because it still covers something would
+    survive every rebuild -- which is what the rule exists to stop.
+    """
     if not os.path.exists(path):
         return []
     with open(path, encoding="utf-8") as fh:
@@ -613,10 +845,14 @@ def load_existing(path, places):
     pairs = []
     for route in doc.get("routes") or []:
         a, b = route.get("from"), route.get("to")
-        # An endpoint can vanish if the extract is refreshed; skip rather than
-        # fail, the search will simply cover that ground again.
+        # An endpoint can also vanish when the extract is refreshed; either way
+        # skip rather than fail, and the search covers that ground again.
         if a in places and b in places and a != b:
             pairs.append((a, b))
+    total = len(doc.get("routes") or [])
+    if total != len(pairs):
+        print(f"==> {total - len(pairs)} of {total} route(s) on disk have an"
+              f" endpoint that is no longer eligible; dropping them")
     return pairs
 
 
@@ -625,6 +861,10 @@ def main() -> int:
     ap.add_argument("--filtered", required=True, help="filtered extract from step 3")
     ap.add_argument("--booths", required=True, help="booth inventory YAML")
     ap.add_argument("--plazas", required=True, help="carved plaza-neighbourhood extract")
+    ap.add_argument("--no-access", required=True,
+                    help="extract of ways a car cannot join, from step 3")
+    ap.add_argument("--snap", required=True,
+                    help="cached endpoint reachability measurement")
     ap.add_argument("--out", required=True, help="route set YAML")
     ap.add_argument("--uncovered", required=True, help="uncovered booth report JSON")
     ap.add_argument("--osrm", required=True, help="base URL of the OSRM instance")
@@ -660,6 +900,16 @@ def main() -> int:
     osrm = Osrm(args.osrm)
     print(f"==> waiting for {args.osrm}")
     osrm.wait_ready()
+
+    # Eligibility narrows the pool before anything indexes or samples it.
+    # Filtering after selection instead would return fewer endpoints per bearing
+    # sector than wave B's strategies intend, weakening the search silently.
+    snap = measure_reachability(places, args.no_access, args.snap, args.osrm)
+    places = eligible_places(places, snap)
+    if not places:
+        print(f"ERROR: no candidate survives the reachability test at"
+              f" {MAX_SNAP_M:.0f} m", file=sys.stderr)
+        return 1
 
     targets = coverage_targets(booths, bidirectional, args.plazas)
     print(f"    {len(targets)} coverage target(s) over {len(booths)} group(s)")

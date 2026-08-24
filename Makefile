@@ -27,6 +27,8 @@ PBF          := $(DATA_DIR)/france-latest.osm.pbf
 FILTERED_PBF := $(DATA_DIR)/filtered.osm.pbf
 BOOTHS       := $(DATA_DIR)/osm_toll_booths.yaml
 PLAZAS       := $(DATA_DIR)/plazas.osm.pbf
+NO_ACCESS    := $(DATA_DIR)/no_access_ways.osm.pbf
+SNAP         := $(DATA_DIR)/endpoint_snap.json
 ROUTE_SET    := $(DATA_DIR)/route_set.yaml
 UNCOVERED    := $(DATA_DIR)/uncovered_booths.json
 EXCLUDED     := $(DATA_DIR)/excluded_booths.json
@@ -165,7 +167,8 @@ $(BOOTHS): | $(PBF) $(BUILDER_STAMP)
 	    --out /data/osm_toll_booths.yaml \
 	    --plazas /data/plazas.osm.pbf \
 	    --excluded /data/excluded_booths.json \
-	    --overrides /data/osm_toll_booths_overrides.yaml
+	    --overrides /data/osm_toll_booths_overrides.yaml \
+	    --no-access /data/no_access_ways.osm.pbf
 
 # --------------------------------------------------------------------------
 # Step 4 -- build_route_set
@@ -180,6 +183,8 @@ $(ROUTE_SET): | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
 	    --filtered /data/filtered.osm.pbf \
 	    --booths /data/osm_toll_booths.yaml \
 	    --plazas /data/plazas.osm.pbf \
+	    --no-access /data/no_access_ways.osm.pbf \
+	    --snap /data/endpoint_snap.json \
 	    --out /data/route_set.yaml \
 	    --uncovered /data/uncovered_booths.json \
 	    --osrm http://osrm-optimal:5000
@@ -194,6 +199,8 @@ update_route_set: guard-osrm-path | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
 	    --filtered /data/filtered.osm.pbf \
 	    --booths /data/osm_toll_booths.yaml \
 	    --plazas /data/plazas.osm.pbf \
+	    --no-access /data/no_access_ways.osm.pbf \
+	    --snap /data/endpoint_snap.json \
 	    --out /data/route_set.yaml \
 	    --uncovered /data/uncovered_booths.json \
 	    --osrm http://osrm-optimal:5000
@@ -232,7 +239,8 @@ $(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/bu
 # Housekeeping
 # --------------------------------------------------------------------------
 clean:
-	rm -f $(BOOTHS) $(ROUTE_SET) $(UNCOVERED) $(EXCLUDED) $(VINCI) $(FILTERED_PBF) $(PLAZAS) $(BUILDER_STAMP)
+	rm -f $(BOOTHS) $(ROUTE_SET) $(UNCOVERED) $(EXCLUDED) $(VINCI) $(FILTERED_PBF) $(PLAZAS) \
+	      $(NO_ACCESS) $(SNAP) $(BUILDER_STAMP)
 
 # Drops the ~25 GB graph. The extract in data/ is kept.
 clean-osrm: guard-osrm-path
