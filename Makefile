@@ -151,6 +151,12 @@ build_osm_toll_booths: guard-osrm-path $(BOOTHS)
 
 # Produces the published inventory plus the filtered extract that step 4 reads
 # its endpoint candidates from, so both steps consume one parse.
+#
+# The override file is deliberately NOT a prerequisite: making it one would key
+# this step to a modification time, and re-touching an upstream file must never
+# trigger the expensive work. Editing overrides means deleting $(BOOTHS) and
+# running this step again, which reuses the two carved extracts and takes about
+# a minute rather than repeating the passes over the 4.7 GB source.
 $(BOOTHS): | $(PBF) $(BUILDER_STAMP)
 	@echo "==> build_osm_toll_booths"
 	$(RUN_BUILDER) python3 build_osm_toll_booths.py \
@@ -158,7 +164,8 @@ $(BOOTHS): | $(PBF) $(BUILDER_STAMP)
 	    --filtered /data/filtered.osm.pbf \
 	    --out /data/osm_toll_booths.yaml \
 	    --plazas /data/plazas.osm.pbf \
-	    --excluded /data/excluded_booths.json
+	    --excluded /data/excluded_booths.json \
+	    --overrides /data/osm_toll_booths_overrides.yaml
 
 # --------------------------------------------------------------------------
 # Step 4 -- build_route_set
@@ -208,13 +215,15 @@ build_vinci_toll_booths: guard-osrm-path guard-ulys-key | $(ROUTE_SET) $(BUILDER
 	    --booths /data/osm_toll_booths.yaml \
 	    --excluded /data/excluded_booths.json \
 	    --route-set /data/route_set.yaml \
+	    --overrides /data/osm_toll_booths_overrides.yaml \
 	    --out /data/vinci_toll_booth.yaml \
-	    --osrm http://osrm-optimal:5000
+	    --osrm http://osrm-optimal:5000 \
+	    $(VINCI_ARGS)
 
 # --------------------------------------------------------------------------
 # Builder image (internal prerequisite -- not one of the five steps)
 # --------------------------------------------------------------------------
-$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py
+$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py builder/overrides.py
 	@mkdir -p $(DATA_DIR)
 	$(COMPOSE) build builder
 	@touch $@

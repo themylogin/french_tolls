@@ -92,6 +92,9 @@ places:
   - name: "Pithon"
     node_id: 95578830
     latlon: [49.7531000, 3.0978200]
+  - name: "La Barben"
+    node_id: 95604946
+    latlon: [43.6284797, 5.1740722]
   - name: "Fontarèches"
     node_id: 166903733
     latlon: [44.1095000, 4.4379100]
@@ -821,9 +824,6 @@ places:
   - name: "Le Passe-tout-Outre"
     node_id: 2352484847
     latlon: [50.3507893, 3.7456542]
-  - name: "Château Virant"
-    node_id: 2382292348
-    latlon: [43.5494345, 5.1544822]
   - name: "Raubots"
     node_id: 2393922087
     latlon: [42.9230942, 1.1712956]
@@ -1349,9 +1349,6 @@ places:
   - name: "Les Valas"
     node_id: 5390439603
     latlon: [43.4176712, 5.5434330]
-  - name: "Le Grand Beauvais"
-    node_id: 5462636068
-    latlon: [47.7014082, -0.7914126]
   - name: "La Maison Blanche"
     node_id: 5512382282
     latlon: [45.8143334, 6.0157871]
@@ -1601,6 +1598,9 @@ places:
   - name: "Grese"
     node_id: 7114976729
     latlon: [44.0173334, -0.3340155]
+  - name: "Les Hemmes de Marck"
+    node_id: 7141980706
+    latlon: [50.9819250, 1.9651923]
   - name: "Ilôts du Jardin"
     node_id: 7196405326
     latlon: [43.1052643, 6.3049314]
@@ -1724,9 +1724,6 @@ places:
   - name: "Combres"
     node_id: 8163919541
     latlon: [46.3323064, 6.8056079]
-  - name: "Sur Fontenoille"
-    node_id: 8204958515
-    latlon: [47.6905241, 5.3232700]
   - name: "Lasaldea"
     node_id: 8247952023
     latlon: [43.0392896, -1.2495868]
@@ -2162,9 +2159,9 @@ places:
   - name: "Le Clos de Marianne"
     node_id: 13127508038
     latlon: [47.9757210, 0.0174430]
-  - name: "Le Chataignier"
-    node_id: 13135245861
-    latlon: [47.9363320, 0.0965620]
+  - name: "Le Ranch de La Ponnette"
+    node_id: 13135263983
+    latlon: [47.8203070, 0.0997630]
   - name: "Sur Roncheveux"
     node_id: 13135269762
     latlon: [45.9547898, 4.7885022]
@@ -2524,6 +2521,15 @@ routes:
     covers:
       - node_id: 747145320
       - node_id: 1684777150
+  - from: 95604946
+    to: 498850277
+    covers:
+      - node_id: 12169103
+      - node_id: 26410440
+      - node_id: 252927026
+      - node_id: 259973397
+      - node_id: 308079844
+      - node_id: 486041180
   - from: 166903733
     to: 12368570473
     covers:
@@ -3732,6 +3738,11 @@ routes:
       - node_id: 1883466243
       - node_id: 2298686720
       - node_id: 3922783427
+  - from: 1523822802
+    to: 2853882755
+    covers:
+      - node_id: 718696359
+      - node_id: 8631627001
   - from: 1540553425
     to: 1707306146
     covers:
@@ -4571,13 +4582,6 @@ routes:
       - node_id: 34562274
       - node_id: 306622595
       - node_id: 697445200
-  - from: 2382292348
-    to: 8204958515
-    covers:
-      - node_id: 130368
-      - node_id: 308079844
-      - node_id: 839038429
-      - node_id: 2408730593
   - from: 2393922087
     to: 2727785860
     covers:
@@ -6186,11 +6190,6 @@ routes:
       - node_id: 252927026
       - node_id: 486041180
       - node_id: 4185187889
-  - from: 5462636068
-    to: 13135245861
-    covers:
-      - node_id: 718696359
-      - node_id: 7181036266
   - from: 5528955985
     to: 2989428149
     covers:
@@ -6808,6 +6807,13 @@ routes:
       - node_id: 302010360
       - node_id: 1564463968
       - node_id: 14061571392
+  - from: 7141980706
+    to: 13135263983
+    covers:
+      - node_id: 248868492
+      - node_id: 302112697
+      - node_id: 304664253
+      - node_id: 7181036266
   - from: 7207450536
     to: 4577373369
     covers:

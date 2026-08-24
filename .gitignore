@@ -10,10 +10,18 @@
 /.data/
 
 # Regenerable intermediates under data/. The deliverables next to them —
-# osm_toll_booths.yaml, route_set.yaml, uncovered_booths.json,
-# excluded_booths.json — are committed on purpose, so a consumer can read them
-# without running the pipeline.
+# osm_toll_booths.yaml, route_set.yaml, vinci_toll_booth.yaml — are committed on
+# purpose, so a consumer can read them without running the pipeline.
+#
+# The two reports are not. They are diagnostics about a particular run rather
+# than published outputs: excluded_booths.json says which booths the through-road
+# rule dropped and why, uncovered_booths.json says which coverage targets no
+# route reached. Both are still produced on every run — build_vinci_toll_booths
+# reads excluded_booths.json to name the nearest excluded booth when a placemark
+# matches nothing — they are simply not carried in the repository.
 /data/.builder-image.stamp
 /data/plaza_cells.geojson
+/data/excluded_booths.json
+/data/uncovered_booths.json
 
 __pycache__/

@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /work
 COPY build_osm_toll_booths.py build_route_set.py booth_groups.py \
-     build_vinci_toll_booths.py /work/
+     build_vinci_toll_booths.py overrides.py /work/
 
 # Unbuffered so progress lines appear as the step runs rather than at exit.
 ENV PYTHONUNBUFFERED=1

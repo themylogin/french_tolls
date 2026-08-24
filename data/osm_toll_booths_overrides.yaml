@@ -1,0 +1,107 @@
+toll_booths:
+  # International toll booths
+
+  # Péage du Perthus
+  36967365:
+    type: enter
+  36967326:
+    type: exit
+  # Laghet
+  1702349430:
+    type: passthrough
+  2193692586:
+    type: passthrough
+  # Le-Boulou
+  1987610456:
+    type: exit
+  1987610458:
+    type: exit
+  # Tunnel de Fréjus
+  4172775770:
+    type: passthrough
+  # Saint-Michel-Barrière
+  1154852457:
+    type: passthrough
+
+  # Absent on vinci
+
+  # Chanas
+  16567653:
+    type: absent_exit
+  28128388:
+    type: absent_enter
+  # Bernay
+  469982848:
+    type: absent_enter
+  14040228495:
+    type: absent_exit
+  # Hochfelden
+  1391610490:
+    type: absent_passthrough
+    price: 1.4
+  1838205657:
+    type: absent_exit
+  # Rosny-sur-Seine
+  12636038010:
+    type: absent_passthrough
+  12636038011:
+    type: absent_passthrough
+  # Cagny
+  12736493889:
+    type: absent_passthrough
+  # Péage de Vienne
+  12752375307:
+    type: absent_passthrough
+    price: 1.9
+  12288199204:
+    type: absent_passthrough
+    price: 1.9
+  # Beuzeville
+  13283109044:
+    type: absent_passthrough
+
+  # Private sites
+
+  # Pont d'Espagne
+  2231818712:
+    type: ignore
+  # Arc 1800
+  257077660:
+    type: ignore
+  7795369636:
+    type: ignore
+  # Crève-Tête
+  604986702:
+    type: ignore
+  13435370996:
+    type: ignore
+  # Cirque de Saint Même
+  271678308:
+    type: ignore
+  # Porte de Rungis
+  600203475:
+    type: ignore
+  # Réserve du Néouvielle
+  1092266692:
+    type: ignore
+
+  # etc.
+
+  # Péage de Montreuil-aux-Lions
+  # exit through the service roads, not currently supported by scripts
+  13719126553:
+    parent_id: 635884768
+  # unusual layout
+  14061571392:
+    # toll booth in vinci is displaced
+    vinci:
+      id: 12010
+      name: SEES
+  14061571393:
+    # a real route will never go through this booth
+    type: ignore
+  # Beaurepaire
+  # way 209825480 is erroneously labeled as oneway=no
+  # fixed by changeset 187906917
+  1581498325:
+    type: enter

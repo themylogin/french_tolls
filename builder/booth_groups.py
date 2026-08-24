@@ -24,7 +24,12 @@ A booth on a two-way through road is never grouped. The (P, S) rule separates
 opposite directions by way of one-way restrictions, and a bidirectional slip
 road has none.
 
-Grouping decisions are purely topological. Distance is used in exactly one
+Grouping is otherwise purely topological, with one exception: a hand-maintained
+override may force a booth into a named group. Some booths cannot be grouped
+from the data at all -- a lane whose only approach is tagged `service` is
+invisible to a graph built from through roads.
+
+Distance is used in exactly one
 place, and it decides nothing: a grid of cells around booths bounds how much of
 the road network is loaded into memory. Whether two booths group is settled by
 the (P, S) rule alone.
@@ -34,6 +39,7 @@ import collections
 import heapq
 import json
 import math
+import os
 import subprocess
 
 import osmium
@@ -87,6 +93,12 @@ def carve_neighbourhoods(source_pbf, booth_coords, out_pbf, workdir):
     either identical or edge-adjacent -- never partially overlapping. That keeps
     the multipolygon well-formed, which per-booth boxes would not.
     """
+    if os.path.exists(out_pbf):
+        # Depends on the source extract and the booth positions in it, neither of
+        # which an override can change. See run_tags_filter for why this is safe.
+        print(f"    reusing {out_pbf} ({os.path.getsize(out_pbf) / 1e6:.1f} MB)")
+        return out_pbf
+
     cells = set()
     for lat, lon in booth_coords.values():
         cx, cy = int(math.floor(lat / CELL_DEG)), int(math.floor(lon / CELL_DEG))
@@ -269,11 +281,14 @@ def reachable(adj, start, booths, max_m):
     return seen
 
 
-def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M):
+def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None):
     """Return ({representative: [members]}, {member: representative}, {two-way}).
 
-    Purely topological: a group is the largest set of booths sharing one common
-    predecessor and one common successor.
+    Topological, with one exception: `forced` maps a booth to a booth whose group
+    it must join whatever the topology says. Some booths cannot be grouped from
+    the data -- a lane whose only approach is tagged `service` is invisible to a
+    graph built from through roads -- and the alternative to stating those by
+    hand is a heuristic that misfires elsewhere.
     """
     print("    building local road graph")
     booths = set(booth_ids)
@@ -335,6 +350,26 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M):
                     continue
                 if find(x) != find(y) and succs[x] & succs[y]:
                     union(x, y)
+
+    # Forced membership is applied last, against the grouping the rules produced.
+    # The target must be a representative in that grouping: if the rules made it
+    # an alias of some other group, the group the override points at does not
+    # exist and the entry has gone stale.
+    for child, target in sorted((forced or {}).items()):
+        if child not in parent:
+            raise ValueError(
+                f"override parent_id: booth {child} is not in the inventory")
+        if target not in parent:
+            raise ValueError(
+                f"override parent_id: booth {child} names parent {target}, "
+                f"which is not in the inventory")
+        if find(target) != target:
+            raise ValueError(
+                f"override parent_id: booth {child} names parent {target}, "
+                f"which the grouping rules made a member of group {find(target)}, "
+                f"so there is no group {target} to join")
+        # A group cannot be split by decree, so the child brings its own group.
+        union(child, target)
 
     groups = collections.defaultdict(list)
     for b in booth_ids:

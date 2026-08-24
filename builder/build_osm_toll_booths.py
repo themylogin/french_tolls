@@ -33,6 +33,7 @@ import osmium
 import yaml
 
 import booth_groups
+import overrides
 
 # A node is a toll booth iff it carries one of these tags. Nodes only: ways and
 # relations carrying them are not toll booths.
@@ -46,7 +47,6 @@ BOOTH_TAGS = (("barrier", "toll_booth"), ("highway", "toll_gantry"))
 # ramp toll is crossed by 0 of 159,600 routes between city/town/village pairs,
 # and by 250 once localities count.
 PLACE_VALUES = ("city", "town", "village", "hamlet", "isolated_dwelling", "locality")
-
 
 class LatLon(list):
     """A [lat, lon] pair, dumped inline rather than as two block items."""
@@ -65,6 +65,14 @@ def run_tags_filter(pbf: str, filtered: str) -> None:
     The `n/` prefix restricts matching to nodes, which is exactly the
     eligibility rule, so the filter doubles as the tag test.
     """
+    if os.path.exists(filtered):
+        # Derived from the source extract and the tag rules alone, so it cannot
+        # go stale while the source is unchanged -- and the source is governed by
+        # the same existence rule. Reusing it is what makes re-running this step
+        # after an override edit cost a minute instead of repeating a pass over
+        # 4.7 GB.
+        print(f"==> reusing {filtered} ({os.path.getsize(filtered) / 1e6:.1f} MB)")
+        return
     expressions = [f"n/{k}={v}" for k, v in BOOTH_TAGS]
     expressions.append("n/place=" + ",".join(PLACE_VALUES))
 
@@ -112,6 +120,7 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="booth inventory YAML")
     ap.add_argument("--plazas", required=True, help="carved plaza-neighbourhood extract")
     ap.add_argument("--excluded", required=True, help="booths dropped as off the through-road network")
+    ap.add_argument("--overrides", required=True, help="hand-maintained booth overrides YAML")
     args = ap.parse_args()
 
     if not os.path.exists(args.pbf):
@@ -136,7 +145,24 @@ def main() -> int:
     located = {i: loc for i, loc in collector.booths.items() if loc is not None}
     booth_groups.carve_neighbourhoods(args.pbf, located, args.plazas, os.path.dirname(args.out))
 
+    print("==> reading overrides")
+    try:
+        ov = overrides.load(args.overrides)
+        overrides.check_against_extract(ov, set(booth_ids))
+    except overrides.OverrideError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    ignored, forced = ov.ignored, ov.forced
+    print(f"    {ov.summary()}")
+
     kept, dropped, _ = booth_groups.classify(booth_ids, args.plazas)
+    # An ignored booth is treated as absent from the network, so it leaves before
+    # grouping. It is still recorded as excluded: the inventory and the exclusion
+    # report together account for every booth in the extract, and a booth that
+    # vanished from both would hide the removal.
+    kept = [b for b in kept if b not in ignored]
+    for b in ignored:
+        dropped.setdefault(b, []).insert(0, "<ignored by override>")
     print(f"    on a through road: {len(kept)}   excluded: {len(dropped)}")
     reasons = collections.Counter("|".join(v) for v in dropped.values())
     for reason, count in reasons.most_common():
@@ -145,7 +171,28 @@ def main() -> int:
         json.dump({str(k): v for k, v in sorted(dropped.items())}, fh, indent=2)
         fh.write("\n")
 
-    groups, aliases, bidirectional = booth_groups.group_booths(kept, args.plazas)
+    try:
+        groups, aliases, bidirectional = booth_groups.group_booths(
+            kept, args.plazas, forced=forced)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    # A gare stated by hand is consumed by step 5, but its target has to be a
+    # group representative and only this step knows the grouping.
+    misplaced = {b: assigned for b, assigned in
+                 ((b, aliases.get(b)) for b in sorted(ov.vinci))
+                 if assigned is not None and assigned != b}
+    absent = [b for b in sorted(ov.vinci) if b not in groups and b not in aliases]
+    if misplaced or absent:
+        for b, assigned in misplaced.items():
+            print(f"ERROR: override for booth {b}: vinci names a booth that the"
+                  f" grouping rules made a member of group {assigned}, so it is"
+                  f" not a group to attach a gare to", file=sys.stderr)
+        for b in absent:
+            print(f"ERROR: override for booth {b}: vinci names a booth that is"
+                  f" not in the inventory", file=sys.stderr)
+        return 1
 
     representatives = sorted(groups)
     alias_map = {b: rep for b, rep in sorted(aliases.items()) if b != rep}
