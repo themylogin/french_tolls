@@ -101,6 +101,9 @@ places:
   - name: "Port-Saint-Louis-du-Rhône"
     node_id: 26697713
     latlon: [43.3880925, 4.8033753]
+  - name: "Vernou-sur-Seine"
+    node_id: 26697739
+    latlon: [48.3889172, 2.8470169]
   - name: "Les Avenières"
     node_id: 26698058
     latlon: [45.6345889, 5.5629620]
@@ -2528,6 +2531,15 @@ routes:
       - node_id: 130368
       - node_id: 21670932
       - node_id: 1330238094
+  - from: 26697739
+    to: 8094383754
+    covers:
+      - node_id: 323144666
+      - node_id: 2408730611
+      - node_id: 18169277
+      - node_id: 143256
+      - node_id: 12608143
+      - node_id: 60314514
   - from: 26698058
     to: 8307598219
     covers:
@@ -5838,15 +5850,6 @@ routes:
     covers:
       - node_id: 692840226
       - node_id: 12736498447
-  - from: 4644093810
-    to: 8094383754
-    covers:
-      - node_id: 26188874
-      - node_id: 28126222
-      - node_id: 4422924493
-      - node_id: 143256
-      - node_id: 12608143
-      - node_id: 60314514
   - from: 4663434126
     to: 14040019399
     covers:

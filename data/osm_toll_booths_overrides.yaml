@@ -113,3 +113,6 @@ toll_booths:
 duplicate_gares:
   # Way: 294125300 is under construction
   - "04210"
+
+nodes_blacklist:
+  - 13461343964

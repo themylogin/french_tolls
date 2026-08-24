@@ -62,6 +62,7 @@ import requests
 import yaml
 
 import booth_groups
+import overrides
 
 PLACE_VALUES = ("city", "town", "village", "hamlet", "isolated_dwelling", "locality")
 
@@ -216,6 +217,9 @@ def angle_between(a, b):
 # --------------------------------------------------------------------------
 class Osrm:
     def __init__(self, base_url, workers=REQUEST_WORKERS):
+        # Cumulative across every wave, so a blacklist entry that never blocks
+        # anything is visible at the end as a stale override.
+        self.blocked = 0
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
         self.session.mount(
@@ -350,7 +354,8 @@ class Osrm:
             return None
         return payload.get("durations")
 
-    def cover_many(self, pairs, places, traversable, resolve, bidirectional):
+    def cover_many(self, pairs, places, traversable, resolve, bidirectional,
+                   blacklist=frozenset()):
         """Route each (from, to) pair; return {pair: (targets hit, in order)}.
 
         A target is (representative, approach). `approach` is the node the route
@@ -362,6 +367,11 @@ class Osrm:
         charges for the journey has to know which booth came first, and the
         router already reports its nodes in order -- a set would discard that
         for nothing. A target met twice keeps its first position.
+
+        A pair whose route touches a blacklisted node is dropped outright. Those
+        nodes are map defects -- a connection that is not there on the ground --
+        so the route is not one anyone can drive, and a route set that claimed
+        it would send every later step chasing a journey that cannot happen.
         """
         results = {}
 
@@ -369,6 +379,8 @@ class Osrm:
             nodes = self.route_nodes(places[pair[0]], places[pair[1]])
             if nodes is None:
                 return pair, None
+            if blacklist and not blacklist.isdisjoint(nodes):
+                return pair, False
             hits = {}  # ordered set: first traversal wins, insertion order kept
             prev = None
             for n in nodes:
@@ -387,7 +399,10 @@ class Osrm:
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as pool:
             for pair, covered in pool.map(work, pairs):
-                if covered:
+                # False is "blacklisted", None is "unroutable", () is "no booths".
+                if covered is False:
+                    self.blocked += 1
+                elif covered:
                     results[pair] = covered
         return results
 
@@ -878,7 +893,15 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="route set YAML")
     ap.add_argument("--uncovered", required=True, help="uncovered booth report JSON")
     ap.add_argument("--osrm", required=True, help="base URL of the OSRM instance")
+    ap.add_argument("--overrides", required=True,
+                    help="hand-maintained booth overrides YAML")
     args = ap.parse_args()
+
+    try:
+        ov = overrides.load(args.overrides)
+    except overrides.OverrideError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
     with open(args.booths, encoding="utf-8") as fh:
         inventory = yaml.safe_load(fh)
@@ -892,7 +915,7 @@ def main() -> int:
     resolve = {alias: entry["parent_id"] for alias, entry in aliases.items()}
     traversable = booths | set(aliases)
     bidirectional = {b for b, entry in inventory["toll_booths"].items()
-                     if entry.get("bidirectional")}
+                     if entry.get("type") == "bidirectional"}
     print(f"==> {len(booths)} booth groups ({len(aliases)} aliases) in the inventory,"
           f" {len(bidirectional)} of them two-way")
 
@@ -940,10 +963,15 @@ def main() -> int:
     existing = load_existing(args.out, places)
     if existing:
         print(f"==> resuming from {len(existing)} existing route(s)")
-        for pair, covered in osrm.cover_many(existing, places, traversable, resolve, bidirectional).items():
+        for pair, covered in osrm.cover_many(
+                existing, places, traversable, resolve, bidirectional,
+                ov.nodes_blacklist).items():
             selected[pair] = covered
             uncovered.difference_update(covered)
         tried.update(existing)
+        if osrm.blocked:
+            print(f"    dropped {osrm.blocked} existing route(s) through a"
+                  f" blacklisted node")
         dropped = len(existing) - len(selected)
         print(f"    kept {len(selected)}"
               + (f", dropped {dropped} that no longer cover anything" if dropped else "")
@@ -954,7 +982,8 @@ def main() -> int:
     pairs = wave_a_pairs(seeds)
     tried.update(pairs)
     print(f"    routing {len(pairs)} ordered pairs")
-    candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional)
+    candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional,
+                                        ov.nodes_blacklist)
     added = greedy_select(candidates, uncovered, selected)
     print(f"    +{added} routes, {len(targets) - len(uncovered)}/{len(targets)} covered")
 
@@ -988,7 +1017,8 @@ def main() -> int:
             tried.update(pairs)
             print(f"==> wave B {label(strategy)} round {rnd}: "
                   f"{len(batch)} groups, {len(pairs)} pairs ({len(pending)} pending)")
-            candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional)
+            candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional,
+                                        ov.nodes_blacklist)
             added = greedy_select(candidates, uncovered, selected)
             print(f"    +{added} routes, {len(targets) - len(uncovered)}/{len(targets)} covered")
         print(f"==> wave B {label(strategy)} exhausted; "
@@ -1018,7 +1048,8 @@ def main() -> int:
                 break
             tried.update(pairs)
             print(f"    round {rnd}: {len(batch)} groups, {len(pairs)} solved pair(s)")
-            candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional)
+            candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional,
+                                        ov.nodes_blacklist)
             added = greedy_select(candidates, uncovered, selected)
             print(f"    +{added} routes, {len(targets) - len(uncovered)}/{len(targets)} covered")
             if added == 0:
@@ -1049,6 +1080,13 @@ def main() -> int:
     print(f"    routes:    {len(routes)}")
     print(f"    places:    {len(referenced)}")
     print(f"    groups:    {len(booths)} ({len(bidirectional)} two-way)")
+    if ov.nodes_blacklist:
+        print(f"    blocked:   {osrm.blocked} candidate route(s) through"
+              f" {len(ov.nodes_blacklist)} blacklisted node(s)")
+        if not osrm.blocked:
+            print(f"    !! no route used any blacklisted node. Either the extract"
+                  f" already carries the fix -- in which case delete the entry --"
+                  f" or the ids are wrong.")
     print(f"    covered:   {len(union)}")
     print(f"    uncovered: {len(missing)}")
     print(f"    total:     {len(targets)} target(s)")

@@ -1,0 +1,707 @@
+#!/usr/bin/env python3
+"""Step 6 -- price the booth inventory from the operator's rate service.
+
+A gare code says which plaza a booth is; it does not say what it charges. The
+Ulys rate service takes a list of gare passages and answers with what that
+journey costs: one amount for a barrier passed in open flow, and one amount per
+entrance/exit pair for a closed section. Submitting the gares of each route in
+the route set therefore prices the inventory with no routing work at all.
+
+Everything the requests need is already committed. `data/route_set.yaml` gives
+the booths of each route in the order they are driven, and
+`data/vinci_toll_booth.yaml` gives each one's gare. So this is the only step
+that needs neither the OSRM graph nor the extract.
+
+The inventory is read too, for one field. Most booths hold one role for good: a
+barrier is always a barrier, and grouping gives an interchange's entry lanes and
+exit lanes separate groups. Two kinds do not, and the inventory's `type` names
+both -- a `bidirectional` booth is one group in both directions, and a `gantry`
+charges per section so it starts one when another follows and is a charge of its
+own when none does. Those keep the inventory's word for what they are and carry
+the charges of every role they were seen in.
+
+Passage order is load-bearing. The service pairs an entrance with the exit that
+follows it in the submitted list, and every passage carries the same date, so
+the order is the only thing that says which gare closed which ticket.
+
+Answers are attributed back by walking a cursor over the submitted passages in
+step with the returned items -- one passage for an item with an entrance alone,
+two for an item that also carries an exit. A gare code cannot do that job: a
+route may drive one gare twice, leaving and rejoining the road there.
+
+Strict where a wrong answer would look right. A returned item that does not line
+up with the passages, a booth whose role or price would change, and a covered
+booth with no gare and no override are all stop conditions. A booth left without
+a price is not: that means the route set offered no route to ask about, which is
+a gap in the route set rather than a disagreement with the operator, so it is
+reported and the step succeeds.
+
+Outputs:
+    <--out>  toll_booths (group -> {type, price | prices}), routes
+"""
+
+import argparse
+import collections
+import decimal
+import json
+import os
+import sys
+import time
+
+import requests
+import yaml
+
+import overrides
+
+RATE_URL = "https://api-ulys.azure-api.net/tollstation/v1/rate"
+
+# Sent by the VINCI Autoroutes route planner. The service rejects a bare request.
+RATE_HEADERS = {
+    "Accept": "*/*",
+    "Content-Type": "application/json; charset=utf-8",
+    "Origin": "https://www.vinci-autoroutes.com",
+    "Referer": "https://www.vinci-autoroutes.com/",
+    "x-calling-product": "SITE-VA-V2",
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/151.0.0.0 Safari/537.36"
+    ),
+}
+
+# One class and one payment option, so the output describes one tariff and needs
+# no dimension for either. Category 1 is the ordinary light vehicle.
+VEHICLE_CATEGORY = 1
+PAYMENT_OPTION = 2
+
+MIN_REQUEST_INTERVAL_S = 1.0
+MAX_ATTEMPTS = 5
+KEY_ENV = "ULYS_SUBSCRIPTION_KEY"
+DATE_ENV = "ULYS_PASSAGE_DATE"
+PROGRESS_EVERY = 25
+
+PASSTHROUGH, ENTER, EXIT = "passthrough", "enter", "exit"
+
+# Two kinds of booth hold no single role, and the inventory names both.
+#
+# A `bidirectional` booth is one group in both directions -- grouping separates
+# opposite directions by way of one-way restrictions, and a two-way lane has
+# none. It is an entrance to a journey driven one way and an exit to the same
+# journey driven the other.
+#
+# A `gantry` is a free-flow point charging per section travelled. It starts a
+# section when another gantry follows on the same journey, and is a charge of
+# its own when none does -- so the same gantry is an entrance on one route and a
+# standalone charge on the next.
+#
+# Either way the role belongs to the journey, not to the booth, so the entry
+# keeps the inventory's own word for what the booth is and carries the charges
+# of every role it was seen in.
+BIDIRECTIONAL, GANTRY = "bidirectional", "gantry"
+ROLE_FREE = (BIDIRECTIONAL, GANTRY)
+TYPES = (PASSTHROUGH, ENTER, EXIT, *ROLE_FREE)
+
+# The two that make a route unaskable. Half a pair cannot be submitted, and
+# leaving it out would hand the other half to a partner nobody drove to -- the
+# service would answer, and the answer would be a real tariff for a journey that
+# never happened. A barrier is a whole item on its own and drops out harmlessly.
+BLOCKING_ABSENT = ("absent_enter", "absent_exit")
+
+CENTS = decimal.Decimal(100)
+
+
+class Abort(Exception):
+    """A response that does not line up, or a booth that changed. Never guessed past."""
+
+
+# --------------------------------------------------------------------------
+# Money
+# --------------------------------------------------------------------------
+
+def to_cents(value, where):
+    """Whole cents from a decimal amount.
+
+    Amounts are compared, and binary floating point would make 6.80 differ from
+    itself for reasons that have nothing to do with tolls.
+    """
+    try:
+        amount = decimal.Decimal(str(value))
+    except (decimal.InvalidOperation, TypeError):
+        raise Abort(f"{where}: {value!r} is not an amount")
+    cents = amount * CENTS
+    if cents != cents.to_integral_value():
+        raise Abort(f"{where}: {value!r} is finer than a cent")
+    return int(cents)
+
+
+def to_euros(cents):
+    """The number written to the file. 680 -> 6.8, never 6.800000000000001."""
+    return float(decimal.Decimal(cents) / CENTS)
+
+
+# --------------------------------------------------------------------------
+# Inputs
+# --------------------------------------------------------------------------
+
+def check_code(code, where):
+    """Gare codes are five digits, leading zeros included."""
+    code = str(code)
+    if len(code) != 5 or not code.isdigit():
+        raise Abort(f"{where}: {code!r} is not a five-digit gare code")
+    return code
+
+
+def split_code(code):
+    """('04', '801') from '04801'. The request wants the halves, the response the whole."""
+    return code[:2], code[2:]
+
+
+def load_gares(path):
+    """group -> gare code, from the gare mapping."""
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    return {int(group): check_code(entry["id"], f"gare of booth {group}")
+            for group, entry in (doc.get("toll_booths") or {}).items()}
+
+
+def load_inventory_types(path):
+    """Group -> the inventory's `type`, for the groups that carry one.
+
+    A one-way lane carries none. The two that exist -- `bidirectional` and
+    `gantry` -- are the two kinds of booth whose role is a property of the
+    journey rather than of the booth, and they name the price file's type
+    directly.
+    """
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    out = {}
+    for group, entry in (doc.get("toll_booths") or {}).items():
+        kind = (entry or {}).get("type")
+        if kind is None:
+            continue
+        if kind not in ROLE_FREE:
+            raise Abort(f"{path}: booth {group} carries unknown type {kind!r};"
+                        f" expected one of {', '.join(ROLE_FREE)}")
+        out[int(group)] = kind
+    return out
+
+
+def load_routes(path):
+    """The route set's routes, `covers` order preserved."""
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    return doc.get("routes") or []
+
+
+def load_state(path):
+    """Resume state: booth -> record, processed pairs."""
+    if not os.path.exists(path):
+        return {}, []
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    booths = {}
+    for group, entry in (doc.get("toll_booths") or {}).items():
+        where = f"{path}: booth {group}"
+        if entry.get("type") not in TYPES:
+            raise Abort(f"{where}: unknown type {entry.get('type')!r};"
+                        f" expected one of {', '.join(TYPES)}")
+        record = {"type": entry["type"]}
+        if "price" in entry:
+            record["price"] = to_cents(entry["price"], where)
+        if "prices" in entry:
+            record["prices"] = {
+                check_code(code, where): to_cents(amount, f"{where} -> {code}")
+                for code, amount in (entry["prices"] or {}).items()}
+        booths[int(group)] = record
+    done = [(r["from"], r["to"]) for r in (doc.get("routes") or [])]
+    return booths, done
+
+
+def write_state(path, booths, done):
+    """Ascending group ids, ascending gare codes, so a rerun that learns nothing diffs empty."""
+    out = {}
+    for group in sorted(booths):
+        record = booths[group]
+        entry = {"type": record["type"]}
+        if "price" in record:
+            entry["price"] = to_euros(record["price"])
+        if "prices" in record:
+            entry["prices"] = {code: to_euros(record["prices"][code])
+                               for code in sorted(record["prices"])}
+        out[group] = entry
+    doc = {"toll_booths": out,
+           "routes": [{"from": a, "to": b} for a, b in sorted(done)]}
+    tmp = path + ".part"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(doc, fh, default_flow_style=False, sort_keys=False,
+                       width=100, allow_unicode=True)
+    os.replace(tmp, path)
+
+
+# --------------------------------------------------------------------------
+# Service
+# --------------------------------------------------------------------------
+
+class Rates:
+    """Ulys rate client: one request per second, five attempts, one thread."""
+
+    def __init__(self, key, passage_date):
+        self.session = requests.Session()
+        self.headers = dict(RATE_HEADERS, **{"Ocp-Apim-Subscription-Key": key})
+        self.passage_date = passage_date
+        self._last = 0.0
+        self.requests_made = 0
+
+    def _throttle(self):
+        wait = MIN_REQUEST_INTERVAL_S - (time.monotonic() - self._last)
+        if wait > 0:
+            time.sleep(wait)
+
+    def body(self, codes):
+        passages = []
+        for code in codes:
+            operator, toll = split_code(code)
+            passages.append({"toll": {"operatorId": operator, "tollId": toll},
+                             "passageDate": self.passage_date})
+        return {"vehicleCategory": VEHICLE_CATEGORY,
+                "paymentOption": PAYMENT_OPTION,
+                "tollPassages": passages}
+
+    def rate(self, codes):
+        last_error = None
+        for attempt in range(MAX_ATTEMPTS):
+            if attempt:
+                # Backoff exceeds the one-per-second floor on its own.
+                time.sleep(2.0 ** attempt)
+            self._throttle()
+            self._last = time.monotonic()
+            self.requests_made += 1
+            try:
+                resp = self.session.post(
+                    RATE_URL, headers=self.headers,
+                    data=json.dumps(self.body(codes)).encode("utf-8"),
+                    timeout=180,
+                )
+                resp.raise_for_status()
+                # Decimal, not float: these numbers are compared.
+                payload = resp.json(parse_float=decimal.Decimal)
+            except Exception as exc:  # noqa: BLE001 - retry every transport failure
+                last_error = exc
+                continue
+            if not isinstance(payload, list):
+                last_error = f"expected a list, got {type(payload).__name__}"
+                continue
+            return payload
+        raise Abort(f"rate service failed after {MAX_ATTEMPTS} attempts: {last_error}")
+
+
+# --------------------------------------------------------------------------
+# Requests and answers
+# --------------------------------------------------------------------------
+
+def passages_for(route, gares, ov):
+    """[(group, gare code)] in driven order, or None when the route is unaskable.
+
+    A booth the operator does not carry has no passage to send. Which of the two
+    that means depends on how a route meets it, and the override file is what
+    says: half a pair makes the whole route unaskable, a barrier drops out.
+    """
+    passages = []
+    for cover in route["covers"]:
+        group = cover["node_id"]
+        if group in gares:
+            passages.append((group, gares[group]))
+            continue
+        absent = ov.absent.get(group)
+        if absent in BLOCKING_ABSENT:
+            return None, group
+        if absent is not None or group in ov.ignored:
+            continue
+        raise Abort(
+            f"booth {group} is covered by route {route['from']} -> {route['to']}"
+            f" and has neither a gare nor an override saying why\n"
+            f"       Run build_vinci_toll_booths, or regenerate the route set if"
+            f" an override has since removed the booth.")
+    return passages, None
+
+
+def code_of(item, field, route):
+    toll = item.get(field)
+    if not isinstance(toll, dict) or "code" not in toll:
+        raise Abort(f"rate item carries no {field}.code\n"
+                    f"       route: {route['from']} -> {route['to']}\n"
+                    f"       item:  {item!r}")
+    # `code` and not operatorId/tollId: the response reports those as integers
+    # and has already dropped the leading zeros the request and the mapping use.
+    return check_code(toll["code"], f"{field} of a rate item")
+
+
+def describe(passages, start=0):
+    return ", ".join(f"{code}({group})" for group, code in passages[start:]) or "none"
+
+
+def attribute(items, passages, route):
+    """(charges, unpriced passages) for one route.
+
+    The cursor walks the submitted passages in step with the returned items. It
+    is what lets one gare be driven twice on one route without either passage
+    being mistaken for the other.
+    """
+    charges, unpriced, cursor = [], [], 0
+    for item in items:
+        entrance = code_of(item, "entranceToll", route)
+        start = cursor
+        while cursor < len(passages) and passages[cursor][1] != entrance:
+            cursor += 1
+        if cursor >= len(passages):
+            raise Abort(
+                f"rate item names an entrance no remaining passage carries\n"
+                f"       route:     {route['from']} -> {route['to']}\n"
+                f"       entrance:  {entrance}\n"
+                f"       remaining: {describe(passages, start)}")
+        # Passages the cursor stepped over were sent and not priced.
+        unpriced.extend(passages[start:cursor])
+        consumed = [passages[cursor]]
+        cursor += 1
+
+        exit_passage = None
+        if item.get("exitToll") is not None:
+            exit_code = code_of(item, "exitToll", route)
+            if cursor >= len(passages) or passages[cursor][1] != exit_code:
+                following = (describe(passages, cursor) if cursor < len(passages)
+                             else "none")
+                raise Abort(
+                    f"rate item's exit does not follow its entrance\n"
+                    f"       route:     {route['from']} -> {route['to']}\n"
+                    f"       entrance:  {entrance}\n"
+                    f"       exit:      {exit_code}\n"
+                    f"       remaining: {following}")
+            exit_passage = passages[cursor]
+            consumed.append(exit_passage)
+            cursor += 1
+
+        # An item with no amount is the service saying it has no tariff for that
+        # passage -- `comments` carries "No rate found." It answers, so it is not
+        # a malformed response; there is simply nothing to record. The passages
+        # it consumed are reported alongside the ones it stepped over.
+        if item.get("price") is None:
+            unpriced.extend(consumed)
+            continue
+
+        cents = to_cents(item["price"], f"price of {entrance} on route "
+                                        f"{route['from']} -> {route['to']}")
+        if exit_passage is None:
+            charges.append((PASSTHROUGH, consumed[0][0], None, cents))
+        else:
+            charges.append((ENTER, consumed[0][0],
+                            (exit_passage[0], exit_passage[1]), cents))
+
+    unpriced.extend(passages[cursor:])
+    return charges, unpriced
+
+
+def apply_charges(charges, booths, inventory_types, route):
+    """Fold one route's charges in, or raise having changed nothing.
+
+    Every check runs against the committed state plus what this route has staged
+    so far, and the staged values are written only once all of them pass. So an
+    abort leaves `booths` exactly as it found it, which is what lets --survey
+    skip a route and carry on with a state that is still true.
+    """
+    types, open_flow, pairs = {}, {}, {}
+
+    def role(group, kind):
+        """The role this group holds, checked against the one it already has.
+
+        A group the inventory typed holds no role of its own -- it is an
+        entrance one way and an exit the other, or a section start on one
+        journey and a charge of its own on the next -- so its type is the
+        inventory's and a role that changes says nothing is wrong. For a plain
+        one-way lane a role that changes says grouping merged an entry side with
+        an exit side, which is worth stopping for.
+        """
+        if group in inventory_types:
+            kind = inventory_types[group]
+        current = types.get(group) or (booths.get(group) or {}).get("type")
+        if current is None:
+            types[group] = kind
+        elif current != kind:
+            raise Abort(
+                f"booth {group} is recorded as {current} and this route"
+                f" reports {kind}\n"
+                f"       route: {route['from']} -> {route['to']}")
+
+    for kind, entrance, exit_pair, cents in charges:
+        if kind is PASSTHROUGH:
+            role(entrance, PASSTHROUGH)
+            recorded = (booths.get(entrance) or {}).get(
+                "price", open_flow.get(entrance))
+            if recorded is not None and recorded != cents:
+                raise Abort(
+                    f"booth {entrance} is recorded at {to_euros(recorded)} and"
+                    f" this route reports {to_euros(cents)}\n"
+                    f"       route: {route['from']} -> {route['to']}")
+            open_flow[entrance] = cents
+            continue
+
+        exit_group, exit_code = exit_pair
+        role(entrance, ENTER)
+        role(exit_group, EXIT)
+        key = (entrance, exit_code)
+        recorded = ((booths.get(entrance) or {}).get("prices") or {}).get(
+            exit_code, pairs.get(key))
+        if recorded is not None and recorded != cents:
+            raise Abort(
+                f"booth {entrance} -> gare {exit_code} is recorded at"
+                f" {to_euros(recorded)} and this route reports"
+                f" {to_euros(cents)}\n"
+                f"       route: {route['from']} -> {route['to']}")
+        pairs[key] = cents
+
+    # Every check passed, so the route is recorded in one go.
+    for group, kind in types.items():
+        booths.setdefault(group, {"type": kind})
+    for group, cents in open_flow.items():
+        booths[group]["price"] = cents
+    for (entrance, exit_code), cents in pairs.items():
+        booths[entrance].setdefault("prices", {})[exit_code] = cents
+
+
+# --------------------------------------------------------------------------
+# Report
+# --------------------------------------------------------------------------
+
+def table(head, rows, right=()):
+    """The bordered table the rest of the pipeline prints its reports as."""
+    if not rows:
+        return []
+    width = [max(len(r[i]) for r in (*rows, head)) for i in range(len(head))]
+
+    def rule(left, mid, sep):
+        return "  " + left + mid.join("─" * (w + 2) for w in width) + sep
+
+    def row(cells):
+        return "  │ " + " │ ".join(
+            cell.rjust(width[i]) if i in right else cell.ljust(width[i])
+            for i, cell in enumerate(cells)) + " │"
+
+    return [rule("┌", "┬", "┐"), row(head),
+            rule("├", "┼", "┤"),
+            *(row(r) for r in rows), rule("└", "┴", "┘")]
+
+
+def unpriced_report(routes, booths, gares, ov, skipped, done_pairs, crossings):
+    """Every covered booth with no entry, and which of the four reasons it is.
+
+    Each reason wants a different remedy: an override for a booth the operator
+    does not carry, a route for one the skipped routes stranded, another run for
+    one whose routes are still outstanding, and a look at the service for one it
+    was asked about and did not price.
+    """
+    covered = {c["node_id"] for r in routes for c in r["covers"]}
+    askable = {c["node_id"] for r in routes
+               if (r["from"], r["to"]) not in skipped for c in r["covers"]}
+    asked = {c["node_id"] for r in routes
+             if (r["from"], r["to"]) in done_pairs for c in r["covers"]}
+    rows = []
+    for group in sorted(covered - set(booths) - ov.ignored):
+        if group not in gares:
+            reason = f"no gare ({ov.absent.get(group, 'and no override')})"
+        elif group not in askable:
+            reason = "covered only by skipped routes"
+        elif group not in asked:
+            reason = "its routes are still outstanding"
+        else:
+            reason = "asked about, never priced"
+        rows.append((str(group), gares.get(group, "-"), str(crossings[group]),
+                     reason))
+    return rows
+
+
+# --------------------------------------------------------------------------
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--route-set", required=True, help="route set YAML")
+    ap.add_argument("--booths", required=True,
+                    help="booth inventory YAML, read for the booth `type`")
+    ap.add_argument("--gares", required=True, help="gare mapping YAML from step 5")
+    ap.add_argument("--overrides", required=True, help="hand-maintained booth overrides YAML")
+    ap.add_argument("--out", required=True, help="price file YAML")
+    ap.add_argument("--limit", type=int, metavar="N",
+                    help="diagnostic: stop after N outstanding routes")
+    ap.add_argument("--survey", metavar="PATH",
+                    help="diagnostic: on a stop condition, record it to PATH, skip "
+                         "that route, and keep going. The skipped route is not "
+                         "marked processed and none of its charges are recorded, "
+                         "so a later strict run still meets it.")
+    args = ap.parse_args()
+
+    key = os.environ.get(KEY_ENV, "").strip()
+    if not key:
+        print(f"ERROR: {KEY_ENV} is unset or empty.\n"
+              f"       Set it in .env; see .env.example for where to read it from.",
+              file=sys.stderr)
+        return 1
+    passage_date = os.environ.get(DATE_ENV, "").strip()
+    if not passage_date:
+        print(f"ERROR: {DATE_ENV} is unset or empty.\n"
+              f"       Set it in .env; see .env.example for what the value means.",
+              file=sys.stderr)
+        return 1
+
+    try:
+        ov = overrides.load(args.overrides)
+    except overrides.OverrideError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    routes = load_routes(args.route_set)
+    inventory_types = load_inventory_types(args.booths)
+    try:
+        gares = load_gares(args.gares)
+        booths, done = load_state(args.out)
+    except Abort as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    crossings = collections.Counter(c["node_id"] for r in routes for c in r["covers"])
+    print(f"==> {len(routes)} routes, {len(crossings)} covered booth group(s),"
+          f" {len(gares)} with a gare,"
+          f" {sum(1 for g in crossings if g in inventory_types)} typed by the inventory")
+    print(f"    passage date {passage_date}, vehicle category"
+          f" {VEHICLE_CATEGORY}, payment option {PAYMENT_OPTION}")
+
+    # Which routes are askable is settled before anything is sent, so the count
+    # printed below is the count that will actually be requested.
+    plans, skipped = {}, {}
+    try:
+        for route in routes:
+            passages, blocker = passages_for(route, gares, ov)
+            if passages is None:
+                skipped[(route["from"], route["to"])] = blocker
+            else:
+                plans[(route["from"], route["to"])] = passages
+    except Abort as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    done_pairs = set(done)
+    outstanding = [r for r in routes
+                   if (r["from"], r["to"]) in plans
+                   and (r["from"], r["to"]) not in done_pairs]
+    if args.limit is not None:
+        outstanding = outstanding[:args.limit]
+    print(f"    {len(skipped)} route(s) not askable, {len(done_pairs)} already"
+          f" processed, {len(outstanding)} outstanding")
+
+    unpriced_by_route, commented, violations = [], [], []
+    started = time.monotonic()
+    client = None
+
+    if outstanding:
+        client = Rates(key, passage_date)
+        try:
+            for n, route in enumerate(outstanding, 1):
+                pair = (route["from"], route["to"])
+                passages = plans[pair]
+                items = client.rate([code for _, code in passages])
+                try:
+                    charges, unpriced = attribute(items, passages, route)
+                    apply_charges(charges, booths, inventory_types, route)
+                except Abort as exc:
+                    if not args.survey:
+                        raise
+                    violations.append({"from": route["from"], "to": route["to"],
+                                       "report": str(exc)})
+                    print(f"    !! route {route['from']} -> {route['to']} would"
+                          f" stop the run ({len(violations)} so far)")
+                    continue
+                if unpriced:
+                    unpriced_by_route.append((pair, unpriced))
+                for item in items:
+                    if item.get("comments"):
+                        commented.append((pair, item))
+                # Recorded only now: the route is processed in full, so an
+                # interruption costs at most this one route.
+                done.append(pair)
+                write_state(args.out, booths, done)
+                if n % PROGRESS_EVERY == 0 or n == len(outstanding):
+                    elapsed = time.monotonic() - started
+                    print(f"    {n}/{len(outstanding)} routes,"
+                          f" {len(booths)} booths priced,"
+                          f" {client.requests_made} requests,"
+                          f" {elapsed / 60:.1f} min")
+        except Abort as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+    else:
+        print("    no routes to query")
+
+    # A price the operator does not publish but a human has measured. Written
+    # here so a consumer reads one file rather than two. A booth with no stated
+    # price gets no entry -- there is nothing to say about it.
+    stated = 0
+    for group, amount in sorted(ov.price.items()):
+        if group not in crossings:
+            continue
+        kind = inventory_types.get(group, PASSTHROUGH)
+        booths.setdefault(group, {"type": kind})["price"] = to_cents(
+            amount, f"stated price of booth {group}")
+        stated += 1
+    write_state(args.out, booths, done)
+
+    kinds = collections.Counter(r["type"] for r in booths.values())
+    pairs = sum(len(r.get("prices") or {}) for r in booths.values())
+    print(f"==> {len(booths)} booth group(s) priced:"
+          f" {kinds[PASSTHROUGH]} passthrough, {kinds[ENTER]} enter,"
+          f" {kinds[EXIT]} exit, {kinds[BIDIRECTIONAL]} bidirectional,"
+          f" {kinds[GANTRY]} gantry; {pairs} pair price(s)")
+    print(f"    {stated} price(s) stated by hand")
+    print(f"    {len(done)} route(s) processed"
+          + (f", {client.requests_made} requests" if client else "")
+          + f", {(time.monotonic() - started) / 60:.1f} min")
+
+    if skipped:
+        print(f"\n    {len(skipped)} route(s) not submitted: a booth they cross"
+              f" is half of a closed section the operator does not carry, and"
+              f" dropping one passage would mis-pair the rest.")
+        for line in table(
+                ("from", "to", "booth", "override"),
+                [(str(a), str(b), str(g), ov.absent[g])
+                 for (a, b), g in sorted(skipped.items())]):
+            print(line)
+
+    if unpriced_by_route:
+        total = sum(len(u) for _, u in unpriced_by_route)
+        print(f"\n    {total} passage(s) on {len(unpriced_by_route)} route(s)"
+              f" were submitted and not priced:")
+        for line in table(
+                ("from", "to", "passages"),
+                [(str(a), str(b), describe(u))
+                 for (a, b), u in unpriced_by_route]):
+            print(line)
+
+    if commented:
+        print(f"\n    {len(commented)} rate item(s) carried comments:")
+        for (a, b), item in commented:
+            print(f"      {a} -> {b}: {item.get('comments')!r}")
+
+    if args.survey:
+        with open(args.survey, "w", encoding="utf-8") as fh:
+            json.dump(violations, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        print(f"\n    survey: {len(violations)} route(s) would have stopped the"
+              f" run -- see {args.survey}")
+
+    rows = unpriced_report(routes, booths, gares, ov, set(skipped), set(done),
+                           crossings)
+    if rows:
+        print(f"\n    {len(rows)} covered booth group(s) have no price:")
+        for line in table(("booth", "gare", "routes", "reason"), rows, right=(2,)):
+            print(line)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

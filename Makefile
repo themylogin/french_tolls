@@ -2,14 +2,16 @@
 #
 #   make all   -> download_pbf -> setup_osrm -> build_osm_toll_booths
 #                 -> build_route_set -> build_vinci_toll_booths
+#                 -> build_vinci_prices
 #
 # The first four steps are skipped when their output is already in place.
 # Skipping is existence-based, not timestamp-based: prerequisites are declared
 # order-only (the `|` in the rules below) so re-touching an upstream file never
 # triggers a fresh half-hour of OSRM preprocessing.
 #
-# The fifth step is resumable rather than skipped: it always runs, reads its own
-# output to see what is left, and does nothing when that output is complete.
+# The fifth and sixth steps are resumable rather than skipped: each always runs,
+# reads its own output to see what is left, and does nothing when that output is
+# complete. The sixth needs no OSRM graph at all.
 #
 # All work runs in containers. The host needs only Docker, Compose, and coreutils.
 
@@ -33,6 +35,7 @@ ROUTE_SET    := $(DATA_DIR)/route_set.yaml
 UNCOVERED    := $(DATA_DIR)/uncovered_booths.json
 EXCLUDED     := $(DATA_DIR)/excluded_booths.json
 VINCI        := $(DATA_DIR)/vinci_toll_booth.yaml
+PRICES       := $(DATA_DIR)/vinci_price.yaml
 
 OSRM_DIR   := $(strip $(OSRM_OPTIMAL_PATH))
 OSRM_BASE  := $(OSRM_DIR)/france-latest
@@ -61,11 +64,12 @@ RUN_BUILDER := $(COMPOSE) run --rm --user $(HOST_USER) builder
 RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-tools
 
 .PHONY: all download_pbf setup_osrm build_osm_toll_booths build_route_set \
-        build_vinci_toll_booths guard-osrm-path guard-ulys-key update_route_set \
+        build_vinci_toll_booths build_vinci_prices guard-osrm-path \
+        guard-ulys-key guard-ulys-passage-date update_route_set \
         clean clean-osrm
 
 all: download_pbf setup_osrm build_osm_toll_booths build_route_set \
-     build_vinci_toll_booths
+     build_vinci_toll_booths build_vinci_prices
 
 # --------------------------------------------------------------------------
 # Configuration guard
@@ -93,6 +97,17 @@ guard-ulys-key:
 	    echo "ERROR: ULYS_SUBSCRIPTION_KEY is unset or empty."; \
 	    echo "       Copy .env.example to .env and set it; see the comment there"; \
 	    echo "       for where to read the key from."; \
+	    exit 1; \
+	fi
+
+# Checked before step 6 does any work, for the same reason: one date prices the
+# whole file, so discovering it is missing after 700 requests would mean
+# discarding all of them.
+guard-ulys-passage-date:
+	@if [ -z "$(strip $(ULYS_PASSAGE_DATE))" ]; then \
+	    echo "ERROR: ULYS_PASSAGE_DATE is unset or empty."; \
+	    echo "       Copy .env.example to .env and set it; see the comment there"; \
+	    echo "       for what the value means."; \
 	    exit 1; \
 	fi
 
@@ -187,6 +202,7 @@ $(ROUTE_SET): | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
 	    --snap /data/endpoint_snap.json \
 	    --out /data/route_set.yaml \
 	    --uncovered /data/uncovered_booths.json \
+	    --overrides /data/osm_toll_booths_overrides.yaml \
 	    --osrm http://osrm-optimal:5000
 
 # Extend an existing route set after the inventory changes. Unlike the four
@@ -203,6 +219,7 @@ update_route_set: guard-osrm-path | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
 	    --snap /data/endpoint_snap.json \
 	    --out /data/route_set.yaml \
 	    --uncovered /data/uncovered_booths.json \
+	    --overrides /data/osm_toll_booths_overrides.yaml \
 	    --osrm http://osrm-optimal:5000
 
 # --------------------------------------------------------------------------
@@ -228,9 +245,38 @@ build_vinci_toll_booths: guard-osrm-path guard-ulys-key | $(ROUTE_SET) $(BUILDER
 	    $(VINCI_ARGS)
 
 # --------------------------------------------------------------------------
-# Builder image (internal prerequisite -- not one of the five steps)
+# Step 6 -- build_vinci_prices
 # --------------------------------------------------------------------------
-$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py builder/overrides.py
+# Resumable like step 5, and always executes for the same reason.
+#
+# The only step that needs neither the OSRM graph nor the extract: it builds
+# every request from data/route_set.yaml and data/vinci_toll_booth.yaml, both
+# committed. So it never starts osrm-optimal. guard-osrm-path stays all the
+# same -- the builder service bind-mounts $(OSRM_DIR), so an unset path breaks
+# the mount before the script gets a chance to run.
+build_vinci_prices: guard-osrm-path guard-ulys-key guard-ulys-passage-date \
+                    | $(ROUTE_SET) $(VINCI) $(BUILDER_STAMP)
+	@echo "==> build_vinci_prices: $(PRICES)"
+	$(RUN_BUILDER) python3 build_vinci_prices.py \
+	    --route-set /data/route_set.yaml \
+	    --booths /data/osm_toll_booths.yaml \
+	    --gares /data/vinci_toll_booth.yaml \
+	    --overrides /data/osm_toll_booths_overrides.yaml \
+	    --out /data/vinci_price.yaml \
+	    $(PRICE_ARGS)
+
+# Step 5 is phony and resumable, so it has no file target for step 6 to depend
+# on. This rule supplies one. It fires only when the mapping is absent, so a
+# tree that already has it never re-enters step 5 and never starts the routing
+# service -- which is what keeps step 6 independent of OSRM. Whether a mapping
+# that exists is complete is step 5's business, not step 6's.
+$(VINCI):
+	$(MAKE) build_vinci_toll_booths
+
+# --------------------------------------------------------------------------
+# Builder image (internal prerequisite -- not one of the six steps)
+# --------------------------------------------------------------------------
+$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py builder/build_vinci_prices.py builder/overrides.py
 	@mkdir -p $(DATA_DIR)
 	$(COMPOSE) build builder
 	@touch $@
@@ -239,8 +285,8 @@ $(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/bu
 # Housekeeping
 # --------------------------------------------------------------------------
 clean:
-	rm -f $(BOOTHS) $(ROUTE_SET) $(UNCOVERED) $(EXCLUDED) $(VINCI) $(FILTERED_PBF) $(PLAZAS) \
-	      $(NO_ACCESS) $(SNAP) $(BUILDER_STAMP)
+	rm -f $(BOOTHS) $(ROUTE_SET) $(UNCOVERED) $(EXCLUDED) $(VINCI) $(PRICES) \
+	      $(FILTERED_PBF) $(PLAZAS) $(NO_ACCESS) $(SNAP) $(BUILDER_STAMP)
 
 # Drops the ~25 GB graph. The extract in data/ is kept.
 clean-osrm: guard-osrm-path

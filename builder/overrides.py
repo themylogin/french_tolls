@@ -13,6 +13,10 @@ from a fresh extract every time -- a node can be retagged, deleted, or
 renumbered upstream. An override that no longer matches anything is worse than
 none at all, because it looks like the exception is handled when it is not.
 
+    nodes_blacklist:
+      # the D28 is joined to the A71 through the L'Arverne service area
+      - 13461343964
+
     toll_booths:
       14061571392:
         # toll booth in vinci is displaced
@@ -69,7 +73,7 @@ KEYS = ("type", "parent_id", "vinci", "price")
 # Top-level sections. Enumerated for the same reason the type values are: a
 # mistyped section name would otherwise be read as an empty one and every entry
 # under it would vanish without a word.
-SECTIONS = ("toll_booths", "duplicate_gares")
+SECTIONS = ("toll_booths", "duplicate_gares", "nodes_blacklist")
 
 
 class OverrideError(Exception):
@@ -80,7 +84,8 @@ class Overrides:
     """ignored booths, forced group parents, and gares stated by hand."""
 
     def __init__(self, ignored=None, forced=None, vinci=None, absent=None,
-                 price=None, isolated=None, duplicate_gares=None):
+                 price=None, isolated=None, duplicate_gares=None,
+                 nodes_blacklist=None):
         self.ignored = ignored or set()
         self.forced = forced or {}
         self.vinci = vinci or {}
@@ -92,17 +97,25 @@ class Overrides:
         # let a driver go straight on is missing or unbuilt, the detour back
         # through the same gare is the real fastest route and is charged twice.
         self.duplicate_gares = duplicate_gares or set()
+        # OSM nodes a route may not pass through. Each one is a defect in the
+        # map -- a connection that does not exist on the ground -- so a route
+        # using it is not a route anyone can drive, and the route set must not
+        # claim it. A bridge until the extract carries the upstream fix, not a
+        # routing preference.
+        self.nodes_blacklist = nodes_blacklist or set()
 
     def __bool__(self):
         return bool(self.ignored or self.forced or self.vinci or self.absent
-                    or self.isolated or self.duplicate_gares)
+                    or self.isolated or self.duplicate_gares
+                    or self.nodes_blacklist)
 
     def summary(self):
         return (f"{len(self.ignored)} ignored, {len(self.absent)} absent from the"
                 f" operator, {len(self.forced)} forced into a group,"
                 f" {len(self.isolated)} kept out of every group,"
                 f" {len(self.vinci)} gare(s) stated by hand,"
-                f" {len(self.duplicate_gares)} gare(s) payable twice")
+                f" {len(self.duplicate_gares)} gare(s) payable twice,"
+                f" {len(self.nodes_blacklist)} node(s) blacklisted")
 
 
 def load(path):
@@ -132,6 +145,18 @@ def load(path):
                 raise OverrideError(
                     f"duplicate_gares: {value!r} is not an operator number")
             duplicate_gares.add(str(value))
+
+    nodes_blacklist = set()
+    listed = doc.get("nodes_blacklist")
+    if listed is not None:
+        if not isinstance(listed, list):
+            raise OverrideError(
+                f"nodes_blacklist must be a list, got {type(listed).__name__}")
+        for value in listed:
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise OverrideError(
+                    f"nodes_blacklist: {value!r} is not an OSM node id")
+            nodes_blacklist.add(value)
 
     ignored, forced, vinci, absent, price, isolated = set(), {}, {}, {}, {}, set()
     for node_id, entry in sorted(entries.items()):
@@ -214,7 +239,7 @@ def load(path):
                 f"override for booth {child}: parent_id names {target}, which"
                 f" states parent_id: null and so has no group to join")
     return Overrides(ignored, forced, vinci, absent, price, isolated,
-                     duplicate_gares)
+                     duplicate_gares, nodes_blacklist)
 
 
 def check_against_extract(ov, booths):

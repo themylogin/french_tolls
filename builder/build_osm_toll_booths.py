@@ -130,6 +130,7 @@ class Collector(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
         self.booths = {}  # node id -> (lat, lon)
+        self.gantry = set()  # node ids tagged highway=toll_gantry
         self.places = {}  # node id -> (lat, lon, name or None)
 
     def node(self, n):
@@ -144,6 +145,8 @@ class Collector(osmium.SimpleHandler):
         if is_booth:
             # A node carrying both booth tags is still one booth.
             self.booths[n.id] = loc
+            if tags.get("highway") == "toll_gantry":
+                self.gantry.add(n.id)
         if is_place and loc is not None:
             self.places[n.id] = (loc[0], loc[1], tags.get("name"))
 
@@ -246,14 +249,31 @@ def main() -> int:
               f" cannot be published: {missing[:5]}", file=sys.stderr)
         return 1
 
-    # `bidirectional` marks a booth a route can drive through either way, which
+    # `type` records what makes a booth charge differently from a plain one-way
+    # lane. A lane a route drives one way only carries no type at all.
+    #
+    # `bidirectional` is a booth a route can drive through either way, which
     # makes it two tolls rather than one. Position alone cannot show that, and a
     # consumer needs it to know the booth is two coverage targets.
+    #
+    # `gantry` is a free-flow point -- a portal over the carriageway rather than
+    # a lane a car stops in. It charges per section travelled, so one gantry
+    # starts a section when another follows on the same journey and is a charge
+    # of its own when none does. Nothing but the OSM tag says which booths work
+    # that way, and a consumer cannot tell from the charge alone.
+    both = sorted(collector.gantry & bidirectional)
+    if both:
+        print(f"ERROR: {len(both)} booth(s) are a gantry and two-way at once,"
+              f" and `type` holds one value: {both[:5]}", file=sys.stderr)
+        return 1
+
     def entry(node_id):
         lat, lon = located[node_id]
         out = {"latlon": LatLon([round(lat, 7), round(lon, 7)])}
-        if node_id in bidirectional:
-            out["bidirectional"] = True
+        if node_id in collector.gantry:
+            out["type"] = "gantry"
+        elif node_id in bidirectional:
+            out["type"] = "bidirectional"
         return out
 
     booths_out = {i: entry(i) for i in representatives}
