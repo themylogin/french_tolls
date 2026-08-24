@@ -351,12 +351,17 @@ class Osrm:
         return payload.get("durations")
 
     def cover_many(self, pairs, places, traversable, resolve, bidirectional):
-        """Route each (from, to) pair; return {pair: frozenset(targets hit)}.
+        """Route each (from, to) pair; return {pair: (targets hit, in order)}.
 
         A target is (representative, approach). `approach` is the node the route
         arrived from for a booth a car can drive through either way, and None
         otherwise: passing such a gare northbound does not pay the southbound
         toll, so the two directions are separate things to cover.
+
+        Targets come back in the order the route drives them. A consumer that
+        charges for the journey has to know which booth came first, and the
+        router already reports its nodes in order -- a set would discard that
+        for nothing. A target met twice keeps its first position.
         """
         results = {}
 
@@ -364,7 +369,7 @@ class Osrm:
             nodes = self.route_nodes(places[pair[0]], places[pair[1]])
             if nodes is None:
                 return pair, None
-            hits = set()
+            hits = {}  # ordered set: first traversal wins, insertion order kept
             prev = None
             for n in nodes:
                 if n in traversable:
@@ -374,11 +379,11 @@ class Osrm:
                         # No predecessor means the route starts on the booth, so
                         # there is no direction to record and nothing to claim.
                         if prev is not None:
-                            hits.add((rep, prev))
+                            hits.setdefault((rep, prev), None)
                     else:
-                        hits.add((rep, None))
+                        hits.setdefault((rep, None), None)
                 prev = n
-            return pair, frozenset(hits)
+            return pair, tuple(hits)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as pool:
             for pair, covered in pool.map(work, pairs):
@@ -742,17 +747,20 @@ def greedy_select(candidates, uncovered, selected):
     heap is genuinely the best.
     """
     added = 0
-    gains = {pair: len(cov & uncovered) for pair, cov in candidates.items()}
+    # Candidate covers are ordered sequences; which one to take is a set
+    # question, so each is indexed as a set once rather than on every compare.
+    sets = {pair: set(cov) for pair, cov in candidates.items()}
+    gains = {pair: len(sets[pair] & uncovered) for pair in candidates}
     while True:
         pair = max(gains, key=lambda p: gains[p], default=None)
         if pair is None or gains[pair] == 0:
             break
-        actual = len(candidates[pair] & uncovered)
+        actual = len(sets[pair] & uncovered)
         if actual < gains[pair]:
             gains[pair] = actual  # stale bound; re-compete
             continue
         selected[pair] = candidates[pair]
-        uncovered -= candidates[pair]
+        uncovered -= sets[pair]
         del gains[pair]
         added += 1
     return added
@@ -800,8 +808,10 @@ def target_key(target):
 
 
 def write_route_set(path, selected, places):
+    # Routes are ordered by endpoint for a stable diff; `covers` is not, because
+    # its order is the order the route drives them and is part of the contract.
     routes = [
-        {"from": a, "to": b, "covers": sorted(cov, key=target_key)}
+        {"from": a, "to": b, "covers": list(cov)}
         for (a, b), cov in sorted(selected.items())
     ]
     referenced = sorted({r["from"] for r in routes} | {r["to"] for r in routes})
@@ -932,7 +942,7 @@ def main() -> int:
         print(f"==> resuming from {len(existing)} existing route(s)")
         for pair, covered in osrm.cover_many(existing, places, traversable, resolve, bidirectional).items():
             selected[pair] = covered
-            uncovered -= covered
+            uncovered.difference_update(covered)
         tried.update(existing)
         dropped = len(existing) - len(selected)
         print(f"    kept {len(selected)}"
