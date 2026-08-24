@@ -160,7 +160,14 @@ The system SHALL write the booth inventory to `data/osm_toll_booths.yaml` as a m
 
 Every entry, representative and alias alike, SHALL carry `latlon`, a two-element list holding **that node's own** position in latitude, longitude order. An alias SHALL NOT repeat its representative's position: consumers match against individual lanes, and the members of one group are a median of 15 metres and up to several hundred metres apart.
 
-An entry SHALL carry `bidirectional: true` when its booth lies on a through road the car profile can traverse in both directions. The key SHALL be absent otherwise. Such a booth is two tolls rather than one, and a consumer cannot tell that from position alone.
+An entry SHALL carry `type` when its booth charges differently from a plain one-way lane, and SHALL NOT carry it otherwise. Two values exist:
+
+- **`bidirectional`** — the booth lies on a through road the car profile can traverse in both directions. Such a booth is two tolls rather than one, and it is an entrance to a journey driven one way and an exit to the same journey driven the other.
+- **`gantry`** — the booth is tagged `highway=toll_gantry`, a portal over the carriageway rather than a lane a car stops in. A free-flow point charges per section travelled, so it starts a section when another gantry follows on the same journey and is a charge of its own when none does.
+
+Both say the same thing: the role this booth plays belongs to the journey, not to the booth. A consumer cannot infer either from position or from a charge, and both change how the booth is priced.
+
+A booth SHALL NOT be both. `type` holds one value, so a booth that qualified as both would silently lose one, and the step SHALL stop rather than write it.
 
 Keys under both `toll_booths` and `aliases` SHALL be written in ascending numeric order and without duplicates, so that regenerating an unchanged inventory produces an unchanged file.
 
@@ -170,7 +177,10 @@ toll_booths:
     latlon: [48.3955158, 1.3849458]
   81055576:
     latlon: [49.0371990, 0.4416040]
-    bidirectional: true
+    type: bidirectional
+  11578487423:
+    latlon: [46.5164141, 3.4689468]
+    type: gantry
 aliases:
   13380044:
     parent_id: 13380042
@@ -210,12 +220,22 @@ aliases:
 #### Scenario: A bidirectional booth is flagged
 
 - **WHEN** a booth lies on a slip road tagged `oneway=no`
-- **THEN** its entry carries `bidirectional: true`, and it is a representative with no aliases
+- **THEN** its entry carries `type: bidirectional`, and it is a representative with no aliases
+
+#### Scenario: A gantry is typed
+
+- **WHEN** a booth is tagged `highway=toll_gantry`
+- **THEN** its entry carries `type: gantry`
 
 #### Scenario: A one-way booth carries no flag
 
-- **WHEN** a booth lies only on one-way ways
-- **THEN** its entry has no `bidirectional` key
+- **WHEN** a booth lies only on one-way ways and is not a gantry
+- **THEN** its entry has no `type` key
+
+#### Scenario: A booth cannot hold two types
+
+- **WHEN** a booth is tagged `highway=toll_gantry` and also lies on a two-way through road
+- **THEN** the step stops and names it, rather than writing one type and dropping the other
 
 #### Scenario: Regenerating is stable
 
@@ -306,11 +326,13 @@ The system SHALL derive both the booth inventory and the endpoint candidates fro
 
 The extraction step SHALL read `data/osm_toll_booths_overrides.yaml`, a hand-maintained input recording decisions that no rule can derive from the extract. A missing file SHALL be treated as an empty set of overrides.
 
-The file SHALL be a mapping with two permitted top-level keys. `toll_booths` holds decisions about individual booths, keyed by OSM node id; an entry SHALL carry at least one of `type`, `parent_id`, `vinci`, or `price`. `duplicate_gares` holds operator numbers of gares that one route may legitimately pay twice.
+The file SHALL be a mapping with three permitted top-level keys. `toll_booths` holds decisions about individual booths, keyed by OSM node id; an entry SHALL carry at least one of `type`, `parent_id`, `vinci`, or `price`. `duplicate_gares` holds operator numbers of gares that one route may legitimately pay twice. `nodes_blacklist` holds OSM node ids a route may not pass through.
 
-A top-level key that is neither SHALL stop the step. A mistyped section name would otherwise read as an absent section, and every entry beneath it would be dropped without a word.
+A top-level key that is none of the three SHALL stop the step. A mistyped section name would otherwise read as an absent section, and every entry beneath it would be dropped without a word.
 
 Operator numbers in `duplicate_gares` SHALL be compared as strings. They carry leading zeros, which YAML reads away when the value is unquoted, so `04210` and `"04210"` SHALL name the same gare.
+
+`nodes_blacklist` SHALL be a list of integer node ids. Each entry states that the map is wrong at that node — a connection that is not there on the ground — so a route the router builds through it is not one a car can drive. It is a bridge until the extract carries the upstream fix, not a routing preference, and each entry SHALL record what is wrong and be removed once the fix lands.
 
 ```yaml
 toll_booths:
@@ -333,9 +355,13 @@ toll_booths:
 duplicate_gares:
   # the road that would let a driver carry on is not built yet
   - "04210"
+
+nodes_blacklist:
+  # the D28 is joined to the A71 through the L'Arverne service area
+  - 13461343964
 ```
 
-Different steps consume different keys. `type: ignore` and `parent_id` decide what the inventory contains and are applied by the extraction step; `vinci`, the `absent_*` types, `price`, and `duplicate_gares` are consumed by the gare mapping step. Editing one of the first kind therefore requires rebuilding the inventory before the effect is visible.
+Different steps consume different keys. `type: ignore` and `parent_id` decide what the inventory contains and are applied by the extraction step; `nodes_blacklist` is consumed by the route search; `vinci`, the `absent_*` types, `price`, and `duplicate_gares` are consumed by the gare mapping step, and `price` again by the pricing step. Editing one of the first kind therefore requires rebuilding the inventory before the effect is visible.
 
 #### Scenario: Overrides are read
 
@@ -359,7 +385,7 @@ Different steps consume different keys. `type: ignore` and `parent_id` decide wh
 
 #### Scenario: An unknown top-level section
 
-- **WHEN** the file carries a top-level key other than `toll_booths` or `duplicate_gares`
+- **WHEN** the file carries a top-level key other than `toll_booths`, `duplicate_gares`, or `nodes_blacklist`
 - **THEN** the step stops and names it, rather than silently ignoring everything under it
 
 #### Scenario: A gare number written without quotes
@@ -371,6 +397,16 @@ Different steps consume different keys. `type: ignore` and `parent_id` decide wh
 
 - **WHEN** `duplicate_gares` carries something other than a list
 - **THEN** the step stops and names what it found
+
+#### Scenario: nodes_blacklist is not a list
+
+- **WHEN** `nodes_blacklist` carries something other than a list
+- **THEN** the step stops and names what it found
+
+#### Scenario: A blacklisted node id is not an integer
+
+- **WHEN** `nodes_blacklist` lists a value that is not an integer node id
+- **THEN** the step stops and names it
 
 ### Requirement: An ignored booth is treated as absent
 

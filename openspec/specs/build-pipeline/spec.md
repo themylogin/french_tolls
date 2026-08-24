@@ -1,7 +1,7 @@
 # build-pipeline Specification
 
 ## Purpose
-Defines the four-step build pipeline that turns a Geofabrik extract into a toll booth inventory and a covering route set, including how the steps are invoked, when they are skipped, and how the project is laid out and configured.
+Defines the six-step build pipeline that turns a Geofabrik extract into a toll booth inventory, a covering route set, and a priced inventory, including how the steps are invoked, when they are skipped or resumed, and how the project is laid out and configured.
 
 ## Requirements
 
@@ -93,14 +93,14 @@ The pipeline SHALL define a long-running OSRM query service named `osrm-optimal`
 - **WHEN** `docker compose up` is run
 - **THEN** the query service starts and the one-shot preprocessing containers do not
 
-### Requirement: Five named build steps
+### Requirement: Six named build steps
 
-The pipeline SHALL expose exactly five named steps — `download_pbf`, `setup_osrm`, `build_osm_toll_booths`, `build_route_set`, and `build_vinci_toll_booths` — each individually invocable, and SHALL provide an `all` target that runs them in that order.
+The pipeline SHALL expose exactly six named steps — `download_pbf`, `setup_osrm`, `build_osm_toll_booths`, `build_route_set`, `build_vinci_toll_booths`, and `build_vinci_prices` — each individually invocable, and SHALL provide an `all` target that runs them in that order.
 
 #### Scenario: Running the whole pipeline
 
 - **WHEN** `make all` is run in a clean checkout
-- **THEN** the five steps execute in the order `download_pbf`, `setup_osrm`, `build_osm_toll_booths`, `build_route_set`, `build_vinci_toll_booths`
+- **THEN** the six steps execute in the order `download_pbf`, `setup_osrm`, `build_osm_toll_booths`, `build_route_set`, `build_vinci_toll_booths`, `build_vinci_prices`
 
 #### Scenario: Running a single step
 
@@ -112,6 +112,11 @@ The pipeline SHALL expose exactly five named steps — `download_pbf`, `setup_os
 - **WHEN** `make build_vinci_toll_booths` is run
 - **THEN** that step runs, along with any earlier step whose output is missing
 
+#### Scenario: Running the pricing step alone
+
+- **WHEN** `make build_vinci_prices` is run
+- **THEN** that step runs, along with any earlier step whose output is missing
+
 ### Requirement: Steps do not repeat completed work
 
 No step SHALL repeat work it has already completed. A step SHALL establish that in one of two ways.
@@ -120,7 +125,7 @@ A **checkpointed** step SHALL be skipped when its output is already in place. Sk
 
 A **resumable** step SHALL always execute, and SHALL read its own output to determine what remains. Such a step SHALL record each unit of work only once that unit is complete, so an interrupted run repeats at most one unit. A resumable step SHALL perform no work and SHALL contact no external service when its output is already complete.
 
-A step SHALL be resumable only when its work divides into units that are individually cheap to repeat and expensive to lose. `build_vinci_toll_booths` is resumable; every other step is checkpointed.
+A step SHALL be resumable only when its work divides into units that are individually cheap to repeat and expensive to lose. `build_vinci_toll_booths` and `build_vinci_prices` are resumable; every other step is checkpointed.
 
 #### Scenario: Re-running a completed pipeline
 
@@ -152,6 +157,11 @@ A step SHALL be resumable only when its work divides into units that are individ
 - **WHEN** `make all` is run and `data/vinci_toll_booth.yaml` already covers every route
 - **THEN** the step executes, finds nothing outstanding, and finishes without issuing a request
 
+#### Scenario: The pricing step resumes
+
+- **WHEN** `build_vinci_prices` fails partway through
+- **THEN** the next run submits only the routes its output does not already record
+
 ### Requirement: The gare service subscription key is configured via .env
 
 The subscription key for the toll operator's placemark service SHALL be read from an `.env` file as `ULYS_SUBSCRIPTION_KEY` and SHALL be passed into the builder container through the Compose service's `environment` declaration. Exporting the variable on the host is not sufficient on its own: a container receives only the variables Compose declares for it.
@@ -175,9 +185,11 @@ The pipeline SHALL fail with a clear message naming the missing variable when `U
 - **WHEN** the tracked files are inspected
 - **THEN** no subscription key value appears in them, and `.env.example` names the variable with no value
 
-### Requirement: One step requires network access at run time
+### Requirement: Two steps require network access at run time
 
-The gare mapping step SHALL be the only step other than `download_pbf` that requires network access. Every other step SHALL continue to run offline once the extract is present.
+The gare mapping step and the pricing step SHALL be the only steps other than `download_pbf` that require network access. Every other step SHALL continue to run offline once the extract is present.
+
+The pricing step SHALL NOT require the routing service. It derives its input from `data/route_set.yaml` and `data/vinci_toll_booth.yaml`, so it runs with the OSRM graph absent.
 
 #### Scenario: Offline run of the derivation steps
 
@@ -188,3 +200,31 @@ The gare mapping step SHALL be the only step other than `download_pbf` that requ
 
 - **WHEN** `build_vinci_toll_booths` is run with outstanding routes and no network available
 - **THEN** it fails with a message naming the unreachable service, and leaves its output valid for a later resume
+
+#### Scenario: Pricing without network
+
+- **WHEN** `build_vinci_prices` is run with outstanding routes and no network available
+- **THEN** it fails with a message naming the unreachable service, and leaves its output valid for a later resume
+
+#### Scenario: Pricing without the routing service
+
+- **WHEN** `build_vinci_prices` is run with outstanding routes and the OSRM instance stopped
+- **THEN** it completes normally
+
+### Requirement: The tariff date is configured via .env
+
+The timestamp submitted with every toll passage SHALL be read from an `.env` file as `ULYS_PASSAGE_DATE` and SHALL be passed into the builder container through the Compose service's `environment` declaration.
+
+`.env.example` SHALL name the variable with a value, since it is a configuration choice rather than a secret.
+
+The pipeline SHALL fail with a clear message naming the missing variable when `ULYS_PASSAGE_DATE` is unset or empty, before the pricing step issues any request.
+
+#### Scenario: Configured date reaches the container
+
+- **WHEN** `.env` sets `ULYS_PASSAGE_DATE` and the pricing step runs
+- **THEN** the value is visible inside the builder container and appears on every submitted passage
+
+#### Scenario: Date is not configured
+
+- **WHEN** `ULYS_PASSAGE_DATE` is unset or empty and the pricing step is run
+- **THEN** the pipeline stops with a message naming the missing variable, before any request is issued
