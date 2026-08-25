@@ -35,9 +35,9 @@
 
 ## 6. Regenerate downstream
 
-- [ ] 6.1 Re-run the OSRM setup with the patched profile and record the wall clock
-- [ ] 6.2 Re-run the route set; record routes, coverage and uncovered against the previous 781 / 1334 / 8, and account for any change
-- [ ] 6.3 Re-run the gare mapping and the pricing step; verify both accept the new route set and record what they ask for
-- [ ] 6.4 Re-run the booth sides; verify all 47 booths still settle, and compare against the previous 45 entrance/exit and 2 barrier
-- [ ] 6.5 Rebuild the rejection database and re-run the direct pricing step under `--survey`; verify no finding is a blacklisted route, and record what became of the 335
-- [ ] 6.6 Verify the final `data/vinci_price.yaml` reloads under step 6's `load_state` without an `Abort`
+- [x] 6.1 Re-run the OSRM setup with the patched profile and record the wall clock — 8m51s for extract, partition and customize, all 9 nodes impassable. A first attempt was OOM-killed at 20% because it reused files from the old graph; task 3.3 fixes that
+- [x] 6.2 Re-run the route set; record routes, coverage and uncovered against the previous 781 / 1334 / 8, and account for any change — 781 routes, 755 places, 1334/1342 covered, 8 uncovered — identical to before, and 0 of 781 routes changed their covers. No selected route ever used a blacklisted node; only candidates did
+- [x] 6.3 Re-run the gare mapping and the pricing step; verify both accept the new route set and record what they ask for — both accept the new route set with 0 outstanding and 0 requests
+- [x] 6.4 Re-run the booth sides; verify all 47 booths still settle, and compare against the previous 45 entrance/exit and 2 barrier — 45 entrance/exit, 2 barrier, 0 unsettled — unchanged. 4 347 admitted observations against 4 333, with no blacklist filter left
+- [x] 6.5 Rebuild the rejection database and re-run the direct pricing step under `--survey`; verify no finding is a blacklisted route, and record what became of the 335 — 238 451 routed, 238 412 rejected (238 395 by a booth, 17 by a wrong side), 39 priced, 39 requests, 8.5 min. 0 findings — the 335 blacklisted-route stops are gone and nothing replaced them
+- [x] 6.6 Verify the final `data/vinci_price.yaml` reloads under step 6's `load_state` without an `Abort` — 1267 booths, 774 routes, 23 290 prices, no wrong-typed entry, no exit carrying extras

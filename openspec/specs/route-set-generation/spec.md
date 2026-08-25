@@ -329,34 +329,6 @@ The reachability measurement for the candidate catalogue SHALL be persisted and 
 - **WHEN** the route set step runs with no persisted record present
 - **THEN** it measures the catalogue and writes the record before searching
 
-### Requirement: A route through a blacklisted node is never selected
-
-The override file MAY list OSM node ids under `nodes_blacklist`. A candidate route whose node sequence includes any of them SHALL be discarded: it SHALL NOT be selected, SHALL NOT count towards coverage, and an existing route that uses one SHALL be dropped when the route set is extended.
-
-Each entry states that the map is wrong at that node — a connection that is not there on the ground. A route using it is not one a car can drive, so a route set that recorded it would send every later step chasing a journey that cannot happen. The list is a bridge until the extract carries the upstream fix, not a routing preference.
-
-The system SHALL report how many candidate routes the blacklist discarded, and SHALL warn when it discarded none, since that means the entries are stale or wrong.
-
-#### Scenario: A candidate through a blacklisted node is discarded
-
-- **WHEN** a candidate route's node sequence includes a blacklisted node
-- **THEN** it is not selected, and the booths it would have covered stay uncovered
-
-#### Scenario: An existing route through a blacklisted node is dropped
-
-- **WHEN** the route set is extended and a route already in it passes a node added to the blacklist since
-- **THEN** that route is dropped from the route set
-
-#### Scenario: The blacklist is reported
-
-- **WHEN** the route set step completes with a non-empty blacklist
-- **THEN** it reports how many candidate routes were discarded
-
-#### Scenario: A blacklist that blocks nothing is called out
-
-- **WHEN** the route set step completes and no candidate used any blacklisted node
-- **THEN** it warns that the entries are stale or wrong
-
 ### Requirement: The route search does not classify booth sides
 
 The route search SHALL NOT attempt to tell a two-way booth's sides apart.

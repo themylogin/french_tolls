@@ -322,92 +322,6 @@ The system SHALL derive both the booth inventory and the endpoint candidates fro
 - **WHEN** the booth extraction step runs with the PBF already present and no network available
 - **THEN** the step completes successfully and produces the inventory
 
-### Requirement: Hand-maintained booth overrides
-
-The extraction step SHALL read `data/osm_toll_booths_overrides.yaml`, a hand-maintained input recording decisions that no rule can derive from the extract. A missing file SHALL be treated as an empty set of overrides.
-
-The file SHALL be a mapping with three permitted top-level keys. `toll_booths` holds decisions about individual booths, keyed by OSM node id; an entry SHALL carry at least one of `type`, `parent_id`, `vinci`, or `price`. `duplicate_gares` holds operator numbers of gares that one route may legitimately pay twice. `nodes_blacklist` holds OSM node ids a route may not pass through.
-
-A top-level key that is none of the three SHALL stop the step. A mistyped section name would otherwise read as an absent section, and every entry beneath it would be dropped without a word.
-
-Operator numbers in `duplicate_gares` SHALL be compared as strings. They carry leading zeros, which YAML reads away when the value is unquoted, so `04210` and `"04210"` SHALL name the same gare.
-
-`nodes_blacklist` SHALL be a list of integer node ids. Each entry states that the map is wrong at that node — a connection that is not there on the ground — so a route the router builds through it is not one a car can drive. It is a bridge until the extract carries the upstream fix, not a routing preference, and each entry SHALL record what is wrong and be removed once the fix lands.
-
-```yaml
-toll_booths:
-  # weird layout. a real route will never go through this booth
-  14061571393:
-    type: ignore
-  # exit through the service roads, not currently supported by scripts
-  13719126553:
-    parent_id: 635884768
-  # toll booth in vinci is displaced
-  14061571392:
-    vinci:
-      id: 12010
-      name: SEES
-  # not carried by the operator at all
-  1391610490:
-    type: absent_passthrough
-    price: 1.4
-
-duplicate_gares:
-  # the road that would let a driver carry on is not built yet
-  - "04210"
-
-nodes_blacklist:
-  # the D28 is joined to the A71 through the L'Arverne service area
-  - 13461343964
-```
-
-Different steps consume different keys. `type: ignore` and `parent_id` decide what the inventory contains and are applied by the extraction step; `nodes_blacklist` is consumed by the route search; `vinci`, the `absent_*` types, `price`, and `duplicate_gares` are consumed by the gare mapping step, and `price` again by the pricing step. Editing one of the first kind therefore requires rebuilding the inventory before the effect is visible.
-
-#### Scenario: Overrides are read
-
-- **WHEN** the extraction step runs with the override file present
-- **THEN** it applies the entries in that file before writing the inventory
-
-#### Scenario: No override file
-
-- **WHEN** `data/osm_toll_booths_overrides.yaml` does not exist
-- **THEN** the step runs as though it were empty, rather than failing
-
-#### Scenario: An entry carries no key at all
-
-- **WHEN** an entry is empty
-- **THEN** the step stops and names that entry
-
-#### Scenario: An unknown key
-
-- **WHEN** an entry carries a key other than `type`, `parent_id`, `vinci`, or `price`
-- **THEN** the step stops and names the entry and the key
-
-#### Scenario: An unknown top-level section
-
-- **WHEN** the file carries a top-level key other than `toll_booths`, `duplicate_gares`, or `nodes_blacklist`
-- **THEN** the step stops and names it, rather than silently ignoring everything under it
-
-#### Scenario: A gare number written without quotes
-
-- **WHEN** `duplicate_gares` lists `04210` unquoted, which YAML reads as an integer
-- **THEN** it still names gare `04210`, with the leading zero intact
-
-#### Scenario: duplicate_gares is not a list
-
-- **WHEN** `duplicate_gares` carries something other than a list
-- **THEN** the step stops and names what it found
-
-#### Scenario: nodes_blacklist is not a list
-
-- **WHEN** `nodes_blacklist` carries something other than a list
-- **THEN** the step stops and names what it found
-
-#### Scenario: A blacklisted node id is not an integer
-
-- **WHEN** `nodes_blacklist` lists a value that is not an integer node id
-- **THEN** the step stops and names it
-
 ### Requirement: An ignored booth is treated as absent
 
 A booth whose override is `type: ignore` SHALL be removed from the pipeline entirely. It SHALL NOT be grouped, SHALL NOT appear in the inventory as a representative or an alias, and SHALL NOT become a coverage target.
@@ -689,3 +603,55 @@ The field is a work list for step 4 and carries no meaning of its own. What the 
 
 - **WHEN** the step runs
 - **THEN** it reads no extract it did not already read to group the booths
+
+### Requirement: Hand-maintained booth decisions
+
+The extraction step SHALL read `data/osm_toll_booths_overrides.yaml`, a hand-maintained input recording decisions that no rule can derive from the extract. A missing file SHALL be treated as an empty set of overrides.
+
+The file SHALL be a mapping with two permitted top-level keys. `toll_booths` holds decisions about individual booths, keyed by OSM node id; an entry SHALL carry at least one of `type`, `parent_id`, `vinci`, or `price`. `duplicate_gares` holds operator numbers of gares that one route may legitimately pay twice.
+
+A top-level key that is neither of the two SHALL stop the step. A mistyped section name would otherwise read as an absent section, and every entry beneath it would be dropped without a word.
+
+Operator numbers in `duplicate_gares` SHALL be compared as strings. They carry leading zeros, which YAML reads away when the value is unquoted, so `04210` and `"04210"` SHALL name the same gare.
+
+Blacklisted nodes are not booth overrides and SHALL NOT appear here. They describe the road graph rather than any booth, they are enforced by the routing profile, and `build-pipeline` gives them a file of their own.
+
+#### Scenario: Overrides are read
+
+- **WHEN** the extraction step runs with the override file present
+- **THEN** it applies the entries in that file before writing the inventory
+
+#### Scenario: No override file
+
+- **WHEN** `data/osm_toll_booths_overrides.yaml` does not exist
+- **THEN** the step runs as though it were empty, rather than failing
+
+#### Scenario: An entry carries no key at all
+
+- **WHEN** an entry is empty
+- **THEN** the step stops and names that entry
+
+#### Scenario: An unknown key
+
+- **WHEN** an entry carries a key other than `type`, `parent_id`, `vinci`, or `price`
+- **THEN** the step stops and names the entry and the key
+
+#### Scenario: An unknown top-level section
+
+- **WHEN** the file carries a top-level key other than `toll_booths` or `duplicate_gares`
+- **THEN** the step stops and names it, rather than silently ignoring everything under it
+
+#### Scenario: A leftover nodes_blacklist section stops the step
+
+- **WHEN** the file still carries a `nodes_blacklist` key
+- **THEN** the step stops and names it, as it would any unknown section
+
+#### Scenario: A gare number written without quotes
+
+- **WHEN** `duplicate_gares` lists `04210` unquoted, which YAML reads as an integer
+- **THEN** it still names gare `04210`, with the leading zero intact
+
+#### Scenario: duplicate_gares is not a list
+
+- **WHEN** `duplicate_gares` carries something other than a list
+- **THEN** the step stops and names what it found

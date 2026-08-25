@@ -167,22 +167,6 @@ The system SHALL stop, naming the pair, when the routing service returns no rout
 - **WHEN** the routing service answers a pair with a code other than `Ok`
 - **THEN** the step stops and names the source group and the target group
 
-### Requirement: A route through a blacklisted node stops the step
-
-The system SHALL read the override file's `nodes_blacklist` and SHALL stop, naming the pair and the node, when a route traverses one of those nodes.
-
-A blacklisted node is a connection that does not exist on the ground. A route using one is not a route anyone can drive, so whether it crosses a booth says nothing about whether the pair is a ticket. Rejecting the pair would bury that among ordinary rejections; pricing it would record a tariff for a journey nobody can make.
-
-#### Scenario: A route uses a blacklisted node
-
-- **WHEN** the route between a source and a target traverses a node listed in `nodes_blacklist`
-- **THEN** the step stops and names the source group, the target group, and the node
-
-#### Scenario: Nothing is recorded for a blacklisted route
-
-- **WHEN** the step stops on a blacklisted route
-- **THEN** that pair is absent from `data/vinci_price.yaml` and from the rejection database
-
 ### Requirement: A price that would change stops the step
 
 The system SHALL stop, naming the pair and both amounts, when the amount returned for a pair differs from one `data/vinci_price.yaml` already records for it. Amounts SHALL be compared exactly, in whole cents.

@@ -57,29 +57,6 @@ Booth targets alone cannot settle a booth. Booths sit on the motorway, so the ro
 - **WHEN** a booth is probed with booth targets only
 - **THEN** its free side receives no observation and the booth does not settle
 
-### Requirement: An observation counts only when nothing lies between
-
-An observation SHALL be admitted only when the route traverses the booth, and no other booth group lies between the booth and the target.
-
-The side observed SHALL be the node immediately after the booth when routing away from it, and the node immediately before it when routing towards it.
-
-A route touching a node the override file blacklists SHALL be discarded. Such a route uses a connection that is not there on the ground, so what it reaches says nothing.
-
-#### Scenario: A booth in between voids the observation
-
-- **WHEN** a route from the booth to its target crosses a third booth
-- **THEN** the observation is discarded
-
-#### Scenario: A blacklisted route is discarded
-
-- **WHEN** a route touches a node listed in `nodes_blacklist`
-- **THEN** the observation is discarded
-
-#### Scenario: The side is the node beside the booth
-
-- **WHEN** a route leaves the booth by node D on its way to a target
-- **THEN** the observation is about D
-
 ### Requirement: What each target says about the side
 
 An admitted observation SHALL settle the side as follows:
@@ -172,3 +149,26 @@ The file SHALL NOT be written by any other step, and no other step's output SHAL
 
 - **WHEN** the step runs again against unchanged inputs
 - **THEN** the result is byte-identical
+
+### Requirement: An observation counts only when no booth lies between
+
+An observation SHALL be admitted only when the route traverses the booth, and no other booth group lies between the booth and the target.
+
+The side observed SHALL be the node immediately after the booth when routing away from it, and the node immediately before it when routing towards it.
+
+The step SHALL NOT filter observations against a node blacklist. The routing profile makes a blacklisted node impassable, so a route over one is never returned, and a filter here would imply otherwise.
+
+#### Scenario: A booth in between voids the observation
+
+- **WHEN** a route from the booth to its target crosses a third booth
+- **THEN** the observation is discarded
+
+#### Scenario: No route can use a blacklisted node
+
+- **WHEN** the probe runs
+- **THEN** no returned route traverses a blacklisted node, and none is discarded for doing so
+
+#### Scenario: The side is the node beside the booth
+
+- **WHEN** a route leaves the booth by node D on its way to a target
+- **THEN** the observation is about D
