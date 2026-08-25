@@ -33,4 +33,10 @@
 /data/endpoint_snap.json
 /data/price_survey.json
 
+# The rejection database is a measurement, not a deliverable: 260k routing
+# decisions taken against the OSRM graph, which stays out of the repository.
+# Carrying it here would commit a result no one could check. Rebuilding costs
+# ~7 min of routing.
+/data/vinci_routes_rejected.sqlite3
+
 __pycache__/

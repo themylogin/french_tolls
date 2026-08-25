@@ -6760,7 +6760,6 @@ routes:
     to: 3064314890
     covers:
       - node_id: 1581498325
-        prev_node_id: 2199932045
       - node_id: 664688045
   - from: 7319316100
     to: 11615136165

@@ -2,16 +2,21 @@
 #
 #   make all   -> download_pbf -> setup_osrm -> build_osm_toll_booths
 #                 -> build_route_set -> build_vinci_toll_booths
-#                 -> build_vinci_prices
+#                 -> build_vinci_prices -> build_booth_sides
+#                 -> build_vinci_direct_prices
 #
 # The first four steps are skipped when their output is already in place.
 # Skipping is existence-based, not timestamp-based: prerequisites are declared
 # order-only (the `|` in the rules below) so re-touching an upstream file never
 # triggers a fresh half-hour of OSRM preprocessing.
 #
-# The fifth and sixth steps are resumable rather than skipped: each always runs,
-# reads its own output to see what is left, and does nothing when that output is
-# complete. The sixth needs no OSRM graph at all.
+# Steps 5, 6 and 8 are resumable rather than skipped: each always runs, reads its
+# own output to see what is left, and does nothing when that output is complete.
+# Step 7 is checkpointed like the first four -- its work divides into no units
+# worth keeping, and a whole run is two minutes.
+#
+# The sixth needs no OSRM graph at all. The seventh needs the graph and no key;
+# the eighth needs both.
 #
 # All work runs in containers. The host needs only Docker, Compose, and coreutils.
 
@@ -34,12 +39,22 @@ SNAP         := $(DATA_DIR)/endpoint_snap.json
 ROUTE_SET    := $(DATA_DIR)/route_set.yaml
 UNCOVERED    := $(DATA_DIR)/uncovered_booths.json
 EXCLUDED     := $(DATA_DIR)/excluded_booths.json
+BLACKLIST    := $(DATA_DIR)/nodes_blacklist.yaml
 VINCI        := $(DATA_DIR)/vinci_toll_booth.yaml
 PRICES       := $(DATA_DIR)/vinci_price.yaml
+SIDES        := $(DATA_DIR)/bidirectional_booth_sides.yaml
+REJECTED     := $(DATA_DIR)/vinci_routes_rejected.sqlite3
 
 OSRM_DIR   := $(strip $(OSRM_OPTIMAL_PATH))
 OSRM_BASE  := $(OSRM_DIR)/france-latest
 OSRM_STAMP := $(OSRM_DIR)/.setup.stamp
+
+# The routing profile, copied out of the image and patched so that the nodes in
+# $(BLACKLIST) are impassable. `lib/` comes across too: car.lua requires it, and
+# osrm-extract resolves those requires relative to the profile it is given.
+PROFILE_DIR  := $(OSRM_DIR)/profile
+PROFILE      := $(PROFILE_DIR)/car.lua
+PROFILE_ORIG := $(PROFILE_DIR)/car.lua.orig
 
 # Marker for the builder image. Kept under data/ so it is git-ignored and is
 # removed by `make clean` along with everything else the pipeline produces.
@@ -64,12 +79,14 @@ RUN_BUILDER := $(COMPOSE) run --rm --user $(HOST_USER) builder
 RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-tools
 
 .PHONY: all download_pbf setup_osrm build_osm_toll_booths build_route_set \
-        build_vinci_toll_booths build_vinci_prices guard-osrm-path \
-        guard-ulys-key guard-ulys-passage-date update_route_set \
-        clean clean-osrm
+        build_vinci_toll_booths build_vinci_prices build_booth_sides \
+        build_vinci_direct_prices \
+        guard-osrm-path guard-ulys-key guard-ulys-passage-date \
+        update_route_set clean clean-osrm
 
 all: download_pbf setup_osrm build_osm_toll_booths build_route_set \
-     build_vinci_toll_booths build_vinci_prices
+     build_vinci_toll_booths build_vinci_prices build_booth_sides \
+     build_vinci_direct_prices
 
 # --------------------------------------------------------------------------
 # Configuration guard
@@ -137,7 +154,35 @@ setup_osrm: guard-osrm-path $(OSRM_STAMP)
 	@echo "==> setup_osrm: $(OSRM_STAMP)"
 
 # Order-only on the extract: presence is required, modification time is not.
-$(OSRM_STAMP): | $(PBF)
+#
+# Every previous `.osrm.*` file is removed before anything is built. Until the
+# blacklist made this step re-runnable it effectively ran once, so a partial
+# graph left by a killed run was not a case that arose; now it is. osrm-extract
+# and osrm-partition write some files and reuse others, so a survivor from an
+# older graph is silently mixed into the new one.
+#
+# $(BLACKLIST) is the one exception, and it is deliberate. Once the blacklist is
+# compiled into the profile the graph *is* the blacklist, and a stale graph would
+# keep routing over a node the file calls impassable -- which nothing downstream
+# could detect, because every later step now trusts the router instead of
+# checking. So this one is a real prerequisite: editing it costs a rebuild.
+$(OSRM_STAMP): $(BLACKLIST) | $(PBF)
+	@if [ -f "$(OSRM_STAMP)" ]; then \
+	    echo "==> setup_osrm: $(BLACKLIST) changed; the graph has the old"; \
+	    echo "    blacklist compiled in, so extract, partition and customize"; \
+	    echo "    must run again. This takes 30-40 minutes."; \
+	fi
+	@echo "==> setup_osrm: clearing any previous graph"
+	@rm -rf "$(OSRM_DIR)"/france-latest.osrm* "$(PROFILE_DIR)"
+	@mkdir -p "$(PROFILE_DIR)"
+	@echo "==> setup_osrm: taking the routing profile out of the image"
+	$(COMPOSE) run --rm --user $(HOST_USER) --entrypoint sh osrm-tools -c \
+	    "cp /opt/car.lua /osrm/profile/car.lua.orig && cp -r /opt/lib /osrm/profile/"
+	@echo "==> setup_osrm: patching it with $(BLACKLIST)"
+	$(RUN_BUILDER) python3 patch_car_profile.py \
+	    --profile /osrm/profile/car.lua.orig \
+	    --blacklist /data/nodes_blacklist.yaml \
+	    --out /osrm/profile/car.lua
 	@mkdir -p "$(OSRM_DIR)"
 	@free_gb=$$(df -Pk "$(OSRM_DIR)" | awk 'NR==2 {print int($$4/1024/1024)}'); \
 	if [ "$$free_gb" -lt $(MIN_FREE_GB) ]; then \
@@ -151,13 +196,20 @@ $(OSRM_STAMP): | $(PBF)
 	@cp -l $(PBF) "$(OSRM_BASE).osm.pbf" 2>/dev/null \
 	    || cp $(PBF) "$(OSRM_BASE).osm.pbf"
 	@echo "==> setup_osrm: osrm-extract"
-	$(RUN_OSRM) osrm-extract -p /opt/car.lua /osrm/france-latest.osm.pbf
+	$(RUN_OSRM) osrm-extract -p /osrm/profile/car.lua /osrm/france-latest.osm.pbf
 	@echo "==> setup_osrm: osrm-partition"
 	$(RUN_OSRM) osrm-partition /osrm/france-latest.osrm
 	@echo "==> setup_osrm: osrm-customize"
 	$(RUN_OSRM) osrm-customize /osrm/france-latest.osrm
 	@echo "==> setup_osrm: releasing extract copy"
 	@rm -f "$(OSRM_BASE).osm.pbf"
+	@echo "==> setup_osrm: restarting osrm-optimal onto the new graph"
+	@# osrm-routed maps the graph at startup, and `compose up -d` leaves a
+	@# running container alone. Replacing the files under a live server leaves
+	@# it serving the old graph, and every answer looks perfectly normal --
+	@# which is exactly how a blacklisted node kept appearing in routes after
+	@# it had been compiled out.
+	$(COMPOSE) restart osrm-optimal 2>/dev/null || true
 	@touch $@
 
 # --------------------------------------------------------------------------
@@ -265,6 +317,59 @@ build_vinci_prices: guard-osrm-path guard-ulys-key guard-ulys-passage-date \
 	    --out /data/vinci_price.yaml \
 	    $(PRICE_ARGS)
 
+# --------------------------------------------------------------------------
+# Step 7 -- build_booth_sides
+# --------------------------------------------------------------------------
+# Which side of a two-way booth is the toll network and which the free road.
+#
+# Checkpointed rather than resumable: the work divides into no units worth
+# keeping, and a complete run is about two minutes of local routing.
+#
+# Its position is forced. The probe reads the enter/exit roles out of the price
+# file, which step 6 produces, so it cannot run earlier. It asks nothing of the
+# operator -- only of the router -- so it needs the graph and not the key.
+build_booth_sides: guard-osrm-path $(SIDES)
+	@echo "==> build_booth_sides: $(SIDES)"
+
+$(SIDES): | $(PRICES) $(VINCI) $(BOOTHS) $(ROUTE_SET) $(BUILDER_STAMP)
+	@echo "==> build_booth_sides: starting osrm-optimal"
+	$(COMPOSE) up -d osrm-optimal
+	$(RUN_BUILDER) python3 build_booth_sides.py \
+	    --booths /data/osm_toll_booths.yaml \
+	    --prices /data/vinci_price.yaml \
+	    --gares /data/vinci_toll_booth.yaml \
+	    --route-set /data/route_set.yaml \
+	    --out /data/bidirectional_booth_sides.yaml \
+	    --osrm http://osrm-optimal:5000
+
+# --------------------------------------------------------------------------
+# Step 8 -- build_vinci_direct_prices
+# --------------------------------------------------------------------------
+# Resumable like steps 5 and 6, and always executes for the same reason.
+#
+# Unlike step 6 this one does need the graph: it decides which entrance/exit
+# pairs are askable by routing between the booths themselves, and a run without
+# the router would ask about nothing and look complete.
+#
+# The rejection database is not listed as a prerequisite and is not cleaned by
+# `clean`: the script creates it on first use, and it is the record of a quarter
+# of a million routing decisions. Deleting it costs about seven minutes of
+# routing to rebuild, so `make clean` leaving it alone is deliberate.
+build_vinci_direct_prices: guard-osrm-path guard-ulys-key \
+                           guard-ulys-passage-date \
+                           | $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) $(BUILDER_STAMP)
+	@echo "==> build_vinci_direct_prices: $(PRICES), $(REJECTED)"
+	$(COMPOSE) up -d osrm-optimal
+	$(RUN_BUILDER) python3 build_vinci_direct_prices.py \
+	    --booths /data/osm_toll_booths.yaml \
+	    --gares /data/vinci_toll_booth.yaml \
+	    --overrides /data/osm_toll_booths_overrides.yaml \
+	    --out /data/vinci_price.yaml \
+	    --sides /data/bidirectional_booth_sides.yaml \
+	    --rejected /data/vinci_routes_rejected.sqlite3 \
+	    --osrm http://osrm-optimal:5000 \
+	    $(DIRECT_ARGS)
+
 # Step 5 is phony and resumable, so it has no file target for step 6 to depend
 # on. This rule supplies one. It fires only when the mapping is absent, so a
 # tree that already has it never re-enters step 5 and never starts the routing
@@ -273,10 +378,18 @@ build_vinci_prices: guard-osrm-path guard-ulys-key guard-ulys-passage-date \
 $(VINCI):
 	$(MAKE) build_vinci_toll_booths
 
+# Step 6 is phony and resumable for the same reason, so step 7 needs the same
+# rule. It fires only when the price file is absent. Whether a price file that
+# exists is complete is step 6's business, not step 7's -- and step 7 takes its
+# source and target booths from that file, so running against a partial one
+# simply enumerates a smaller grid.
+$(PRICES):
+	$(MAKE) build_vinci_prices
+
 # --------------------------------------------------------------------------
 # Builder image (internal prerequisite -- not one of the six steps)
 # --------------------------------------------------------------------------
-$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py builder/build_vinci_prices.py builder/overrides.py
+$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py builder/build_vinci_prices.py builder/build_booth_sides.py builder/build_vinci_direct_prices.py builder/patch_car_profile.py builder/overrides.py
 	@mkdir -p $(DATA_DIR)
 	$(COMPOSE) build builder
 	@touch $@
@@ -285,10 +398,11 @@ $(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/bu
 # Housekeeping
 # --------------------------------------------------------------------------
 clean:
-	rm -f $(BOOTHS) $(ROUTE_SET) $(UNCOVERED) $(EXCLUDED) $(VINCI) $(PRICES) \
+	rm -f $(BOOTHS) $(ROUTE_SET) $(UNCOVERED) $(EXCLUDED) $(VINCI) $(PRICES) $(SIDES) \
 	      $(FILTERED_PBF) $(PLAZAS) $(NO_ACCESS) $(SNAP) $(BUILDER_STAMP)
 
 # Drops the ~25 GB graph. The extract in data/ is kept.
 clean-osrm: guard-osrm-path
 	$(COMPOSE) down --remove-orphans || true
-	rm -f "$(OSRM_DIR)"/france-latest.osrm* "$(OSRM_STAMP)" "$(OSRM_DIR)"/*.osm.pbf
+	rm -rf "$(OSRM_DIR)"/france-latest.osrm* "$(OSRM_STAMP)" \
+	       "$(OSRM_DIR)"/*.osm.pbf "$(PROFILE_DIR)"

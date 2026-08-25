@@ -184,6 +184,13 @@ class GraphBuilder(osmium.SimpleHandler):
         self.rev = collections.defaultdict(dict)
         self.booths = booths
         self.two_way = set()  # booth nodes lying on a two-way through road
+        # booth node -> {neighbour: is the way reaching it two-way}. The sides
+        # of a two-way booth, for the step that tells its entrance from its
+        # exit. Collected here because this pass already reads every way the
+        # question is about; a booth reached by both a one-way and a two-way
+        # way keeps the two-way answer, since the restriction is what a role
+        # claim rests on.
+        self.adjacent = collections.defaultdict(dict)
 
     def way(self, w):
         hv = w.tags.get("highway")
@@ -203,6 +210,18 @@ class GraphBuilder(osmium.SimpleHandler):
             for n in w.nodes:
                 if n.ref in self.booths:
                     self.two_way.add(n.ref)
+
+        refs = [n.ref for n in w.nodes]
+        for i, ref in enumerate(refs):
+            if ref not in self.booths:
+                continue
+            for side in (refs[i - 1] if i else None,
+                         refs[i + 1] if i + 1 < len(refs) else None):
+                if side is None or side == ref:
+                    continue
+                # `or` and not `=`: two-way wins over one-way for this edge.
+                self.adjacent[ref][side] = (
+                    self.adjacent[ref].get(side, False) or (fwd_ok and rev_ok))
 
         nodes = [(n.ref, (n.location.lat, n.location.lon))
                  for n in w.nodes if n.location.valid()]
@@ -282,8 +301,9 @@ def reachable(adj, start, booths, max_m):
 
 
 def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None,
-                 isolated=None):
-    """Return ({representative: [members]}, {member: representative}, {two-way}).
+                 isolated=None, one_way=None):
+    """Return ({representative: [members]}, {member: representative}, {two-way},
+    {two-way booth: {neighbour: is it reached by a one-way way}}).
 
     Topological, with two exceptions.
 
@@ -339,6 +359,18 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None,
         rx, ry = find(x), find(y)
         if rx != ry:
             parent[max(rx, ry)] = min(rx, ry)
+
+    # A way tagged `oneway=no` that is not two-way on the ground would otherwise
+    # make its booth two coverage targets and keep it out of every group. The
+    # override states the truth until the extract carries the fix.
+    if one_way:
+        stated = g.two_way & set(one_way)
+        if stated:
+            print(f"    {len(stated)} booth(s) stated one-way by override,"
+                  f" against a two-way tag in the extract")
+        g.two_way -= set(one_way)
+        for booth in one_way:
+            g.adjacent.pop(booth, None)
 
     # A booth on a two-way road is never anyone's alternative. The (P, S) rule
     # keeps opposite directions apart by way of one-way restrictions, and a
@@ -399,4 +431,8 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None,
     groups = {rep: sorted(members) for rep, members in groups.items()}
     assigned = {b: rep for rep, members in groups.items() for b in members}
 
-    return groups, assigned, g.two_way & booths
+    two_way_booths = g.two_way & booths
+    # Only a two-way booth has sides to tell apart, so only it carries them.
+    sides = {b: {n: not tw for n, tw in sorted(g.adjacent[b].items())}
+             for b in sorted(two_way_booths)}
+    return groups, assigned, two_way_booths, sides

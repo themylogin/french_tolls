@@ -467,6 +467,10 @@ toll_booths:
   61275307:
     latlon: [47.3071705, 0.7960772]
     type: bidirectional
+    adjacent_nodes:
+      61668835: true
+      61668837: true
+      3040840493: false
   61669918:
     latlon: [47.3490023, 0.7040998]
   61956517:
@@ -476,14 +480,24 @@ toll_booths:
   81055576:
     latlon: [49.037199, 0.441604]
     type: bidirectional
+    adjacent_nodes:
+      81055579: false
+      1430501272: false
   82222593:
     latlon: [45.8493579, 3.7942361]
     type: bidirectional
+    adjacent_nodes:
+      6223252104: false
+      6223252105: false
   82502276:
     latlon: [45.2988648, 6.3549286]
   84428307:
     latlon: [46.0481257, 5.3278855]
     type: bidirectional
+    adjacent_nodes:
+      4925575819: true
+      4925575820: true
+      4925575821: false
   85698610:
     latlon: [47.2184528, 0.6577159]
   90457331:
@@ -556,9 +570,15 @@ toll_booths:
   190755700:
     latlon: [46.7220021, 2.4583168]
     type: bidirectional
+    adjacent_nodes:
+      6235101999: false
+      6235102000: false
   197118807:
     latlon: [48.2345952, 1.0331397]
     type: bidirectional
+    adjacent_nodes:
+      1406338486: false
+      12897606804: false
   207278408:
     latlon: [46.8493235, 5.5745839]
   211276424:
@@ -576,6 +596,10 @@ toll_booths:
   230233305:
     latlon: [49.1109692, 5.4138552]
     type: bidirectional
+    adjacent_nodes:
+      1227285335: false
+      3386242686: true
+      3386242717: true
   239563333:
     latlon: [46.3276441, 2.9664524]
   241054650:
@@ -633,6 +657,9 @@ toll_booths:
   249181379:
     latlon: [44.6981278, 1.5805783]
     type: bidirectional
+    adjacent_nodes:
+      249181378: false
+      256066762: false
   249778842:
     latlon: [44.8851507, -0.2688192]
   249798721:
@@ -684,6 +711,10 @@ toll_booths:
   257784733:
     latlon: [45.5727704, 5.6591386]
     type: bidirectional
+    adjacent_nodes:
+      257784731: true
+      622359667: true
+      7448692521: false
   258027361:
     latlon: [45.319809, 5.6072494]
   258934071:
@@ -763,6 +794,9 @@ toll_booths:
   270671520:
     latlon: [49.8769736, 2.8397676]
     type: bidirectional
+    adjacent_nodes:
+      270380791: false
+      5258073284: false
   270684525:
     latlon: [50.325225, 2.9122035]
   272505901:
@@ -794,9 +828,15 @@ toll_booths:
   277617392:
     latlon: [43.117739, 0.8929778]
     type: bidirectional
+    adjacent_nodes:
+      277617393: false
+      1955759263: false
   277820265:
     latlon: [43.1156846, 0.7566067]
     type: bidirectional
+    adjacent_nodes:
+      3902881471: false
+      3902881492: false
   277910939:
     latlon: [43.1202922, 0.8954838]
   279128148:
@@ -825,6 +865,9 @@ toll_booths:
   282351799:
     latlon: [47.82037, 0.3016977]
     type: bidirectional
+    adjacent_nodes:
+      282351733: false
+      5921068906: false
   285818973:
     latlon: [45.8788276, 3.6249178]
   285839327:
@@ -866,6 +909,9 @@ toll_booths:
   289635259:
     latlon: [48.2157812, 5.8325029]
     type: bidirectional
+    adjacent_nodes:
+      1393570707: false
+      1917665765: false
   289883367:
     latlon: [44.1716824, 5.9554266]
   290195298:
@@ -933,6 +979,10 @@ toll_booths:
   301654518:
     latlon: [44.6075445, -0.3668195]
     type: bidirectional
+    adjacent_nodes:
+      1508441028: true
+      1508441029: true
+      1508441030: false
   302010360:
     latlon: [45.0236863, -0.4350789]
   302017374:
@@ -950,6 +1000,9 @@ toll_booths:
   303350369:
     latlon: [47.832803, 1.6690019]
     type: bidirectional
+    adjacent_nodes:
+      303350367: false
+      6929759638: false
   303811524:
     latlon: [48.2052821, 1.8458919]
   304663622:
@@ -989,6 +1042,9 @@ toll_booths:
   309937348:
     latlon: [45.9628699, -0.5458975]
     type: bidirectional
+    adjacent_nodes:
+      5057738953: false
+      11446675918: false
   309941699:
     latlon: [46.62733, -1.1545032]
   310301329:
@@ -1014,6 +1070,9 @@ toll_booths:
   322846284:
     latlon: [44.3427348, 1.4940673]
     type: bidirectional
+    adjacent_nodes:
+      322850173: false
+      3913182952: false
   322869087:
     latlon: [45.4697967, 6.287092]
   323144666:
@@ -1023,6 +1082,10 @@ toll_booths:
   327506022:
     latlon: [46.5064795, 2.6303355]
     type: bidirectional
+    adjacent_nodes:
+      327506028: true
+      737995261: true
+      836859715: false
   331203148:
     latlon: [48.2378422, 3.6013691]
   331251955:
@@ -1052,9 +1115,15 @@ toll_booths:
   340395444:
     latlon: [46.8369794, 0.530822]
     type: bidirectional
+    adjacent_nodes:
+      3163032350: false
+      7773841292: false
   340396503:
     latlon: [46.7786646, 0.50452]
     type: bidirectional
+    adjacent_nodes:
+      6347042375: false
+      6347414309: false
   341024179:
     latlon: [43.2251762, 5.5815199]
   341025952:
@@ -1102,9 +1171,16 @@ toll_booths:
   370669859:
     latlon: [47.5817361, 1.9910306]
     type: bidirectional
+    adjacent_nodes:
+      370669648: false
+      2975005138: false
   373481261:
     latlon: [49.8597729, 2.2138115]
     type: bidirectional
+    adjacent_nodes:
+      373481257: false
+      1012744464: true
+      5804845424: true
   374119298:
     latlon: [49.8123696, 3.29492]
   375649933:
@@ -1220,6 +1296,9 @@ toll_booths:
   448438837:
     latlon: [47.7285632, 1.5086201]
     type: bidirectional
+    adjacent_nodes:
+      10585153045: false
+      10585153046: false
   448451541:
     latlon: [44.1352777, 4.7956945]
   449598015:
@@ -1257,6 +1336,9 @@ toll_booths:
   469060027:
     latlon: [46.3288346, 4.8824112]
     type: bidirectional
+    adjacent_nodes:
+      2133753131: false
+      2150315294: false
   469982848:
     latlon: [49.1376606, 0.5780977]
   471322064:
@@ -1272,6 +1354,10 @@ toll_booths:
   472444139:
     latlon: [47.6860846, 0.3714066]
     type: bidirectional
+    adjacent_nodes:
+      1900776196: true
+      1900776197: true
+      9977947649: false
   481373537:
     latlon: [50.5140032, 2.6177636]
   481373539:
@@ -1301,6 +1387,9 @@ toll_booths:
   511062430:
     latlon: [48.1149682, 4.7855547]
     type: bidirectional
+    adjacent_nodes:
+      8266232626: false
+      10769497532: false
   511439486:
     latlon: [43.6228987, 5.0835179]
   512632720:
@@ -1338,6 +1427,10 @@ toll_booths:
   609200151:
     latlon: [47.2053403, 5.3050035]
     type: bidirectional
+    adjacent_nodes:
+      609200148: true
+      609200157: false
+      1271191463: true
   609217653:
     latlon: [47.1361046, 5.5061937]
   609218048:
@@ -1345,6 +1438,9 @@ toll_booths:
   612786095:
     latlon: [43.4608882, 1.5883118]
     type: bidirectional
+    adjacent_nodes:
+      612786094: false
+      8828288007: false
   613525527:
     latlon: [48.1447818, 5.6890423]
   613525538:
@@ -1382,6 +1478,9 @@ toll_booths:
   665051348:
     latlon: [45.2543461, -0.5478033]
     type: bidirectional
+    adjacent_nodes:
+      7700770628: false
+      7700770629: false
   672506884:
     latlon: [46.3075509, -0.3663733]
   673351722:
@@ -1399,6 +1498,9 @@ toll_booths:
   703160692:
     latlon: [45.8609213, 4.0420209]
     type: bidirectional
+    adjacent_nodes:
+      703160726: false
+      6335623225: false
   705472696:
     latlon: [49.6353029, 1.0506593]
   705563120:
@@ -1504,6 +1606,9 @@ toll_booths:
   894516551:
     latlon: [47.1072866, 0.5876617]
     type: bidirectional
+    adjacent_nodes:
+      1916938547: false
+      1916938576: false
   894766985:
     latlon: [43.6432131, 7.1340481]
   901258167:
@@ -1511,6 +1616,10 @@ toll_booths:
   921929655:
     latlon: [45.4073918, 2.0211932]
     type: bidirectional
+    adjacent_nodes:
+      918626877: true
+      918626995: true
+      3005551835: false
   924440768:
     latlon: [48.2369674, 3.2620912]
   926794469:
@@ -1542,6 +1651,9 @@ toll_booths:
   986537073:
     latlon: [43.4713749, -0.3210547]
     type: bidirectional
+    adjacent_nodes:
+      986537071: false
+      10977821568: false
   987093311:
     latlon: [46.2724744, 5.0159183]
   987094003:
@@ -1585,6 +1697,10 @@ toll_booths:
   1042834566:
     latlon: [49.0316556, 0.4448343]
     type: bidirectional
+    adjacent_nodes:
+      469982956: true
+      1042834509: true
+      6227610521: false
   1042852216:
     latlon: [43.5098096, -0.921877]
   1049830277:
@@ -1592,6 +1708,10 @@ toll_booths:
   1054617575:
     latlon: [48.2994713, 5.8529366]
     type: bidirectional
+    adjacent_nodes:
+      7416101365: true
+      7416101366: true
+      7416101367: false
   1054665949:
     latlon: [47.9973814, 5.5118405]
   1054674013:
@@ -1603,6 +1723,9 @@ toll_booths:
   1091772679:
     latlon: [44.2860318, -0.2280667]
     type: bidirectional
+    adjacent_nodes:
+      1091772796: false
+      1676301898: false
   1092685933:
     latlon: [43.7221672, -0.2708882]
   1098856873:
@@ -1612,6 +1735,9 @@ toll_booths:
   1105868116:
     latlon: [43.3452483, -0.4188068]
     type: bidirectional
+    adjacent_nodes:
+      2892150072: false
+      6328559286: false
   1116803661:
     latlon: [45.9548709, -0.8813821]
   1116803670:
@@ -1625,6 +1751,9 @@ toll_booths:
   1125653080:
     latlon: [45.3290189, 1.7639661]
     type: bidirectional
+    adjacent_nodes:
+      11333117630: false
+      13606908344: false
   1131546232:
     latlon: [48.9102342, 2.048088]
     type: gantry
@@ -1634,7 +1763,6 @@ toll_booths:
     latlon: [43.477561, 5.7557394]
   1154852457:
     latlon: [45.216519, 6.4658673]
-    type: bidirectional
   1157490221:
     latlon: [47.5393368, -0.340805]
   1157490222:
@@ -1670,6 +1798,9 @@ toll_booths:
   1246344270:
     latlon: [43.9469871, -0.393924]
     type: bidirectional
+    adjacent_nodes:
+      1246344274: false
+      11612922459: false
   1258445184:
     latlon: [43.7441906, 7.3780619]
   1258445220:
@@ -1683,6 +1814,9 @@ toll_booths:
   1265561526:
     latlon: [49.2420686, 0.7724971]
     type: bidirectional
+    adjacent_nodes:
+      268210801: false
+      268210804: false
   1269035686:
     latlon: [50.8197676, 2.0616112]
   1269035757:
@@ -1860,6 +1994,9 @@ toll_booths:
   1551709832:
     latlon: [43.3985865, 1.6962059]
     type: bidirectional
+    adjacent_nodes:
+      9710929840: false
+      11608219347: false
   1560431421:
     latlon: [48.3652402, 1.442296]
   1561101896:
@@ -1873,6 +2010,9 @@ toll_booths:
   1575874809:
     latlon: [49.1999154, 5.9016705]
     type: bidirectional
+    adjacent_nodes:
+      3166264148: false
+      4714974975: false
   1575874810:
     latlon: [49.0333893, 4.4358792]
   1575874813:
@@ -1881,7 +2021,6 @@ toll_booths:
     latlon: [49.0938261, 5.2783625]
   1581498325:
     latlon: [46.6663731, 5.418945]
-    type: bidirectional
   1584068033:
     latlon: [49.1358288, 6.7129173]
   1584068039:
@@ -2292,6 +2431,9 @@ toll_booths:
   4255789073:
     latlon: [45.8339019, 2.822617]
     type: bidirectional
+    adjacent_nodes:
+      4255789072: false
+      4255789075: false
   4330970608:
     latlon: [46.3963476, 2.7113227]
   4330970609:
@@ -2329,6 +2471,9 @@ toll_booths:
   4415773260:
     latlon: [46.7778289, 5.5185989]
     type: bidirectional
+    adjacent_nodes:
+      7351253835: false
+      7351253836: false
   4415774336:
     latlon: [46.5475296, 5.3265861]
   4415774337:
@@ -2336,6 +2481,9 @@ toll_booths:
   4422613638:
     latlon: [47.2359369, -0.7276426]
     type: bidirectional
+    adjacent_nodes:
+      1977683916: false
+      12202264174: false
   4422912952:
     latlon: [45.5123497, 2.2588989]
   4422919071:
@@ -2445,6 +2593,9 @@ toll_booths:
   6367778328:
     latlon: [47.3295057, -0.596352]
     type: bidirectional
+    adjacent_nodes:
+      1818303390: false
+      4105253309: false
   6437936721:
     latlon: [46.068399, 6.5537404]
   6484553454:

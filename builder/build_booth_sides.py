@@ -52,7 +52,6 @@ import requests
 import yaml
 
 import build_vinci_prices as bp
-import overrides
 
 INSIDE, OUTSIDE = "inside", "outside"
 
@@ -231,17 +230,18 @@ def verdict(kind, target_role, outbound):
 
 
 def observe(nodes, booth, target_group, adjacency, resolve, traversable,
-            blacklist, outbound):
+            outbound):
     """The adjacent node this route speaks about, or None when it says nothing.
 
     Three ways a route says nothing: it never traverses the booth, it leaves by
     something that is not an adjacent node, or another booth lies between the
     booth and the target -- in which case what the target is tells us about that
     booth rather than this one.
+
+    Nothing is filtered against a node blacklist. The routing profile makes a
+    blacklisted node impassable, so a route over one is never returned.
     """
     if not nodes or booth not in nodes:
-        return None
-    if blacklist and not blacklist.isdisjoint(nodes):
         return None
     at = nodes.index(booth)
     if outbound:
@@ -260,7 +260,7 @@ def observe(nodes, booth, target_group, adjacency, resolve, traversable,
 
 
 def probe(router, adjacency, resolve, traversable, position, roles, places,
-          blacklist, progress_every=5):
+          progress_every=5):
     """{booth: {side: {verdict: [(kind, key, outbound, km)]}}}."""
     jobs = []
     for booth in sorted(adjacency):
@@ -273,28 +273,22 @@ def probe(router, adjacency, resolve, traversable, position, roles, places,
 
     seen = collections.defaultdict(lambda: collections.defaultdict(
         lambda: collections.defaultdict(list)))
-    dropped = 0
     started = time.monotonic()
 
     def work(job):
         booth, kind, key, where, outbound = job
         here = position[booth]
         nodes = router.nodes(here, where) if outbound else router.nodes(where, here)
-        if nodes and blacklist and not blacklist.isdisjoint(nodes):
-            return job, None, True
-        side = observe(nodes, booth, key, adjacency, resolve, traversable,
-                       blacklist, outbound)
+        side = observe(nodes, booth, key, adjacency, resolve, traversable, outbound)
         if side is None:
-            return job, None, False
+            return job, None
         length = km(here, where)
-        return job, (side, verdict(kind, roles.get(key), outbound), length), False
+        return job, (side, verdict(kind, roles.get(key), outbound), length)
 
     with concurrent.futures.ThreadPoolExecutor(router.workers) as pool:
-        for n, (job, found, blocked) in enumerate(pool.map(work, jobs), 1):
+        for n, (job, found) in enumerate(pool.map(work, jobs), 1):
             router.made += 1
-            if blocked:
-                dropped += 1
-            elif found:
+            if found:
                 booth, kind, key, _, outbound = job
                 side, which, length = found
                 seen[booth][side][which].append((kind, key, outbound, length))
@@ -302,8 +296,7 @@ def probe(router, adjacency, resolve, traversable, position, roles, places,
                 print(f"    {n}/{len(jobs)} routes,"
                       f" {(time.monotonic() - started) / 60:.1f} min")
     total = sum(len(v) for b in seen.values() for s in b.values() for v in s.values())
-    print(f"    {dropped} route(s) dropped for a blacklisted node,"
-          f" {total} admitted observation(s)")
+    print(f"    {total} admitted observation(s)")
     return seen
 
 
@@ -337,7 +330,8 @@ def describe_conflict(booth, node, found, gares, names):
         f" {counts.get(INSIDE, 0)} inside, {counts.get(OUTSIDE, 0)} outside\n"
         f"       The minority is almost never noise. It is a route over a"
         f" connection that is not\n"
-        f"       there -- add its nodes to nodes_blacklist -- or a target whose"
+        f"       there -- add its nodes to data/nodes_blacklist.yaml and rebuild\n"
+        f"       the graph -- or a target whose"
         f" enter/exit role\n"
         f"       is wrong. The {len(found[loser])} {loser} observation(s):"]
     for kind, key, outbound, length in sorted(found[loser], key=lambda r: r[3]):
@@ -375,16 +369,10 @@ def main() -> int:
                     help="price file YAML, read for enter/exit roles only")
     ap.add_argument("--gares", required=True, help="gare mapping YAML, for the report")
     ap.add_argument("--route-set", required=True, help="route set YAML, read for places")
-    ap.add_argument("--overrides", required=True, help="hand-maintained overrides YAML")
     ap.add_argument("--out", required=True, help="booth sides YAML")
     ap.add_argument("--osrm", required=True, help="base URL of the OSRM instance")
     args = ap.parse_args()
 
-    try:
-        ov = overrides.load(args.overrides)
-    except overrides.OverrideError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
 
     adjacency, resolve, traversable, position = load_inventory(args.booths)
     roles = load_roles(args.prices)
@@ -395,8 +383,7 @@ def main() -> int:
     names = {int(g): str(e.get("name") or "") for g, e in mapping.items()}
 
     print(f"==> {len(adjacency)} two-way booth(s),"
-          f" {len(roles)} enter/exit target(s), {len(places)} place(s),"
-          f" {len(ov.nodes_blacklist)} blacklisted node(s)")
+          f" {len(roles)} enter/exit target(s), {len(places)} place(s)")
     missing = [b for b, a in adjacency.items() if not a]
     if missing:
         print(f"ERROR: {len(missing)} two-way booth(s) carry no adjacent_nodes:"
@@ -413,7 +400,7 @@ def main() -> int:
     router.wait_ready()
     started = time.monotonic()
     seen = probe(router, adjacency, resolve, traversable, position, roles,
-                 places, ov.nodes_blacklist)
+                 places)
 
     settled, unresolved, conflicts = {}, {}, []
     for booth in sorted(adjacency):

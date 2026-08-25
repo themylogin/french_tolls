@@ -114,5 +114,11 @@ duplicate_gares:
   # Way: 294125300 is under construction
   - "04210"
 
-nodes_blacklist:
-  - 13461343964
+# Do not try to retrieve prices for these pairs, they have no sense
+prohibited_gare_pairs:
+  # TOULOUSE-SUD/EST connected to itself via invalid node sequence 1433734763, 612786365, 1433734764
+  - ["04354", "04355"]
+  - ["04355", "04354"]
+  # AUMALE EST - HAUDRICOURT connected to itself in a nonsensical loop
+  - ["07444", "07441"]
+  - ["07441", "07444"]

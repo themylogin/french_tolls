@@ -13,10 +13,6 @@ from a fresh extract every time -- a node can be retagged, deleted, or
 renumbered upstream. An override that no longer matches anything is worse than
 none at all, because it looks like the exception is handled when it is not.
 
-    nodes_blacklist:
-      # the D28 is joined to the A71 through the L'Arverne service area
-      - 13461343964
-
     toll_booths:
       14061571392:
         # toll booth in vinci is displaced
@@ -54,7 +50,12 @@ import yaml
 # the gare mapping find a gare for it is waived. The suffix records how a route
 # meets it, which nothing consumes yet.
 #
-# The bare `enter`/`exit`/`passthrough` classify a border crossing and are inert.
+# The bare `enter`/`exit`/`passthrough` say the booth is a plain one-way lane of
+# that role, whatever the extract's tags say. They exist for a way tagged
+# `oneway=no` that is not two-way on the ground: without them the booth is typed
+# `bidirectional`, which makes it two coverage targets instead of one, keeps it
+# out of every plaza group, and leaves the reverse direction permanently
+# uncovered because no car can drive it.
 #
 # Every value is enumerated rather than waved through, so that `type: igore`
 # fails instead of silently doing nothing.
@@ -73,7 +74,7 @@ KEYS = ("type", "parent_id", "vinci", "price")
 # Top-level sections. Enumerated for the same reason the type values are: a
 # mistyped section name would otherwise be read as an empty one and every entry
 # under it would vanish without a word.
-SECTIONS = ("toll_booths", "duplicate_gares", "nodes_blacklist")
+SECTIONS = ("toll_booths", "duplicate_gares", "prohibited_gare_pairs")
 
 
 class OverrideError(Exception):
@@ -85,7 +86,7 @@ class Overrides:
 
     def __init__(self, ignored=None, forced=None, vinci=None, absent=None,
                  price=None, isolated=None, duplicate_gares=None,
-                 nodes_blacklist=None):
+                 prohibited_gare_pairs=None, one_way=None):
         self.ignored = ignored or set()
         self.forced = forced or {}
         self.vinci = vinci or {}
@@ -97,17 +98,19 @@ class Overrides:
         # let a driver go straight on is missing or unbuilt, the detour back
         # through the same gare is the real fastest route and is charged twice.
         self.duplicate_gares = duplicate_gares or set()
-        # OSM nodes a route may not pass through. Each one is a defect in the
-        # map -- a connection that does not exist on the ground -- so a route
-        # using it is not a route anyone can drive, and the route set must not
-        # claim it. A bridge until the extract carries the upstream fix, not a
-        # routing preference.
-        self.nodes_blacklist = nodes_blacklist or set()
+        # Ordered (entrance gare, exit gare) pairs that are not a journey. The
+        # direct pricing step drops them before routing: asking the operator
+        # would spend a request to be told what this file already says.
+        self.prohibited_gare_pairs = prohibited_gare_pairs or set()
+        # booth -> the role stated for a booth the extract calls two-way and
+        # the ground does not. Consumed by the inventory step, which drops the
+        # `bidirectional` typing that the bad tag would otherwise produce.
+        self.one_way = one_way or {}
 
     def __bool__(self):
         return bool(self.ignored or self.forced or self.vinci or self.absent
                     or self.isolated or self.duplicate_gares
-                    or self.nodes_blacklist)
+                    or self.prohibited_gare_pairs or self.one_way)
 
     def summary(self):
         return (f"{len(self.ignored)} ignored, {len(self.absent)} absent from the"
@@ -115,7 +118,8 @@ class Overrides:
                 f" {len(self.isolated)} kept out of every group,"
                 f" {len(self.vinci)} gare(s) stated by hand,"
                 f" {len(self.duplicate_gares)} gare(s) payable twice,"
-                f" {len(self.nodes_blacklist)} node(s) blacklisted")
+                f" {len(self.prohibited_gare_pairs)} gare pair(s) prohibited,"
+                f" {len(self.one_way)} stated one-way")
 
 
 def load(path):
@@ -146,19 +150,34 @@ def load(path):
                     f"duplicate_gares: {value!r} is not an operator number")
             duplicate_gares.add(str(value))
 
-    nodes_blacklist = set()
-    listed = doc.get("nodes_blacklist")
+    # An ordered pair of gares that is not a journey anyone can be sold, however
+    # the road network reads. Two ramps of one interchange under two codes are
+    # the case it exists for: a router asked to drive between them produces a
+    # loop out and back, which crosses no booth and so looks like a ticket.
+    # Direction is part of the statement -- prohibiting A -> B says nothing
+    # about B -> A, and both are listed when both are meant.
+    prohibited_gare_pairs = set()
+    listed = doc.get("prohibited_gare_pairs")
     if listed is not None:
         if not isinstance(listed, list):
             raise OverrideError(
-                f"nodes_blacklist must be a list, got {type(listed).__name__}")
+                f"prohibited_gare_pairs must be a list, got"
+                f" {type(listed).__name__}")
         for value in listed:
-            if not isinstance(value, int) or isinstance(value, bool):
+            if not isinstance(value, list) or len(value) != 2:
                 raise OverrideError(
-                    f"nodes_blacklist: {value!r} is not an OSM node id")
-            nodes_blacklist.add(value)
+                    f"prohibited_gare_pairs: {value!r} is not a pair of"
+                    f" operator numbers")
+            a, b = (str(v) for v in value)
+            if a == b:
+                raise OverrideError(
+                    f"prohibited_gare_pairs: {value!r} names one gare twice;"
+                    f" a pair of a gare with itself is never asked about anyway")
+            prohibited_gare_pairs.add((a, b))
+
 
     ignored, forced, vinci, absent, price, isolated = set(), {}, {}, {}, {}, set()
+    one_way = {}
     for node_id, entry in sorted(entries.items()):
         entry = entry or {}
         where = f"override for booth {node_id}"
@@ -192,6 +211,8 @@ def load(path):
                         f"{where}: type: {value} says the operator does not"
                         f" carry this booth, so it cannot also state a vinci gare")
                 absent[node_id] = value
+            if value in BORDER:
+                one_way[node_id] = value
 
         if "price" in entry:
             if entry.get("type") not in PRICED_TYPES:
@@ -239,13 +260,13 @@ def load(path):
                 f"override for booth {child}: parent_id names {target}, which"
                 f" states parent_id: null and so has no group to join")
     return Overrides(ignored, forced, vinci, absent, price, isolated,
-                     duplicate_gares, nodes_blacklist)
+                     duplicate_gares, prohibited_gare_pairs, one_way)
 
 
 def check_against_extract(ov, booths):
     """Every overridden node must be a toll booth in the source extract."""
     for node_id in sorted(set(ov.ignored) | set(ov.forced) | set(ov.vinci)
-                          | set(ov.absent) | set(ov.isolated)):
+                          | set(ov.absent) | set(ov.isolated) | set(ov.one_way)):
         if node_id not in booths:
             raise OverrideError(
                 f"override for booth {node_id}: the extract does not carry that"

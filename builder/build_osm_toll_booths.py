@@ -213,8 +213,9 @@ def main() -> int:
         fh.write("\n")
 
     try:
-        groups, aliases, bidirectional = booth_groups.group_booths(
-            kept, args.plazas, forced=forced, isolated=ov.isolated)
+        groups, aliases, bidirectional, sides = booth_groups.group_booths(
+            kept, args.plazas, forced=forced, isolated=ov.isolated,
+            one_way=ov.one_way)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
@@ -267,6 +268,13 @@ def main() -> int:
               f" and `type` holds one value: {both[:5]}", file=sys.stderr)
         return 1
 
+    # `adjacent_nodes` gives the nodes either side of a two-way booth, each
+    # mapped to whether the way reaching it is one-way. Only step 4 can say
+    # which side is the entrance, by driving it; this says which nodes are
+    # candidates and which of them a one-way restriction already settles.
+    #
+    # Step 4 consumes it in memory and never writes back here, so what remains
+    # unconsumed is read off by subtracting the sides it classified from this.
     def entry(node_id):
         lat, lon = located[node_id]
         out = {"latlon": LatLon([round(lat, 7), round(lon, 7)])}
@@ -274,6 +282,7 @@ def main() -> int:
             out["type"] = "gantry"
         elif node_id in bidirectional:
             out["type"] = "bidirectional"
+            out["adjacent_nodes"] = dict(sides.get(node_id) or {})
         return out
 
     booths_out = {i: entry(i) for i in representatives}
@@ -288,6 +297,16 @@ def main() -> int:
             fh, default_flow_style=False, sort_keys=False, width=100,
         )
     os.replace(tmp, args.out)
+
+    named = collections.Counter()
+    for b in representatives:
+        if b not in bidirectional:
+            continue
+        kinds = collections.Counter((sides.get(b) or {}).values())
+        named[(kinds[True], kinds[False])] += 1
+    print(f"    {sum(named.values())} two-way booth(s), by (one-way, two-way)"
+          f" neighbour count: "
+          + ", ".join(f"{k}: {n}" for k, n in sorted(named.items())))
 
     sizes = collections.Counter(len(m) for m in groups.values())
     print("    group size distribution")

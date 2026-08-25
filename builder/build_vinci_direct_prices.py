@@ -358,8 +358,7 @@ def wrong_side(nodes, src, tgt, inside):
     return None
 
 
-def judge_source(src, targets, answers, gares, traversable, resolve, blacklist,
-                 inside):
+def judge_source(src, targets, answers, gares, traversable, resolve, inside):
     """(rejects, clean, problems) for one source.
 
     One source's whole batch is judged before any of it is priced, so its clean
@@ -384,15 +383,6 @@ def judge_source(src, targets, answers, gares, traversable, resolve, blacklist,
                 f" than a fact about tolls."))
             continue
         nodes, metres = answer
-        if blacklist and not blacklist.isdisjoint(nodes):
-            named = ", ".join(str(n) for n in sorted(blacklist.intersection(nodes)))
-            problems.append((tgt, "blacklisted route", round(metres),
-                f"the route from booth {src} ({gares[src]}) to booth"
-                f" {tgt} ({gares[tgt]}) uses blacklisted node(s) {named}\n"
-                f"       That connection is not there on the ground, so the"
-                f" route is not one anyone can drive, and what it crosses says"
-                f" nothing about this pair."))
-            continue
         blockers = blockers_of(nodes, src, tgt, traversable, resolve)
         if blockers:
             rejects.append((tgt, BY_BOOTH, blockers[0], round(metres)))
@@ -733,8 +723,7 @@ def main() -> int:
             routed += len(plan[src])
 
             rejects, clean, problems = judge_source(
-                src, plan[src], answers, gares, traversable, resolve,
-                ov.nodes_blacklist, inside)
+                src, plan[src], answers, gares, traversable, resolve, inside)
             for tgt, reason, blocker, metres in rejects:
                 rejections.add(src, tgt, gares[tgt], reason, blocker, metres)
                 rejected.add((src, tgt))
