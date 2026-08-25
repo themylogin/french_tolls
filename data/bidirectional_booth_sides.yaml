@@ -1,0 +1,246 @@
+toll_booths:
+  61275307:
+    inside_nodes:
+    - 61668835
+    - 61668837
+    outside_nodes:
+    - 3040840493
+  81055576:
+    inside_nodes:
+    - 81055579
+    outside_nodes:
+    - 1430501272
+  82222593:
+    inside_nodes:
+    - 6223252105
+    outside_nodes:
+    - 6223252104
+  84428307:
+    inside_nodes:
+    - 4925575819
+    - 4925575820
+    outside_nodes:
+    - 4925575821
+  190755700:
+    inside_nodes:
+    - 6235101999
+    outside_nodes:
+    - 6235102000
+  197118807:
+    inside_nodes:
+    - 12897606804
+    outside_nodes:
+    - 1406338486
+  230233305:
+    inside_nodes:
+    - 3386242686
+    - 3386242717
+    outside_nodes:
+    - 1227285335
+  249181379:
+    inside_nodes:
+    - 256066762
+    outside_nodes:
+    - 249181378
+  257784733:
+    inside_nodes:
+    - 257784731
+    - 622359667
+    outside_nodes:
+    - 7448692521
+  270671520:
+    inside_nodes:
+    - 270380791
+    outside_nodes:
+    - 5258073284
+  277617392:
+    outside_nodes:
+    - 277617393
+    - 1955759263
+  277820265:
+    inside_nodes:
+    - 3902881492
+    outside_nodes:
+    - 3902881471
+  282351799:
+    inside_nodes:
+    - 282351733
+    outside_nodes:
+    - 5921068906
+  289635259:
+    inside_nodes:
+    - 1393570707
+    outside_nodes:
+    - 1917665765
+  301654518:
+    inside_nodes:
+    - 1508441028
+    - 1508441029
+    outside_nodes:
+    - 1508441030
+  303350369:
+    inside_nodes:
+    - 303350367
+    outside_nodes:
+    - 6929759638
+  309937348:
+    inside_nodes:
+    - 11446675918
+    outside_nodes:
+    - 5057738953
+  322846284:
+    inside_nodes:
+    - 322850173
+    outside_nodes:
+    - 3913182952
+  327506022:
+    inside_nodes:
+    - 327506028
+    - 737995261
+    outside_nodes:
+    - 836859715
+  340395444:
+    inside_nodes:
+    - 3163032350
+    outside_nodes:
+    - 7773841292
+  340396503:
+    inside_nodes:
+    - 6347042375
+    outside_nodes:
+    - 6347414309
+  370669859:
+    inside_nodes:
+    - 370669648
+    outside_nodes:
+    - 2975005138
+  373481261:
+    inside_nodes:
+    - 1012744464
+    - 5804845424
+    outside_nodes:
+    - 373481257
+  448438837:
+    inside_nodes:
+    - 10585153045
+    outside_nodes:
+    - 10585153046
+  469060027:
+    inside_nodes:
+    - 2133753131
+    outside_nodes:
+    - 2150315294
+  472444139:
+    inside_nodes:
+    - 1900776196
+    - 1900776197
+    outside_nodes:
+    - 9977947649
+  511062430:
+    inside_nodes:
+    - 10769497532
+    outside_nodes:
+    - 8266232626
+  609200151:
+    inside_nodes:
+    - 609200157
+    outside_nodes:
+    - 609200148
+    - 1271191463
+  612786095:
+    inside_nodes:
+    - 612786094
+    outside_nodes:
+    - 8828288007
+  665051348:
+    inside_nodes:
+    - 7700770628
+    outside_nodes:
+    - 7700770629
+  703160692:
+    inside_nodes:
+    - 703160726
+    outside_nodes:
+    - 6335623225
+  894516551:
+    inside_nodes:
+    - 1916938547
+    outside_nodes:
+    - 1916938576
+  921929655:
+    inside_nodes:
+    - 918626877
+    - 918626995
+    outside_nodes:
+    - 3005551835
+  986537073:
+    inside_nodes:
+    - 986537071
+    outside_nodes:
+    - 10977821568
+  1042834566:
+    inside_nodes:
+    - 469982956
+    - 1042834509
+    outside_nodes:
+    - 6227610521
+  1054617575:
+    inside_nodes:
+    - 7416101365
+    - 7416101366
+    outside_nodes:
+    - 7416101367
+  1091772679:
+    inside_nodes:
+    - 1091772796
+    outside_nodes:
+    - 1676301898
+  1105868116:
+    inside_nodes:
+    - 6328559286
+    outside_nodes:
+    - 2892150072
+  1125653080:
+    inside_nodes:
+    - 13606908344
+    outside_nodes:
+    - 11333117630
+  1246344270:
+    inside_nodes:
+    - 11612922459
+    outside_nodes:
+    - 1246344274
+  1265561526:
+    inside_nodes:
+    - 268210804
+    outside_nodes:
+    - 268210801
+  1551709832:
+    inside_nodes:
+    - 11608219347
+    outside_nodes:
+    - 9710929840
+  1575874809:
+    inside_nodes:
+    - 3166264148
+    outside_nodes:
+    - 4714974975
+  4255789073:
+    inside_nodes:
+    - 4255789072
+    outside_nodes:
+    - 4255789075
+  4415773260:
+    inside_nodes:
+    - 7351253836
+    outside_nodes:
+    - 7351253835
+  4422613638:
+    inside_nodes:
+    - 12202264174
+    outside_nodes:
+    - 1977683916
+  6367778328:
+    outside_nodes:
+    - 1818303390
+    - 4105253309
