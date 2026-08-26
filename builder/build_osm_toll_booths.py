@@ -213,7 +213,7 @@ def main() -> int:
         fh.write("\n")
 
     try:
-        groups, aliases, bidirectional, sides = booth_groups.group_booths(
+        groups, aliases, bidirectional, sides, passage = booth_groups.group_booths(
             kept, args.plazas, forced=forced, isolated=ov.isolated,
             one_way=ov.one_way)
     except ValueError as exc:
@@ -275,6 +275,13 @@ def main() -> int:
     #
     # Step 4 consumes it in memory and never writes back here, so what remains
     # unconsumed is read off by subtracting the sides it classified from this.
+    # `passage` gives the node before a booth and the node after it, as
+    # positions rather than ids. It is written only for a booth the override
+    # file types `enter`, `exit`, or `passthrough` -- the booths at a border,
+    # which no route between two French places reaches. Step 5 forms a leg from
+    # the two positions with the booth's own between them and asks the operator
+    # what gare it is. The booth's position is not repeated here: the entry
+    # already carries it as `latlon`, and two copies could disagree.
     def entry(node_id):
         lat, lon = located[node_id]
         out = {"latlon": LatLon([round(lat, 7), round(lon, 7)])}
@@ -283,6 +290,9 @@ def main() -> int:
         elif node_id in bidirectional:
             out["type"] = "bidirectional"
             out["adjacent_nodes"] = dict(sides.get(node_id) or {})
+        if node_id in passage:
+            out["passage"] = [LatLon([round(a, 7), round(b, 7)])
+                              for a, b in passage[node_id]]
         return out
 
     booths_out = {i: entry(i) for i in representatives}

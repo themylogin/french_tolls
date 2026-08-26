@@ -587,6 +587,12 @@ toll_booths:
   36715162:
     id: 03095
     name: TULLINS
+  36967326:
+    id: '04345'
+    name: LE PERTHUS
+  36967365:
+    id: '04345'
+    name: LE PERTHUS
   48837113:
     id: 09405
     name: MYENNES
@@ -2366,6 +2372,9 @@ toll_booths:
   1146528641:
     id: '06003'
     name: POURRIERES
+  1154852457:
+    id: '02057'
+    name: ST MICHEL-MODANE
   1157490221:
     id: 04784
     name: CORZE
@@ -2846,6 +2855,9 @@ toll_booths:
   1695359059:
     id: 07186
     name: VALLEE DE L'AUBE
+  1702349430:
+    id: 06028
+    name: LAGHET
   1707784060:
     id: 04184
     name: TARARE EST ENTREE O
@@ -2966,9 +2978,15 @@ toll_booths:
   1967766760:
     id: 05959
     name: LONGUE
+  1987610456:
+    id: 04390
+    name: LE BOULOU (O)
   1987610457:
     id: '04344'
     name: LE BOULOU
+  1987610458:
+    id: 04390
+    name: LE BOULOU (O)
   1997249454:
     id: '04341'
     name: LEUCATE
@@ -3017,6 +3035,9 @@ toll_booths:
   2188188012:
     id: '02050'
     name: ST PIERRE DE BELLEVILLE
+  2193692586:
+    id: 06028
+    name: LAGHET
   2199932050:
     id: 09240
     name: BEAUREPAIRE
@@ -3287,6 +3308,9 @@ toll_booths:
   4127435620:
     id: 08593
     name: BEUZEVILLE FL ECH CAEN
+  4172775770:
+    id: '02001'
+    name: ENTREE TUNNEL DU FREJUS
   4185172631:
     id: 06038
     name: PAS DE TRETS
@@ -4003,6 +4027,10 @@ routes:
   to: 1241588006
 - from: 36787203
   to: 2989163959
+- from: 36967326
+  to: 36967326
+- from: 36967365
+  to: 36967365
 - from: 41645025
   to: 2989163959
 - from: 41645299
@@ -4451,6 +4479,8 @@ routes:
   to: 12757354745
 - from: 1148171323
   to: 1455833243
+- from: 1154852457
+  to: 1154852457
 - from: 1157778036
   to: 8173872660
 - from: 1168334623
@@ -4643,6 +4673,8 @@ routes:
   to: 2793855489
 - from: 1574284264
   to: 694167122
+- from: 1581498325
+  to: 1581498325
 - from: 1590790669
   to: 8326016327
 - from: 1590790669
@@ -4693,6 +4725,8 @@ routes:
   to: 12185883883
 - from: 1701061040
   to: 4259174748
+- from: 1702349430
+  to: 1702349430
 - from: 1706097363
   to: 1885206060
 - from: 1706098400
@@ -4895,6 +4929,10 @@ routes:
   to: 6745670973
 - from: 1987452224
   to: 12475836699
+- from: 1987610456
+  to: 1987610456
+- from: 1987610458
+  to: 1987610458
 - from: 1993003197
   to: 13629959330
 - from: 1993572629
@@ -4973,6 +5011,8 @@ routes:
   to: 12185883883
 - from: 2192812194
   to: 10233317740
+- from: 2193692586
+  to: 2193692586
 - from: 2201402962
   to: 26697063
 - from: 2201402962
@@ -5493,6 +5533,8 @@ routes:
   to: 1690032267
 - from: 4172024631
   to: 4614854940
+- from: 4172775770
+  to: 4172775770
 - from: 4214106094
   to: 394756
 - from: 4214106094

@@ -125,6 +125,27 @@ def decode_polyline(encoded, precision=5):
     return coords
 
 
+def encode_polyline(coords, precision=6):
+    """Encode [(lat, lon), ...] as an encoded polyline. Inverse of the above.
+
+    Precision 6 because that is what the request body is declared to be, and
+    the service reads the body at the precision the parameter names. Only the
+    response comes back at 5.
+    """
+    scale = 10.0 ** precision
+    out, prev_lat, prev_lon = [], 0, 0
+    for lat, lon in coords:
+        ilat, ilon = round(lat * scale), round(lon * scale)
+        for delta in (ilat - prev_lat, ilon - prev_lon):
+            value = ~(delta << 1) if delta < 0 else delta << 1
+            while value >= 0x20:
+                out.append(chr((0x20 | (value & 0x1F)) + 63))
+                value >>= 5
+            out.append(chr(value + 63))
+        prev_lat, prev_lon = ilat, ilon
+    return "".join(out)
+
+
 class Grid:
     """Coarse spatial index, for the nearest-booth detail in an abort message."""
 
@@ -188,7 +209,13 @@ def group_thresholds(members, gantry):
 
 
 def load_inventory(path):
-    """(members by group, group of node) from the booth inventory."""
+    """(members by group, position of node, leg through a border booth).
+
+    `passage` is written by the extraction step for a booth no route reaches.
+    It carries the node before the booth and the node after it, and the leg
+    submitted for that booth is those two positions with the booth's own
+    between them.
+    """
     with open(path, encoding="utf-8") as fh:
         inventory = yaml.safe_load(fh)
     members = {rep: [rep] for rep in inventory["toll_booths"]}
@@ -196,7 +223,9 @@ def load_inventory(path):
         members[entry["parent_id"]].append(alias)
     positions = {i: tuple(e["latlon"]) for i, e in inventory["toll_booths"].items()}
     positions.update({i: tuple(e["latlon"]) for i, e in (inventory.get("aliases") or {}).items()})
-    return members, positions
+    legs = {i: [tuple(e["passage"][0]), tuple(e["latlon"]), tuple(e["passage"][1])]
+            for i, e in inventory["toll_booths"].items() if "passage" in e}
+    return members, positions, legs
 
 
 def aliases_parent(members, node):
@@ -579,7 +608,7 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
-    members, positions = load_inventory(args.booths)
+    members, positions, legs = load_inventory(args.booths)
     with open(args.route_set, encoding="utf-8") as fh:
         route_set = yaml.safe_load(fh)
     places = {p["node_id"]: p for p in route_set["places"]}
@@ -596,16 +625,22 @@ def main() -> int:
               f"representatives in the inventory: {stale}", file=sys.stderr)
         return 1
 
-    # `type: ignore` and `parent_id` are applied by the extraction step, not
-    # here. The override file is deliberately not a make prerequisite -- keying
-    # an expensive step to a modification time is what the pipeline avoids -- so
-    # nothing otherwise notices that the inventory predates an override edit, and
-    # the booth just reappears in the report with no explanation.
+    # `type: ignore`, `parent_id`, and the border types are applied by the
+    # extraction step, not here. The override file is deliberately not a make
+    # prerequisite -- keying an expensive step to a modification time is what the
+    # pipeline avoids -- so nothing otherwise notices that the inventory predates
+    # an override edit, and the booth just reappears in the report with no
+    # explanation.
     ignored_present = sorted(ov.ignored & set(positions))
     misgrouped = sorted(
         child for child, target in ov.forced.items()
         if child in positions and aliases_parent(members, child) != target)
-    if ignored_present or misgrouped:
+    # A booth stated one-way is a booth no route reaches, and the only way left
+    # to ask the operator about it is the leg the inventory publishes. Without
+    # that leg the booth cannot be resolved at all, and the run would end by
+    # naming it for a reason the report cannot state.
+    legless = sorted(set(ov.one_way) - set(legs))
+    if ignored_present or misgrouped or legless:
         print(f"ERROR: {args.booths} does not reflect"
               f" {args.overrides}.", file=sys.stderr)
         for booth in ignored_present:
@@ -615,6 +650,12 @@ def main() -> int:
             print(f"       booth {child} is forced into group {ov.forced[child]}"
                   f" by override but the inventory puts it in"
                   f" {aliases_parent(members, child)}", file=sys.stderr)
+        for booth in legless:
+            where = ("not in the inventory at all" if booth not in positions
+                     else f"an alias of group {aliases_parent(members, booth)}"
+                     if booth not in members else "carries no passage")
+            print(f"       booth {booth} is stated `type: {ov.one_way[booth]}`"
+                  f" by override but {where}", file=sys.stderr)
         print(f"\n       Rebuild it:  rm {args.booths} && make"
               f" build_osm_toll_booths", file=sys.stderr)
         return 1
@@ -622,9 +663,16 @@ def main() -> int:
     booths, done = load_state(args.out)
     done_pairs = set(done)
     outstanding = [r for r in routes if (r["from"], r["to"]) not in done_pairs]
+    # A booth stated one-way lies on a trip that ends outside France, so no pair
+    # of French place nodes produces a route through it. Its leg stands in for
+    # the route the route set cannot hold, and is recorded under the same key so
+    # that one resume rule covers both. A route can never collide with it: a
+    # route's endpoints are two distinct place nodes.
+    stubs = [b for b in sorted(ov.one_way) if (b, b) not in done_pairs]
     print(f"==> {len(members)} booth groups, {len(routes)} routes,"
           f" {len(ov.vinci)} gare(s) stated by hand")
-    print(f"    {len(done_pairs)} already processed, {len(outstanding)} outstanding")
+    print(f"    {len(done_pairs)} already processed, {len(outstanding)} route(s)"
+          f" and {len(stubs)} stub leg(s) outstanding")
 
     # The inventory is read whether or not there is routing to do: the
     # end-of-run check below reports on every processed route, and a rerun with
@@ -637,7 +685,7 @@ def main() -> int:
     client = None
     started = time.monotonic()
 
-    if outstanding:
+    if outstanding or stubs:
         gantry_groups = sum(1 for v in thresholds.values() if v == GANTRY_THRESHOLD_M)
         with open(args.excluded, encoding="utf-8") as fh:
             excluded_ids = {int(k) for k in json.load(fh)}
@@ -650,9 +698,13 @@ def main() -> int:
               f"{len(thresholds) - gantry_groups} booth group(s) at "
               f"{BOOTH_THRESHOLD_M:g} m")
 
-        osrm = Osrm(args.osrm)
-        print(f"==> waiting for {args.osrm}")
-        osrm.wait_ready()
+        # Only the routes need a router. A stub leg is the positions the
+        # inventory publishes, submitted as they stand.
+        osrm = None
+        if outstanding:
+            osrm = Osrm(args.osrm)
+            print(f"==> waiting for {args.osrm}")
+            osrm.wait_ready()
 
         client = Placemarks(key)
         matched_total = 0
@@ -685,11 +737,60 @@ def main() -> int:
                     print(f"    {n}/{len(outstanding)} routes, {matched_total} "
                           f"placemarks, {client.requests_made} requests, "
                           f"{elapsed / 60:.1f} min")
+
+            for booth in stubs:
+                entry_list = client.legs(encode_polyline(legs[booth]))
+                # The leg resolves the one booth it was built for and nothing
+                # else. It carries no `covers` because nothing computed what it
+                # crosses, and admitting any other group would let it record a
+                # neighbouring plaza's gare -- several of these booths sit a few
+                # hundred metres from one.
+                route = {"from": booth, "to": booth,
+                         "covers": [{"node_id": booth}]}
+                try:
+                    if not entry_list:
+                        raise Abort(
+                            f"the operator reports no gare on the leg through "
+                            f"booth {booth}, which an override states is real\n"
+                            f"       leg:   {legs[booth]}\n"
+                            f"       Check the passage in {args.booths}, or mark "
+                            f"the booth `absent_*` in {args.overrides}."
+                        )
+                    booth_updates, matched = process_route(
+                        entry_list, route, members, positions, thresholds, booths,
+                        retained_grid, excluded_grid, ov.vinci, consumed)
+                    # Two placemarks inside one lane's threshold would leave the
+                    # second silently overwriting the first, and they cannot both
+                    # be the gare this booth is.
+                    reported = {(e["Placemark"].get("Tags") or {}).get("ID_PEAGE")
+                                for e in entry_list}
+                    if len(reported) > 1:
+                        raise Abort(
+                            f"the leg through booth {booth} reports more than one "
+                            f"gare: {', '.join(sorted(map(str, reported)))}"
+                        )
+                except Abort as exc:
+                    if not args.survey:
+                        raise
+                    violations.append({"from": booth, "to": booth,
+                                       "report": str(exc)})
+                    skipped.add((booth, booth))
+                    print(f"    !! stub leg through booth {booth} would stop the "
+                          f"run ({len(violations)} so far)")
+                    continue
+                booths.update(booth_updates)
+                matched_total += len(matched)
+                # Recorded only now, for the same reason a route is.
+                done.append((booth, booth))
+                write_state(args.out, booths, done)
+                gare = booths[booth]
+                print(f"    stub leg through booth {booth} -> gare {gare['id']} "
+                      f"{gare['name']!r}")
         except Abort as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
     else:
-        print("    no routes to query")
+        print("    no routes and no stub legs to query")
 
     # A hand-stated gare is recorded whether or not a placemark ever needed it.
     for group, gare in ov.vinci.items():
@@ -748,6 +849,25 @@ def main() -> int:
     if skipped:
         print(f"    {len(skipped)} route(s) skipped by --survey; the unmapped "
               f"check above only covers the {len(done)} that were processed")
+
+    # A booth stated one-way is a booth no route covers, so the check above says
+    # nothing about it. Its stub leg is the whole of its evidence, and a run that
+    # ended without one would leave the booth unresolved with nothing to point
+    # at. Runs on every invocation for the same reason the check above does.
+    borderless = sorted(b for b in ov.one_way
+                        if b not in booths and (b, b) not in skipped)
+    if borderless:
+        print(f"\nERROR: {len(borderless)} booth(s) stated one-way have no gare.",
+              file=sys.stderr)
+        print(f"       Each is a booth no route reaches, resolved only by the leg"
+              f" the inventory publishes.\n"
+              f"       Either the leg is wrong, or the operator does not carry the"
+              f" booth and it belongs\n"
+              f"       under an `absent_*` type instead.\n", file=sys.stderr)
+        for booth in borderless:
+            print(f"       booth {booth} stated `type: {ov.one_way[booth]}`"
+                  f"  https://www.openstreetmap.org/node/{booth}", file=sys.stderr)
+        return 1
 
     # No route can pay one gare twice. Runs on every invocation, including one
     # with nothing outstanding, for the same reason the check above does: a run

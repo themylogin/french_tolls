@@ -191,6 +191,12 @@ class GraphBuilder(osmium.SimpleHandler):
         # way keeps the two-way answer, since the restriction is what a role
         # claim rests on.
         self.adjacent = collections.defaultdict(dict)
+        # Position of every node lying next to a booth on a through-class way.
+        # `fwd` and `rev` carry the topology but not the geometry, and the
+        # passage published for a booth no route reaches is two coordinates.
+        # Kept only for the neighbours, since the whole node set of the carved
+        # extract is millions of entries to answer a question about hundreds.
+        self.side_coords = {}
 
     def way(self, w):
         hv = w.tags.get("highway")
@@ -212,6 +218,8 @@ class GraphBuilder(osmium.SimpleHandler):
                     self.two_way.add(n.ref)
 
         refs = [n.ref for n in w.nodes]
+        located = {n.ref: (n.location.lat, n.location.lon)
+                   for n in w.nodes if n.location.valid()}
         for i, ref in enumerate(refs):
             if ref not in self.booths:
                 continue
@@ -222,9 +230,10 @@ class GraphBuilder(osmium.SimpleHandler):
                 # `or` and not `=`: two-way wins over one-way for this edge.
                 self.adjacent[ref][side] = (
                     self.adjacent[ref].get(side, False) or (fwd_ok and rev_ok))
+                if side in located:
+                    self.side_coords[side] = located[side]
 
-        nodes = [(n.ref, (n.location.lat, n.location.lon))
-                 for n in w.nodes if n.location.valid()]
+        nodes = [(ref, located[ref]) for ref in refs if ref in located]
         for (a, pa), (b, pb) in zip(nodes, nodes[1:]):
             if a == b:
                 continue
@@ -239,6 +248,43 @@ class GraphBuilder(osmium.SimpleHandler):
         # Parallel ways between the same nodes: keep the shorter.
         if length < adj[a].get(b, math.inf):
             adj[a][b] = length
+
+
+def passages(graph, booths):
+    """{booth: ((lat, lon), (lat, lon))} -- the node before it and the node after.
+
+    For a booth that no route reaches. The pair is a leg through the booth,
+    which is the only way left to ask the operator what gare it is.
+
+    Direction is read off the uncontracted graph rather than off `adjacent`,
+    which merges the two senses: `rev` holds the nodes the booth is reachable
+    from and `fwd` the nodes reachable from it. On a way tagged `oneway=no`
+    both hold both, and either ordering is a lawful passage.
+
+    Where there is more than one candidate the smallest node id wins, so that
+    regenerating an unchanged extract produces an unchanged inventory. The
+    successor is the smallest id that is not already the predecessor: on a
+    two-way way the same node stands in both lists, and taking it twice would
+    build a leg that goes out and back rather than through.
+
+    A booth missing either end has no way through it and is named rather than
+    written with half a passage.
+    """
+    out = {}
+    for booth in sorted(booths):
+        ends = []
+        for adj, role in ((graph.rev, "predecessor"), (graph.fwd, "successor")):
+            candidates = [n for n in sorted(adj.get(booth, ()))
+                          if n != booth and n in graph.side_coords
+                          and n not in ends]
+            if not candidates:
+                raise ValueError(
+                    f"booth {booth} is stated one-way by override but has no"
+                    f" {role} distinct from its other side on a through-class"
+                    f" way, so no leg can be built through it")
+            ends.append(candidates[0])
+        out[booth] = tuple(graph.side_coords[n] for n in ends)
+    return out
 
 
 def significant_nodes(graph, booths):
@@ -303,7 +349,8 @@ def reachable(adj, start, booths, max_m):
 def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None,
                  isolated=None, one_way=None):
     """Return ({representative: [members]}, {member: representative}, {two-way},
-    {two-way booth: {neighbour: is it reached by a one-way way}}).
+    {two-way booth: {neighbour: is it reached by a one-way way}},
+    {one-way-stated booth: (position before, position after)}).
 
     Topological, with two exceptions.
 
@@ -372,6 +419,16 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None,
         for booth in one_way:
             g.adjacent.pop(booth, None)
 
+    # The passage is read before contraction, so it names the node genuinely
+    # next to the booth rather than the next junction along. Every stated booth
+    # is asked about, including one the through-road filter excluded: such a
+    # booth has no leg to build and no inventory entry to carry one, and saying
+    # so here is what tells the difference between a stale override and a booth
+    # the operator simply does not report.
+    passage = passages(g, set(one_way or ()))
+    if passage:
+        print(f"    {len(passage)} booth(s) carry a passage for the mapping step")
+
     # A booth on a two-way road is never anyone's alternative. The (P, S) rule
     # keeps opposite directions apart by way of one-way restrictions, and a
     # bidirectional slip road has none -- so the entry gare and the exit gare of
@@ -435,4 +492,4 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None,
     # Only a two-way booth has sides to tell apart, so only it carries them.
     sides = {b: {n: not tw for n, tw in sorted(g.adjacent[b].items())}
              for b in sorted(two_way_booths)}
-    return groups, assigned, two_way_booths, sides
+    return groups, assigned, two_way_booths, sides, passage

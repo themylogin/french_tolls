@@ -51,11 +51,19 @@ import yaml
 # meets it, which nothing consumes yet.
 #
 # The bare `enter`/`exit`/`passthrough` say the booth is a plain one-way lane of
-# that role, whatever the extract's tags say. They exist for a way tagged
-# `oneway=no` that is not two-way on the ground: without them the booth is typed
-# `bidirectional`, which makes it two coverage targets instead of one, keeps it
-# out of every plaza group, and leaves the reverse direction permanently
-# uncovered because no car can drive it.
+# that role, whatever the extract's tags say. They exist for the booths at a
+# border, where every trip across ends outside France: no pair of French place
+# nodes produces a route through one, so the route set cannot reach it and
+# nothing would otherwise settle its role or find its gare.
+#
+# Two consequences follow, and the second is why most of these entries exist at
+# all. A booth on a way tagged `oneway=no` that is not two-way on the ground
+# stops being typed `bidirectional`, which would make it two coverage targets
+# instead of one, keep it out of every plaza group, and leave the reverse
+# direction permanently uncovered because no car can drive it. And every stated
+# booth, whatever its tags already say, carries a `passage` in the inventory --
+# the node before it and the node after it -- from which the gare mapping builds
+# a leg through the booth and asks the operator what gare it is.
 #
 # Every value is enumerated rather than waved through, so that `type: igore`
 # fails instead of silently doing nothing.
@@ -102,9 +110,10 @@ class Overrides:
         # direct pricing step drops them before routing: asking the operator
         # would spend a request to be told what this file already says.
         self.prohibited_gare_pairs = prohibited_gare_pairs or set()
-        # booth -> the role stated for a booth the extract calls two-way and
-        # the ground does not. Consumed by the inventory step, which drops the
-        # `bidirectional` typing that the bad tag would otherwise produce.
+        # booth -> the role stated for a booth no route reaches. Consumed by the
+        # inventory step, which publishes a `passage` for it and drops any
+        # `bidirectional` typing a two-way tag would otherwise produce, and by
+        # the gare mapping, which submits a leg along that passage.
         self.one_way = one_way or {}
 
     def __bool__(self):

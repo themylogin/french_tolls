@@ -13,9 +13,9 @@ toll_booths:
     type: passthrough
   # Le-Boulou
   1987610456:
-    type: exit
+    type: passthrough
   1987610458:
-    type: exit
+    type: passthrough
   # Tunnel de Fréjus
   4172775770:
     type: passthrough
@@ -122,3 +122,6 @@ prohibited_gare_pairs:
   # AUMALE EST - HAUDRICOURT connected to itself in a nonsensical loop
   - ["07444", "07441"]
   - ["07441", "07444"]
+  # LE BOULOU - LE PERTHUS connected to itself in a nonsensical loop
+  - ["04344", "04345"]
+  - ["04345", "04344"]

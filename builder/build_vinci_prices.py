@@ -339,6 +339,12 @@ def describe(passages, start=0):
     return ", ".join(f"{code}({group})" for group, code in passages[start:]) or "none"
 
 
+def describe_comments(items):
+    """What the service said about an answer it gave no amount for."""
+    said = [c for item in items for c in (item.get("comments") or [])]
+    return f"service said: {'; '.join(said)}" if said else "service gave no reason"
+
+
 def attribute(items, passages, route):
     """(charges, unpriced passages) for one route.
 
@@ -399,7 +405,7 @@ def attribute(items, passages, route):
     return charges, unpriced
 
 
-def apply_charges(charges, booths, inventory_types, route):
+def apply_charges(charges, booths, stated_types, route):
     """Fold one route's charges in, or raise having changed nothing.
 
     Every check runs against the committed state plus what this route has staged
@@ -412,15 +418,24 @@ def apply_charges(charges, booths, inventory_types, route):
     def role(group, kind):
         """The role this group holds, checked against the one it already has.
 
-        A group the inventory typed holds no role of its own -- it is an
-        entrance one way and an exit the other, or a section start on one
-        journey and a charge of its own on the next -- so its type is the
-        inventory's and a role that changes says nothing is wrong. For a plain
-        one-way lane a role that changes says grouping merged an entry side with
-        an exit side, which is worth stopping for.
+        Two kinds of group hold a role a route cannot overrule, and
+        `stated_types` carries both.
+
+        The inventory names the first: a `bidirectional` or `gantry` group holds
+        no role of its own -- it is an entrance one way and an exit the other, or
+        a section start on one journey and a charge of its own on the next -- so
+        a role that changes says nothing is wrong.
+
+        The override file names the second: a booth at a border, whose role is
+        stated by hand because no route reaches it to demonstrate one. That role
+        is fixed rather than journey-dependent, and it wins for a different
+        reason -- a route that met such a booth met it in the one sense it has.
+
+        For a plain one-way lane a role that changes says grouping merged an
+        entry side with an exit side, which is worth stopping for.
         """
-        if group in inventory_types:
-            kind = inventory_types[group]
+        if group in stated_types:
+            kind = stated_types[group]
         current = types.get(group) or (booths.get(group) or {}).get("type")
         if current is None:
             types[group] = kind
@@ -557,6 +572,17 @@ def main() -> int:
 
     routes = load_routes(args.route_set)
     inventory_types = load_inventory_types(args.booths)
+    # A role no route may overrule, from either file that states one. The
+    # override's entries are booths at a border that no route reaches, so the
+    # two sets are disjoint in practice; the inventory is listed second so that
+    # a booth somehow in both keeps the derived answer rather than the stated
+    # one, and the check below reports it rather than letting it pass.
+    stated_types = {**ov.one_way, **inventory_types}
+    both = sorted(set(ov.one_way) & set(inventory_types))
+    if both:
+        print(f"ERROR: {len(both)} booth(s) are typed by both"
+              f" {args.booths} and {args.overrides}: {both}", file=sys.stderr)
+        return 1
     try:
         gares = load_gares(args.gares)
         booths, done = load_state(args.out)
@@ -567,7 +593,8 @@ def main() -> int:
     crossings = collections.Counter(c["node_id"] for r in routes for c in r["covers"])
     print(f"==> {len(routes)} routes, {len(crossings)} covered booth group(s),"
           f" {len(gares)} with a gare,"
-          f" {sum(1 for g in crossings if g in inventory_types)} typed by the inventory")
+          f" {sum(1 for g in crossings if g in inventory_types)} typed by the"
+          f" inventory, {len(ov.one_way)} stated by override")
     print(f"    passage date {passage_date}, vehicle category"
           f" {VEHICLE_CATEGORY}, payment option {PAYMENT_OPTION}")
 
@@ -591,14 +618,31 @@ def main() -> int:
                    and (r["from"], r["to"]) not in done_pairs]
     if args.limit is not None:
         outstanding = outstanding[:args.limit]
+
+    # A booth stated `passthrough` charges for itself and no route reaches it,
+    # so the smallest question the service answers -- one passage, one gare --
+    # is the whole question it poses. A booth stated `enter` or `exit` is not
+    # asked this way: the service answers a lone passage for a closed-section
+    # end too, with an amount that is not what that gare charges. 09240
+    # BEAUREPAIRE is an entrance priced at 53.90 and 54.60 against its two
+    # exits, and its lone-passage answer is 14.70.
+    barriers = [b for b, kind in sorted(ov.one_way.items())
+                if kind == PASSTHROUGH and (b, b) not in done_pairs]
+    missing_gare = [b for b in barriers if b not in gares]
+    if missing_gare:
+        print(f"ERROR: {len(missing_gare)} booth(s) stated `type: passthrough`"
+              f" have no gare: {missing_gare}\n"
+              f"       Run build_vinci_toll_booths.", file=sys.stderr)
+        return 1
     print(f"    {len(skipped)} route(s) not askable, {len(done_pairs)} already"
-          f" processed, {len(outstanding)} outstanding")
+          f" processed, {len(outstanding)} route(s) and {len(barriers)} stated"
+          f" barrier(s) outstanding")
 
     unpriced_by_route, commented, violations = [], [], []
     started = time.monotonic()
     client = None
 
-    if outstanding:
+    if outstanding or barriers:
         client = Rates(key, passage_date)
         try:
             for n, route in enumerate(outstanding, 1):
@@ -607,7 +651,7 @@ def main() -> int:
                 items = client.rate([code for _, code in passages])
                 try:
                     charges, unpriced = attribute(items, passages, route)
-                    apply_charges(charges, booths, inventory_types, route)
+                    apply_charges(charges, booths, stated_types, route)
                 except Abort as exc:
                     if not args.survey:
                         raise
@@ -631,11 +675,63 @@ def main() -> int:
                           f" {len(booths)} booths priced,"
                           f" {client.requests_made} requests,"
                           f" {elapsed / 60:.1f} min")
+
+            for booth in barriers:
+                passages = [(booth, gares[booth])]
+                items = client.rate([gares[booth]])
+                # The synthetic route names the booth at both ends, which no
+                # real route can: its endpoints are two distinct place nodes.
+                # It is what `attribute` and `apply_charges` report against.
+                route = {"from": booth, "to": booth,
+                         "covers": [{"node_id": booth}]}
+                try:
+                    if not items:
+                        raise Abort(
+                            f"the rate service returned no item for gare"
+                            f" {gares[booth]} alone, which booth {booth} is"
+                            f" stated to be a barrier at")
+                    charges, unpriced = attribute(items, passages, route)
+                    if not charges:
+                        # `No rate found.` for a lone passage means the service
+                        # prices this gare only against a partner, so it is one
+                        # end of a closed section and not a barrier at all. The
+                        # converse is not inferable: a lone passage answered
+                        # with a price does not make a gare a barrier, as
+                        # 09240 BEAUREPAIRE shows. Only whether any partner is
+                        # reachable without crossing another booth tells the two
+                        # apart, and that is the router's question, not this
+                        # step's.
+                        raise Abort(
+                            f"booth {booth} is stated `type: passthrough` but"
+                            f" the operator will not price gare"
+                            f" {gares[booth]} on its own\n"
+                            f"       {describe_comments(items)}\n"
+                            f"       That answer means the gare is one end of a"
+                            f" closed section. State the booth\n"
+                            f"       `enter` or `exit` in {args.overrides}"
+                            f" instead.")
+                    apply_charges(charges, booths, stated_types, route)
+                except Abort as exc:
+                    if not args.survey:
+                        raise
+                    violations.append({"from": booth, "to": booth,
+                                       "report": str(exc)})
+                    print(f"    !! stated barrier {booth} would stop the run"
+                          f" ({len(violations)} so far)")
+                    continue
+                for item in items:
+                    if item.get("comments"):
+                        commented.append(((booth, booth), item))
+                # Recorded only now, for the same reason a route is.
+                done.append((booth, booth))
+                write_state(args.out, booths, done)
+                print(f"    stated barrier {booth} -> gare {gares[booth]}"
+                      f" at {to_euros(booths[booth]['price'])}")
         except Abort as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
     else:
-        print("    no routes to query")
+        print("    no routes and no stated barriers to query")
 
     # A price the operator does not publish but a human has measured. Written
     # here so a consumer reads one file rather than two. A booth with no stated
@@ -648,6 +744,22 @@ def main() -> int:
         booths.setdefault(group, {"type": kind})["price"] = to_cents(
             amount, f"stated price of booth {group}")
         stated += 1
+
+    # A booth stated `enter` or `exit` carries its role and nothing else. The
+    # tariff depends on the partner at the other end of the ticket, and the
+    # direct pricing step is what supplies it -- but only for a booth already in
+    # the price file, since that is where it takes its sources and targets from.
+    # So recording the role is what puts the booth into the grid at all.
+    #
+    # A booth stated `passthrough` is not seeded here. Its entry is its price,
+    # and that comes from the answer to its own request; writing a bare entry
+    # would give it a type with no tariff and satisfy the check below with a
+    # record that says nothing.
+    for group, kind in sorted(ov.one_way.items()):
+        # `!=`, not `is not`: this string was parsed from YAML and is not the
+        # interned module constant, however equal it reads.
+        if kind != PASSTHROUGH:
+            booths.setdefault(group, {"type": kind})
     write_state(args.out, booths, done)
 
     kinds = collections.Counter(r["type"] for r in booths.values())
@@ -699,6 +811,37 @@ def main() -> int:
         print(f"\n    {len(rows)} covered booth group(s) have no price:")
         for line in table(("booth", "gare", "routes", "reason"), rows, right=(2,)):
             print(line)
+
+    # A booth stated by hand has to end up recorded, unlike a covered booth that
+    # merely has no price. A covered booth without one is a gap in the route set,
+    # which is where it is fixed; a stated booth is settled by the override file
+    # and, for a barrier, by one direct question, so nothing stands between the
+    # statement and the record. Runs on every invocation, including one with
+    # nothing outstanding.
+    surveyed = {(v["from"], v["to"]) for v in violations}
+    unrecorded = []
+    for booth, kind in sorted(ov.one_way.items()):
+        if (booth, booth) in surveyed:
+            continue
+        entry = booths.get(booth)
+        if entry is None:
+            unrecorded.append((booth, kind, "has no entry"))
+        elif kind == PASSTHROUGH and "price" not in entry:
+            # A barrier's entry is its price. One without says the request was
+            # never made, or its answer never applied -- and a type on its own
+            # would publish a booth the operator charges for at no charge.
+            unrecorded.append((booth, kind, "carries no price"))
+    if unrecorded:
+        print(f"\nERROR: {len(unrecorded)} booth(s) stated by override are not"
+              f" recorded.", file=sys.stderr)
+        print(f"       Delete their entries from {args.out} and run again, so"
+              f" the request is repeated.\n", file=sys.stderr)
+        for booth, kind, why in unrecorded:
+            print(f"       booth {booth} stated `type: {kind}`, gare"
+                  f" {gares.get(booth, '-')}, {why}"
+                  f"  https://www.openstreetmap.org/node/{booth}",
+                  file=sys.stderr)
+        return 1
 
     return 0
 
