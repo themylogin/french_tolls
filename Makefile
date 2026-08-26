@@ -40,6 +40,7 @@ ROUTE_SET    := $(DATA_DIR)/route_set.yaml
 UNCOVERED    := $(DATA_DIR)/uncovered_booths.json
 EXCLUDED     := $(DATA_DIR)/excluded_booths.json
 BLACKLIST    := $(DATA_DIR)/nodes_blacklist.yaml
+PATCH        := builder/patch_car_profile.py
 VINCI        := $(DATA_DIR)/vinci_toll_booth.yaml
 PRICES       := $(DATA_DIR)/vinci_price.yaml
 SIDES        := $(DATA_DIR)/bidirectional_booth_sides.yaml
@@ -50,8 +51,9 @@ OSRM_BASE  := $(OSRM_DIR)/france-latest
 OSRM_STAMP := $(OSRM_DIR)/.setup.stamp
 
 # The routing profile, copied out of the image and patched so that the nodes in
-# $(BLACKLIST) are impassable. `lib/` comes across too: car.lua requires it, and
-# osrm-extract resolves those requires relative to the profile it is given.
+# $(BLACKLIST) are impassable, and so that a gate keeps its penalty only where an
+# allowed highway class carries it. `lib/` comes across too: car.lua requires it,
+# and osrm-extract resolves those requires relative to the profile it is given.
 PROFILE_DIR  := $(OSRM_DIR)/profile
 PROFILE      := $(PROFILE_DIR)/car.lua
 PROFILE_ORIG := $(PROFILE_DIR)/car.lua.orig
@@ -161,16 +163,22 @@ setup_osrm: guard-osrm-path $(OSRM_STAMP)
 # and osrm-partition write some files and reuse others, so a survivor from an
 # older graph is silently mixed into the new one.
 #
-# $(BLACKLIST) is the one exception, and it is deliberate. Once the blacklist is
-# compiled into the profile the graph *is* the blacklist, and a stale graph would
-# keep routing over a node the file calls impassable -- which nothing downstream
-# could detect, because every later step now trusts the router instead of
-# checking. So this one is a real prerequisite: editing it costs a rebuild.
-$(OSRM_STAMP): $(BLACKLIST) | $(PBF)
+# $(BLACKLIST) and $(PATCH) are the two exceptions, and they are deliberate.
+# Once the blacklist and the gate rule are compiled into the profile the graph
+# *is* those rules, and a stale graph would keep routing over a node they call
+# impassable -- which nothing downstream could detect, because every later step
+# now trusts the router instead of checking. So these two are real
+# prerequisites: editing either costs a rebuild.
+#
+# $(PBF) stays order-only all the same, even though the gate scan reads it.
+# Re-downloading France is a deliberate act with its own consequences, and
+# keying half an hour of preprocessing to a 4.8 GB file's timestamp is the trap
+# the order-only rule was written for.
+$(OSRM_STAMP): $(BLACKLIST) $(PATCH) | $(PBF)
 	@if [ -f "$(OSRM_STAMP)" ]; then \
-	    echo "==> setup_osrm: $(BLACKLIST) changed; the graph has the old"; \
-	    echo "    blacklist compiled in, so extract, partition and customize"; \
-	    echo "    must run again. This takes 30-40 minutes."; \
+	    echo "==> setup_osrm: $? changed; the graph has the old rules"; \
+	    echo "    compiled in, so extract, partition and customize must run"; \
+	    echo "    again. This takes 30-40 minutes."; \
 	fi
 	@echo "==> setup_osrm: clearing any previous graph"
 	@rm -rf "$(OSRM_DIR)"/france-latest.osrm* "$(PROFILE_DIR)"
@@ -178,10 +186,11 @@ $(OSRM_STAMP): $(BLACKLIST) | $(PBF)
 	@echo "==> setup_osrm: taking the routing profile out of the image"
 	$(COMPOSE) run --rm --user $(HOST_USER) --entrypoint sh osrm-tools -c \
 	    "cp /opt/car.lua /osrm/profile/car.lua.orig && cp -r /opt/lib /osrm/profile/"
-	@echo "==> setup_osrm: patching it with $(BLACKLIST)"
+	@echo "==> setup_osrm: patching it with $(BLACKLIST) and the gate rule"
 	$(RUN_BUILDER) python3 patch_car_profile.py \
 	    --profile /osrm/profile/car.lua.orig \
 	    --blacklist /data/nodes_blacklist.yaml \
+	    --pbf /data/france-latest.osm.pbf \
 	    --out /osrm/profile/car.lua
 	@mkdir -p "$(OSRM_DIR)"
 	@free_gb=$$(df -Pk "$(OSRM_DIR)" | awk 'NR==2 {print int($$4/1024/1024)}'); \
