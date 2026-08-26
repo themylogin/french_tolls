@@ -1,7 +1,7 @@
 # build-pipeline Specification
 
 ## Purpose
-Defines the six-step build pipeline that turns a Geofabrik extract into a toll booth inventory, a covering route set, and a priced inventory, including how the steps are invoked, when they are skipped or resumed, and how the project is laid out and configured.
+Defines the eleven-step build pipeline that turns a Geofabrik extract into a toll booth inventory, a covering route set, a priced inventory, and a toll-weighted routing graph, including how the steps are invoked, when they are skipped or resumed, and how the project is laid out and configured.
 
 ## Requirements
 
@@ -20,9 +20,11 @@ The repository root SHALL hold only the pipeline's entry points — `Makefile` a
 
 The container image definition and all pipeline scripts SHALL live under `builder/`. Generated artifacts SHALL live under `data/`.
 
-The artifacts the pipeline is asked to produce — the booth inventory, the route set, and the gare mapping — SHALL be committed, so a consumer can read them without running the pipeline. Regenerable intermediates, OSM extracts, and the per-run diagnostic reports SHALL NOT be committed.
+The artifacts the pipeline is asked to produce — the booth inventory, the route set, the gare mapping, and the segment weight file — SHALL be committed, so a consumer can read them without running the pipeline. Regenerable intermediates, OSM extracts, and the per-run diagnostic reports SHALL NOT be committed.
 
-The exclusion report and the uncovered report SHALL still be produced on every run: they describe what one run of the pipeline decided, and the gare mapping step reads the exclusion report to name the nearest excluded booth when a placemark matches nothing. They are diagnostics about a run rather than published outputs, so they are not carried in the repository.
+The segment weight file is carried for the reason the booth sides are: it is derived from the routing graph, which is not in the repository, so a consumer who has only the checkout cannot rebuild it however cheap the step is.
+
+The exclusion report, the uncovered report, and the segment weight report SHALL still be produced on every run: they describe what one run of the pipeline decided, and the gare mapping step reads the exclusion report to name the nearest excluded booth when a placemark matches nothing. They are diagnostics about a run rather than published outputs, so they are not carried in the repository.
 
 #### Scenario: Scripts are located together
 
@@ -37,12 +39,12 @@ The exclusion report and the uncovered report SHALL still be produced on every r
 #### Scenario: Deliverables are committed
 
 - **WHEN** the repository is checked out without running the pipeline
-- **THEN** the booth inventory, the route set, and the gare mapping are present under `data/`
+- **THEN** the booth inventory, the route set, the gare mapping, and `data/segment_weights.csv` are present under `data/`
 
 #### Scenario: Reports are produced but not committed
 
 - **WHEN** the pipeline has run
-- **THEN** the exclusion report and the uncovered report exist under `data/` and are untracked
+- **THEN** the exclusion report, the uncovered report, and `data/segment_weights_report.json` exist under `data/` and are untracked
 
 #### Scenario: Extracts and intermediates are not committed
 
@@ -51,19 +53,35 @@ The exclusion report and the uncovered report SHALL still be produced on every r
 
 ### Requirement: OSRM data location is configured via .env
 
-The location of the OSRM graph SHALL be read from an `.env` file as `OSRM_OPTIMAL_PATH` and SHALL be mounted into the OSRM containers. `./data` SHALL be mounted alongside it. The pipeline SHALL fail with a clear message when `OSRM_OPTIMAL_PATH` is unset rather than operating on an unintended path.
+The pipeline SHALL keep two OSRM graphs, and the location of each SHALL be read from an `.env` file.
 
-Where that directory lives is deliberately unconstrained: it is local configuration, and the graph is excluded from version control wherever it sits.
+`OSRM_TOLL_PATH` SHALL hold the untouched graph, the one `setup_osrm` builds and the one every step that reasons about the road network queries. `OSRM_OPTIMAL_PATH` SHALL hold the toll-weighted graph, produced by copying the untouched graph and applying the segment weight file to the copy.
+
+Both SHALL be mounted into the OSRM containers, and `./data` SHALL be mounted alongside them. The pipeline SHALL fail with a clear message naming whichever of the two is unset rather than operating on an unintended path.
+
+The two names say which graph answers which question. `toll` is the road network as OSM describes it, with no tariff in it, and it is what decides whether a route is drivable or which booths it crosses. `optimal` is the network a driver should actually use, with each tolled segment carrying the time its tariff costs.
+
+Where those directories live is deliberately unconstrained: it is local configuration, and neither graph is in version control wherever it sits.
 
 #### Scenario: Configured path is used
 
-- **WHEN** `.env` sets `OSRM_OPTIMAL_PATH` to a directory
-- **THEN** the OSRM graph files are produced in that directory
+- **WHEN** `.env` sets `OSRM_TOLL_PATH` and `OSRM_OPTIMAL_PATH` to two directories
+- **THEN** preprocessing produces the graph files in the first, and the toll-weighted graph is produced in the second
 
 #### Scenario: Path is not configured
 
-- **WHEN** `OSRM_OPTIMAL_PATH` is unset or empty and any step needing it is run
+- **WHEN** `OSRM_TOLL_PATH` is unset or empty and any step needing it is run
 - **THEN** the pipeline stops with a message naming the missing variable
+
+#### Scenario: The toll-weighted path is not configured
+
+- **WHEN** `OSRM_OPTIMAL_PATH` is unset or empty and either of the two graph-producing steps that need it is run
+- **THEN** the pipeline stops with a message naming the missing variable
+
+#### Scenario: The two paths are the same
+
+- **WHEN** `OSRM_TOLL_PATH` and `OSRM_OPTIMAL_PATH` name the same directory
+- **THEN** the pipeline stops and says so, before anything overwrites the untouched graph with a weighted copy of itself
 
 ### Requirement: The extract is not duplicated permanently
 
@@ -72,7 +90,7 @@ The downloaded extract SHALL be retained under `data/`. The copy placed alongsid
 #### Scenario: Copy is released after preprocessing
 
 - **WHEN** the OSRM preprocessing step completes successfully
-- **THEN** no `.osm.pbf` file remains under `OSRM_OPTIMAL_PATH`, while `data/france-latest.osm.pbf` is still present
+- **THEN** no `.osm.pbf` file remains under `OSRM_TOLL_PATH`, while `data/france-latest.osm.pbf` is still present
 
 #### Scenario: Stale copy from a failed run
 
@@ -81,17 +99,31 @@ The downloaded extract SHALL be retained under `data/`. The copy placed alongsid
 
 ### Requirement: Named routing service
 
-The pipeline SHALL define a long-running OSRM query service named `osrm-optimal`, addressable under that name both as a container and on the Compose network, serving the graph from `OSRM_OPTIMAL_PATH`. One-shot preprocessing containers SHALL NOT be started by a plain `docker compose up`.
+The pipeline SHALL define two long-running OSRM query services, each addressable under its own name both as a container and on the Compose network.
+
+`osrm-toll` SHALL serve the graph from `OSRM_TOLL_PATH` and SHALL be the service every step that reasons about the road network queries. `osrm-optimal` SHALL serve the graph from `OSRM_OPTIMAL_PATH`.
+
+The two SHALL be published on different host ports, so that a consumer outside the Compose network can reach either. One-shot preprocessing containers SHALL NOT be started by a plain `docker compose up`.
 
 #### Scenario: Service is addressable by name
 
 - **WHEN** the route set step issues routing requests
-- **THEN** it reaches the query service at the host name `osrm-optimal`
+- **THEN** it reaches the query service at the host name `osrm-toll`
+
+#### Scenario: Both services are reachable from the host
+
+- **WHEN** both services are running
+- **THEN** each answers on its own host port, and a route requested from one is answered from its own graph
 
 #### Scenario: Plain compose up
 
 - **WHEN** `docker compose up` is run
-- **THEN** the query service starts and the one-shot preprocessing containers do not
+- **THEN** the query services start and the one-shot preprocessing containers do not
+
+#### Scenario: The toll-weighted service without its graph
+
+- **WHEN** `osrm-optimal` is started before the toll-weighted graph has been produced
+- **THEN** it fails to start rather than answering from anything else
 
 ### Requirement: Steps do not repeat completed work
 
@@ -101,9 +133,13 @@ A **checkpointed** step SHALL be skipped when its output is already in place. Sk
 
 A **resumable** step SHALL always execute, and SHALL read its own output to determine what remains. Such a step SHALL record each unit of work only once that unit is complete, so an interrupted run repeats at most one unit. A resumable step SHALL perform no work and SHALL contact no external service when its output is already complete.
 
-A step SHALL be resumable only when its work divides into units that are individually cheap to repeat and expensive to lose. `build_vinci_toll_booths`, `build_vinci_prices`, and `build_vinci_direct_prices` are resumable; every other step is checkpointed.
+A step SHALL be resumable only when its work divides into units that are individually cheap to repeat and expensive to lose. `build_vinci_toll_booths`, `build_vinci_prices`, `build_vinci_direct_prices`, and `build_toll_extent` are resumable; every other step is checkpointed.
 
 `build_vinci_direct_prices` SHALL read two outputs to determine what remains — the price file for the pairs it has priced, and the rejection database for the pairs it has ruled out. Its unit of work is one pair, and it repeats at most 25 of them.
+
+`build_toll_extent` SHALL read the price file for the booths whose extent it has recorded. Its unit of work is one booth, and it repeats at most one.
+
+`build_segment_weights` and `apply_segment_weights` are checkpointed. The first divides into no unit worth keeping — its aggregation is over all pairs at once, and a partial file would be a wrong file rather than an incomplete one. The second is one copy and one customization, and half of either is not a graph.
 
 #### Scenario: Re-running a completed pipeline
 
@@ -144,6 +180,21 @@ A step SHALL be resumable only when its work divides into units that are individ
 
 - **WHEN** `build_vinci_direct_prices` fails partway through
 - **THEN** the next run routes only the pairs its price file and its rejection database do not already record
+
+#### Scenario: The toll extent step resumes
+
+- **WHEN** `build_toll_extent` fails partway through
+- **THEN** the next run measures only the booths its price file does not already record
+
+#### Scenario: The segment weight step stops on deviation
+
+- **WHEN** `build_segment_weights` stops because a segment exceeded the deviation limit
+- **THEN** `data/segment_weights.csv` is not written or replaced, and the next run repeats the whole step
+
+#### Scenario: The apply step fails midway
+
+- **WHEN** `apply_segment_weights` fails during the copy or the customization
+- **THEN** its completion marker is not written, and the next run copies the untouched graph again from the beginning
 
 ### Requirement: The gare service subscription key is configured via .env
 
@@ -236,16 +287,18 @@ The direct pricing step SHALL require the routing service as well as the network
 - **WHEN** `build_vinci_direct_prices` is run with outstanding pairs and the OSRM instance stopped
 - **THEN** it fails with a message naming the unreachable routing service, before any rate request is issued
 
-### Requirement: Eight named build steps
+### Requirement: Eleven named build steps
 
-The pipeline SHALL expose exactly eight named steps — `download_pbf`, `setup_osrm`, `build_osm_toll_booths`, `build_route_set`, `build_vinci_toll_booths`, `build_vinci_prices`, `build_booth_sides`, and `build_vinci_direct_prices` — each individually invocable, and SHALL provide an `all` target that runs them in that order.
+The pipeline SHALL expose exactly eleven named steps — `download_pbf`, `setup_osrm`, `build_osm_toll_booths`, `build_route_set`, `build_vinci_toll_booths`, `build_vinci_prices`, `build_booth_sides`, `build_vinci_direct_prices`, `build_toll_extent`, `build_segment_weights`, and `apply_segment_weights` — each individually invocable, and SHALL provide an `all` target that runs them in that order.
 
 The seventh step SHALL run after the sixth, and the eighth after the seventh. The seventh reads the `enter`/`exit` roles the sixth records, and the eighth reads both the price file and the sides the seventh settles.
+
+The ninth SHALL run after the eighth, the tenth after the ninth, and the eleventh after the tenth. The ninth reads the roles the eighth settles and writes the toll extents into the same price file; the tenth divides each tariff by the distance between those extents; the eleventh applies what the tenth wrote.
 
 #### Scenario: Running the whole pipeline
 
 - **WHEN** `make all` is run in a clean checkout
-- **THEN** the eight steps execute in the order `download_pbf`, `setup_osrm`, `build_osm_toll_booths`, `build_route_set`, `build_vinci_toll_booths`, `build_vinci_prices`, `build_booth_sides`, `build_vinci_direct_prices`
+- **THEN** the eleven steps execute in the order `download_pbf`, `setup_osrm`, `build_osm_toll_booths`, `build_route_set`, `build_vinci_toll_booths`, `build_vinci_prices`, `build_booth_sides`, `build_vinci_direct_prices`, `build_toll_extent`, `build_segment_weights`, `apply_segment_weights`
 
 #### Scenario: Running a single step
 
@@ -270,6 +323,21 @@ The seventh step SHALL run after the sixth, and the eighth after the seventh. Th
 #### Scenario: Running the direct pricing step alone
 
 - **WHEN** `make build_vinci_direct_prices` is run
+- **THEN** that step runs, along with any earlier step whose output is missing
+
+#### Scenario: Running the toll extent step alone
+
+- **WHEN** `make build_toll_extent` is run
+- **THEN** that step runs, along with any earlier step whose output is missing
+
+#### Scenario: Running the segment weight step alone
+
+- **WHEN** `make build_segment_weights` is run
+- **THEN** that step runs, along with any earlier step whose output is missing
+
+#### Scenario: Running the apply step alone
+
+- **WHEN** `make apply_segment_weights` is run
 - **THEN** that step runs, along with any earlier step whose output is missing
 
 ### Requirement: The booth sides step needs the graph and not the key
@@ -448,6 +516,8 @@ The step SHALL state, before it begins, which of the two changed and that prepro
 
 Because the step is now re-runnable, it SHALL restart the routing service after building, and SHALL remove every file of any previous graph before building.
 
+Rebuilding the untouched graph SHALL also invalidate the toll-weighted one. Node ids survive a rebuild but segment speeds and weights need not, so a segment weight file derived from the old graph describes rows that may no longer hold — and the toll-weighted graph is a copy of a graph that no longer exists.
+
 `osrm-routed` maps the graph at startup and a running container is left alone by `compose up -d`, so replacing the files beneath a live server leaves it answering from the old graph — with answers that look entirely normal. That is not a hypothetical: it is how a blacklisted node kept appearing in routes after it had been compiled out.
 
  `osrm-extract` and `osrm-partition` write some files and reuse others, so a survivor from an earlier graph would be silently mixed into the new one — a case that did not arise while the step ran once and never again.
@@ -469,7 +539,7 @@ Because the step is now re-runnable, it SHALL restart the routing service after 
 
 #### Scenario: A previous graph is cleared before rebuilding
 
-- **WHEN** the setup step runs and `$(OSRM_OPTIMAL_PATH)` holds files from an earlier graph
+- **WHEN** the setup step runs and `$(OSRM_TOLL_PATH)` holds files from an earlier graph
 - **THEN** every `france-latest.osrm*` file and the patched profile are removed before anything is built
 
 #### Scenario: A killed run leaves nothing usable behind
@@ -479,10 +549,96 @@ Because the step is now re-runnable, it SHALL restart the routing service after 
 
 #### Scenario: A live routing service is restarted onto the new graph
 
-- **WHEN** the setup step rebuilds the graph while `osrm-optimal` is running
+- **WHEN** the setup step rebuilds the graph while `osrm-toll` is running
 - **THEN** it restarts that service, so no later step queries the old graph
+
+#### Scenario: A rebuild invalidates the toll-weighted graph
+
+- **WHEN** the setup step rebuilds the untouched graph
+- **THEN** the segment weight step and the apply step both run again before `all` completes
 
 #### Scenario: The cost is announced
 
 - **WHEN** the setup step re-runs because the blacklist or the patch script changed
 - **THEN** it says so, and states the expected duration, before starting
+
+### Requirement: The two graph steps need neither the network nor the operator
+
+`build_segment_weights` SHALL require the `osrm-toll` service and nothing else. It reads `data/vinci_price.yaml`, `data/vinci_toll_booth.yaml`, `data/osm_toll_booths.yaml` and `data/bidirectional_booth_sides.yaml`, all committed, and issues no request to the toll operator.
+
+`apply_segment_weights` SHALL require neither routing service. It copies files and runs a one-shot preprocessing container.
+
+Neither step SHALL be blocked by a missing `ULYS_SUBSCRIPTION_KEY` or `ULYS_PASSAGE_DATE`.
+
+#### Scenario: The segment weight step without network
+
+- **WHEN** `build_segment_weights` runs with no network access and `osrm-toll` available
+- **THEN** it completes normally
+
+#### Scenario: The segment weight step without the routing service
+
+- **WHEN** `build_segment_weights` is run with `osrm-toll` stopped
+- **THEN** it fails with a message naming the unreachable routing service, before it routes any pair
+
+#### Scenario: The apply step without either service
+
+- **WHEN** `apply_segment_weights` is run with both query services stopped
+- **THEN** it completes normally
+
+#### Scenario: No operator credentials are needed
+
+- **WHEN** `ULYS_SUBSCRIPTION_KEY` and `ULYS_PASSAGE_DATE` are both unset and either of the two steps is run
+- **THEN** the step runs, and neither guard stops it
+
+### Requirement: Two graphs need twice the disk
+
+The setup step's free-space check SHALL account for both graphs. The untouched graph is about 9 GB and preprocessing peaks about 5 GB above it while the extract copy is in place; the toll-weighted graph is a full copy of the same size.
+
+Where the two paths are on one filesystem, the check SHALL require about 25 GB free. The apply step SHALL make its own check before it begins copying, so a copy that cannot finish is refused rather than filling the disk.
+
+#### Scenario: The setup step checks for both
+
+- **WHEN** the setup step runs on a filesystem with less than the required space free
+- **THEN** it stops and names the space it needs, before any preprocessing begins
+
+#### Scenario: The apply step checks before copying
+
+- **WHEN** `apply_segment_weights` runs and the toll-weighted path's filesystem cannot hold another copy of the graph
+- **THEN** it stops and names the space it needs, before any file is copied
+
+### Requirement: Removing the graphs removes both
+
+`clean-osrm` SHALL remove the graph files, the setup stamp and the patched profile from `OSRM_TOLL_PATH`, and the graph files and the apply stamp from `OSRM_OPTIMAL_PATH`. The extracts under `data/` SHALL be kept, and `data/segment_weights.csv` SHALL be kept.
+
+The segment weight file is a deliverable rather than part of a graph. Removing the graphs is a way of reclaiming disk, and it must not cost a committed artefact.
+
+#### Scenario: Both graphs are removed
+
+- **WHEN** `make clean-osrm` is run
+- **THEN** neither directory holds a `france-latest.osrm*` file, and neither stamp remains
+
+#### Scenario: The deliverable survives
+
+- **WHEN** `make clean-osrm` is run
+- **THEN** `data/segment_weights.csv` and `data/france-latest.osm.pbf` are still present
+
+### Requirement: The toll extent step needs the graph and no key
+
+`build_toll_extent` SHALL require the `osrm-toll` service and nothing else. It reads `data/vinci_price.yaml`, `data/route_set.yaml`, `data/osm_toll_booths.yaml`, `data/bidirectional_booth_sides.yaml` and `data/osm_toll_booths_overrides.yaml`, all committed, and issues no request to the toll operator.
+
+It SHALL NOT be blocked by a missing `ULYS_SUBSCRIPTION_KEY` or `ULYS_PASSAGE_DATE`.
+
+#### Scenario: The step without network
+
+- **WHEN** `build_toll_extent` runs with no network access and `osrm-toll` available
+- **THEN** it completes normally
+
+#### Scenario: The step without the routing service
+
+- **WHEN** `build_toll_extent` is run with `osrm-toll` stopped
+- **THEN** it fails with a message naming the unreachable routing service, before it routes any booth
+
+#### Scenario: No operator credentials are needed
+
+- **WHEN** `ULYS_SUBSCRIPTION_KEY` and `ULYS_PASSAGE_DATE` are both unset and the step is run
+- **THEN** the step runs, and neither guard stops it
