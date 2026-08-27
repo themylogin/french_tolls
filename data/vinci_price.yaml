@@ -1,8 +1,12 @@
 toll_booths:
   126217:
     type: exit
+    last_toll_node_id: 3788960639
+    last_toll_latlon: [47.851182, 3.548652]
   126236:
     type: enter
+    first_toll_node_id: 126234
+    first_toll_latlon: [45.281496, 5.622282]
     prices:
       '03001': 13.7
       '03002': 11.0
@@ -34,14 +38,24 @@ toll_booths:
       '15018': 26.6
   130368:
     type: exit
+    last_toll_node_id: 253727095
+    last_toll_latlon: [45.497042, 4.838887]
   136834:
     type: exit
+    last_toll_node_id: 136812
+    last_toll_latlon: [45.279319, 5.622685]
   137090:
     type: exit
+    last_toll_node_id: 3067172575
+    last_toll_latlon: [45.323372, 5.607198]
   137232:
     type: exit
+    last_toll_node_id: 805521
+    last_toll_latlon: [45.288226, 5.521894]
   142268:
     type: enter
+    first_toll_node_id: 142274
+    first_toll_latlon: [48.768682, 7.238583]
     prices:
       '07701': 4.8
       '07702': 2.8
@@ -51,8 +65,12 @@ toll_booths:
       07708: 2.5
   142831:
     type: exit
+    last_toll_node_id: 530137792
+    last_toll_latlon: [45.976592, 5.312023]
   142940:
     type: enter
+    first_toll_node_id: 2292078695
+    first_toll_latlon: [45.571023, 5.603818]
     prices:
       '03001': 8.5
       '03002': 5.7
@@ -83,8 +101,12 @@ toll_booths:
       '15018': 19.3
   143255:
     type: exit
+    last_toll_node_id: 143205
+    last_toll_latlon: [45.666818, 5.055934]
   143256:
     type: enter
+    first_toll_node_id: 143206
+    first_toll_latlon: [45.666989, 5.054946]
     prices:
       '03003': 3.7
       '03004': 4.6
@@ -115,15 +137,23 @@ toll_booths:
       '15018': 27.0
   143584:
     type: exit
+    last_toll_node_id: 727692360
+    last_toll_latlon: [45.818831, 4.988173]
   143602:
     type: passthrough
     price: 2.4
   144772:
     type: exit
+    last_toll_node_id: 697268957
+    last_toll_latlon: [49.135759, 2.564713]
   154427:
     type: exit
+    last_toll_node_id: 249775217
+    last_toll_latlon: [43.98254, 4.887597]
   154642:
     type: exit
+    last_toll_node_id: 2401021229
+    last_toll_latlon: [43.892097, 4.916061]
   274043:
     type: passthrough
     price: 1.7
@@ -132,6 +162,8 @@ toll_booths:
     price: 4.8
   505680:
     type: enter
+    first_toll_node_id: 13334991133
+    first_toll_latlon: [46.12711, 6.094477]
     prices:
       '03001': 27.0
       '03002': 24.1
@@ -160,11 +192,15 @@ toll_booths:
       03095: 25.6
   505681:
     type: exit
+    last_toll_node_id: 5676411926
+    last_toll_latlon: [46.129308, 6.097812]
   565902:
     type: passthrough
     price: 4.5
   630216:
     type: enter
+    first_toll_node_id: 1372606163
+    first_toll_latlon: [43.469274, -1.284714]
     prices:
       '04461': 49.2
       '04462': 46.1
@@ -197,6 +233,8 @@ toll_booths:
       '18009': 12.9
   650878:
     type: enter
+    first_toll_node_id: 1836053306
+    first_toll_latlon: [44.75544, 4.790493]
     prices:
       '04201': 12.9
       '04203': 4.0
@@ -251,8 +289,12 @@ toll_booths:
       04358: 44.3
   655887:
     type: exit
+    last_toll_node_id: 655972
+    last_toll_latlon: [44.90464, 4.88191]
   655992:
     type: enter
+    first_toll_node_id: 656001
+    first_toll_latlon: [44.904916, 4.881534]
     prices:
       '04201': 9.2
       '04203': 1.5
@@ -307,6 +349,8 @@ toll_booths:
       04358: 47.4
   656078:
     type: enter
+    first_toll_node_id: 656045
+    first_toll_latlon: [44.966888, 4.887506]
     prices:
       '04201': 9.0
       '04203': 1.0
@@ -361,10 +405,16 @@ toll_booths:
       04358: 47.8
   656776:
     type: exit
+    last_toll_node_id: 656782
+    last_toll_latlon: [44.481361, 4.761228]
   809154:
     type: exit
+    last_toll_node_id: 7298781
+    last_toll_latlon: [45.024404, 5.084168]
   810324:
     type: enter
+    first_toll_node_id: 1412070831
+    first_toll_latlon: [45.023775, 5.081689]
     prices:
       '03001': 19.0
       '03002': 16.7
@@ -396,6 +446,8 @@ toll_booths:
       '15018': 33.9
   2015469:
     type: enter
+    first_toll_node_id: 844519147
+    first_toll_latlon: [45.816074, 3.155766]
     prices:
       '04122': 22.5
       '04123': 20.8
@@ -440,10 +492,16 @@ toll_booths:
       '22001': 7.7
   2087934:
     type: exit
+    last_toll_node_id: 2087938
+    last_toll_latlon: [45.82857, 3.234167]
   5555732:
     type: exit
+    last_toll_node_id: 104476278
+    last_toll_latlon: [43.656666, 3.995587]
   5555734:
     type: enter
+    first_toll_node_id: 5555707
+    first_toll_latlon: [43.655613, 3.994918]
     prices:
       '04201': 32.8
       '04203': 24.1
@@ -469,6 +527,8 @@ toll_booths:
     price: 1.7
   8980695:
     type: enter
+    first_toll_node_id: 100097829
+    first_toll_latlon: [43.564094, 3.833261]
     prices:
       '04333': 1.7
       '04334': 4.9
@@ -495,6 +555,8 @@ toll_booths:
       04358: 25.4
   9928578:
     type: enter
+    first_toll_node_id: 29042136
+    first_toll_latlon: [43.569072, 1.493728]
     prices:
       '04201': 59.8
       '04203': 51.9
@@ -539,18 +601,26 @@ toll_booths:
       04358: 6.8
   10467044:
     type: exit
+    last_toll_node_id: 144948988
+    last_toll_latlon: [43.553946, 1.493007]
   10468685:
     type: passthrough
     price: 4.8
   10471875:
     type: exit
+    last_toll_node_id: 295727222
+    last_toll_latlon: [43.202148, 2.314749]
   10536211:
     type: passthrough
     price: 4.8
   11003786:
     type: exit
+    last_toll_node_id: 1116795264
+    last_toll_latlon: [43.292333, 1.951765]
   12155715:
     type: enter
+    first_toll_node_id: 12162458
+    first_toll_latlon: [43.323488, 5.597805]
     prices:
       '06002': 3.7
       '06004': 5.5
@@ -565,13 +635,19 @@ toll_booths:
       06049: 14.9
   12162783:
     type: exit
+    last_toll_node_id: 255121513
+    last_toll_latlon: [43.483477, 5.539387]
   12165369:
     type: passthrough
     price: 3.3
   12169103:
     type: exit
+    last_toll_node_id: 12167329
+    last_toll_latlon: [43.323606, 5.597168]
   12536314:
     type: enter
+    first_toll_node_id: 5903578508
+    first_toll_latlon: [45.24156, 5.852416]
     prices:
       '02050': 10.1
       '02051': 12.9
@@ -588,8 +664,12 @@ toll_booths:
       '03034': 10.5
   12536316:
     type: exit
+    last_toll_node_id: 5903578495
+    last_toll_latlon: [45.241467, 5.851584]
   12608140:
     type: enter
+    first_toll_node_id: 3395796394
+    first_toll_latlon: [45.602244, 5.889849]
     prices:
       '03001': 13.4
       '03002': 10.4
@@ -620,8 +700,12 @@ toll_booths:
       '15018': 15.2
   12608143:
     type: exit
+    last_toll_node_id: 12608150
+    last_toll_latlon: [45.602232, 5.890089]
   12610219:
     type: enter
+    first_toll_node_id: 12610249
+    first_toll_latlon: [45.533915, 5.969992]
     prices:
       '02050': 6.3
       '02051': 9.1
@@ -638,10 +722,16 @@ toll_booths:
       '03034': 6.1
   12610220:
     type: exit
+    last_toll_node_id: 12610245
+    last_toll_latlon: [45.533821, 5.970276]
   13380042:
     type: exit
+    last_toll_node_id: 7618213578
+    last_toll_latlon: [46.281666, 4.794299]
   13380044:
     type: enter
+    first_toll_node_id: 1721052786
+    first_toll_latlon: [46.280526, 4.794648]
     prices:
       '05050': 52.4
       '05052': 53.1
@@ -740,8 +830,12 @@ toll_booths:
       '14375': 27.6
   13382945:
     type: exit
+    last_toll_node_id: 2087557013
+    last_toll_latlon: [45.070029, 4.866574]
   13397120:
     type: enter
+    first_toll_node_id: 253725891
+    first_toll_latlon: [45.495242, 4.83696]
     prices:
       '04203': 6.9
       '04204': 9.0
@@ -796,8 +890,12 @@ toll_booths:
       04358: 57.6
   13561190:
     type: exit
+    last_toll_node_id: 318892381
+    last_toll_latlon: [45.622679, 6.317955]
   13835106:
     type: enter
+    first_toll_node_id: 415397665
+    first_toll_latlon: [47.439565, 6.725828]
     prices:
       '05050': 62.1
       '05052': 62.8
@@ -920,6 +1018,8 @@ toll_booths:
       '14375': 37.3
   13835994:
     type: enter
+    first_toll_node_id: 13835992
+    first_toll_latlon: [47.278372, 5.13365]
     prices:
       '07140': 41.4
       '07141': 39.2
@@ -999,6 +1099,8 @@ toll_booths:
       '10159': 30.0
   13871528:
     type: enter
+    first_toll_node_id: 13871512
+    first_toll_latlon: [45.561679, 5.430408]
     prices:
       '03001': 6.6
       '03002': 3.8
@@ -1030,10 +1132,16 @@ toll_booths:
       '15018': 20.3
   13871529:
     type: exit
+    last_toll_node_id: 13871516
+    last_toll_latlon: [45.56141, 5.430418]
   13871640:
     type: exit
+    last_toll_node_id: 31352795
+    last_toll_latlon: [45.382987, 5.473953]
   13871876:
     type: enter
+    first_toll_node_id: 13871879
+    first_toll_latlon: [45.139551, 5.327003]
     prices:
       '03001': 14.9
       '03002': 11.9
@@ -1065,6 +1173,8 @@ toll_booths:
       '15018': 28.4
   14638934:
     type: enter
+    first_toll_node_id: 1965109886
+    first_toll_latlon: [45.382837, 5.47461]
     prices:
       '03001': 9.3
       '03002': 6.4
@@ -1096,6 +1206,8 @@ toll_booths:
       '15018': 22.7
   14798007:
     type: enter
+    first_toll_node_id: 34057676
+    first_toll_latlon: [44.288575, 4.752014]
     prices:
       '04201': 18.2
       '04203': 9.3
@@ -1150,10 +1262,16 @@ toll_booths:
       04358: 38.7
   14798008:
     type: exit
+    last_toll_node_id: 14893649
+    last_toll_latlon: [44.28858, 4.749887]
   14798265:
     type: exit
+    last_toll_node_id: 650743
+    last_toll_latlon: [44.66835, 4.793863]
   14798276:
     type: enter
+    first_toll_node_id: 650734
+    first_toll_latlon: [44.667642, 4.793466]
     prices:
       '04201': 13.9
       '04203': 5.0
@@ -1208,6 +1326,8 @@ toll_booths:
       04358: 43.0
   14960992:
     type: enter
+    first_toll_node_id: 690456
+    first_toll_latlon: [44.480935, 4.761661]
     prices:
       '04201': 16.7
       '04203': 7.8
@@ -1262,8 +1382,12 @@ toll_booths:
       04358: 40.3
   14961149:
     type: exit
+    last_toll_node_id: 656061
+    last_toll_latlon: [44.967127, 4.886736]
   15553152:
     type: enter
+    first_toll_node_id: 2087556995
+    first_toll_latlon: [45.069969, 4.866508]
     prices:
       '04201': 6.9
       '04204': 1.0
@@ -1318,6 +1442,8 @@ toll_booths:
       04358: 48.9
   15809877:
     type: enter
+    first_toll_node_id: 318892384
+    first_toll_latlon: [45.622783, 6.317936]
     prices:
       '02050': 4.1
       '02051': 6.9
@@ -1334,6 +1460,8 @@ toll_booths:
       '03033': 2.0
   15861717:
     type: exit
+    last_toll_node_id: 21031712
+    last_toll_latlon: [45.06304, 5.210183]
   18168123:
     type: passthrough
     price: 2.3
@@ -1342,6 +1470,8 @@ toll_booths:
     price: 2.4
   18267636:
     type: enter
+    first_toll_node_id: 873885602
+    first_toll_latlon: [46.231195, 5.619074]
     prices:
       '05050': 62.4
       '05052': 63.1
@@ -1462,14 +1592,24 @@ toll_booths:
       '14375': 37.6
   18267637:
     type: exit
+    last_toll_node_id: 4603307105
+    last_toll_latlon: [46.228715, 5.618838]
   19224143:
     type: exit
+    last_toll_node_id: 19224140
+    last_toll_latlon: [45.603823, 5.232807]
   21032382:
     type: exit
+    last_toll_node_id: 21032388
+    last_toll_latlon: [45.20083, 5.417242]
   21032868:
     type: exit
+    last_toll_node_id: 9033397414
+    last_toll_latlon: [45.346366, 6.30528]
   21032874:
     type: enter
+    first_toll_node_id: 9033397402
+    first_toll_latlon: [45.346306, 6.305142]
     prices:
       '02050': 2.5
       '02052': 1.0
@@ -1486,6 +1626,8 @@ toll_booths:
       '03034': 6.9
   21465992:
     type: enter
+    first_toll_node_id: 292170941
+    first_toll_latlon: [44.880528, -0.307926]
     prices:
       '04102': 1.2
       '04103': 2.7
@@ -1495,6 +1637,8 @@ toll_booths:
       '04107': 10.4
   21528882:
     type: enter
+    first_toll_node_id: 2325524266
+    first_toll_latlon: [49.079076, 4.886888]
     prices:
       '07140': 16.6
       '07141': 14.2
@@ -1580,11 +1724,15 @@ toll_booths:
       '10159': 57.2
   21561471:
     type: exit
+    last_toll_node_id: 13871884
+    last_toll_latlon: [45.139302, 5.32742]
   21562312:
     type: passthrough
     price: 1.1
   21617587:
     type: enter
+    first_toll_node_id: 2401021229
+    first_toll_latlon: [43.892097, 4.916061]
     prices:
       '04201': 23.6
       '04203': 15.5
@@ -1607,6 +1755,8 @@ toll_booths:
       '04267': 3.8
   21670932:
     type: enter
+    first_toll_node_id: 3827882785
+    first_toll_latlon: [45.818001, 4.985429]
     prices:
       '07140': 61.2
       '07141': 59.0
@@ -1680,6 +1830,8 @@ toll_booths:
       '10159': 18.9
   21700511:
     type: enter
+    first_toll_node_id: 30753569
+    first_toll_latlon: [46.129493, 6.084632]
     prices:
       '05050': 71.3
       '05052': 72.0
@@ -1800,8 +1952,12 @@ toll_booths:
       '14375': 46.5
   21700610:
     type: exit
+    last_toll_node_id: 11264369966
+    last_toll_latlon: [46.131236, 6.088549]
   21760589:
     type: enter
+    first_toll_node_id: 2937808303
+    first_toll_latlon: [46.259841, 5.16855]
     prices:
       '05050': 54.2
       '05052': 54.9
@@ -1922,6 +2078,8 @@ toll_booths:
       '14375': 29.4
   23059466:
     type: enter
+    first_toll_node_id: 797626253
+    first_toll_latlon: [50.819206, 2.064118]
     prices:
       '07001': 25.2
       '07006': 20.2
@@ -1955,8 +2113,12 @@ toll_booths:
       '07451': 16.7
   23059471:
     type: exit
+    last_toll_node_id: 797626719
+    last_toll_latlon: [50.818164, 2.065751]
   23197167:
     type: enter
+    first_toll_node_id: 23197134
+    first_toll_latlon: [49.302624, 3.996022]
     prices:
       '07001': 17.7
       '07006': 15.1
@@ -1992,8 +2154,12 @@ toll_booths:
       '07451': 14.8
   23197169:
     type: exit
+    last_toll_node_id: 417944254
+    last_toll_latlon: [49.3046, 3.99591]
   23217938:
     type: enter
+    first_toll_node_id: 23218040
+    first_toll_latlon: [49.217834, 4.071921]
     prices:
       '07140': 11.9
       '07141': 9.4
@@ -2082,8 +2248,12 @@ toll_booths:
       '10159': 59.3
   23217941:
     type: exit
+    last_toll_node_id: 1013946523
+    last_toll_latlon: [49.219185, 4.070823]
   24922276:
     type: exit
+    last_toll_node_id: 31413692
+    last_toll_latlon: [47.278416, 5.133898]
   25196607:
     type: passthrough
     price: 2.4
@@ -2095,6 +2265,8 @@ toll_booths:
     price: 1.5
   25415070:
     type: enter
+    first_toll_node_id: 32857251
+    first_toll_latlon: [43.545614, 6.807891]
     prices:
       '06002': 17.7
       '06003': 13.1
@@ -2109,6 +2281,8 @@ toll_booths:
       '06042': 13.6
   25452344:
     type: enter
+    first_toll_node_id: 21032390
+    first_toll_latlon: [45.20038, 5.416939]
     prices:
       '03001': 13.6
       '03002': 10.5
@@ -2143,6 +2317,8 @@ toll_booths:
     price: 6.3
   25631385:
     type: exit
+    last_toll_node_id: 3768292590
+    last_toll_latlon: [45.555807, 6.250683]
   25689722:
     type: passthrough
     price: 1.7
@@ -2151,10 +2327,16 @@ toll_booths:
     price: 1.7
   25783301:
     type: exit
+    last_toll_node_id: 1838416332
+    last_toll_latlon: [45.850587, 5.100618]
   25946087:
     type: exit
+    last_toll_node_id: 25946088
+    last_toll_latlon: [46.145497, 5.285781]
   25959136:
     type: enter
+    first_toll_node_id: 451078537
+    first_toll_latlon: [47.129779, -1.505397]
     prices:
       '04533': 17.3
       '04534': 15.2
@@ -2191,6 +2373,8 @@ toll_booths:
       '05532': 17.5
   25959780:
     type: exit
+    last_toll_node_id: 253968655
+    last_toll_latlon: [47.127893, -1.503534]
   26024647:
     type: passthrough
     price: 1.7
@@ -2199,6 +2383,8 @@ toll_booths:
     price: 3.5
   26085850:
     type: enter
+    first_toll_node_id: 292191494
+    first_toll_latlon: [45.995927, 6.1245]
     prices:
       '03001': 18.6
       '03002': 15.7
@@ -2230,14 +2416,24 @@ toll_booths:
     price: 4.8
   26188874:
     type: exit
+    last_toll_node_id: 28126167
+    last_toll_latlon: [45.812738, 3.154505]
   26189019:
     type: exit
+    last_toll_node_id: 731807197
+    last_toll_latlon: [45.842026, 3.158519]
   26209736:
     type: exit
+    last_toll_node_id: 496537411
+    last_toll_latlon: [48.566708, 1.982171]
   26209874:
     type: exit
+    last_toll_node_id: 26228508
+    last_toll_latlon: [47.949023, 1.859689]
   26210037:
     type: enter
+    first_toll_node_id: 1788019891
+    first_toll_latlon: [47.949388, 1.857101]
     prices:
       '04125': 42.6
       '04126': 39.6
@@ -2354,6 +2550,8 @@ toll_booths:
       '22001': 24.5
   26210039:
     type: enter
+    first_toll_node_id: 5887711722
+    first_toll_latlon: [48.567436, 1.98393]
     prices:
       '04125': 53.2
       '04126': 50.2
@@ -2435,8 +2633,12 @@ toll_booths:
       '22001': 35.1
   26228454:
     type: exit
+    last_toll_node_id: 26228455
+    last_toll_latlon: [48.084021, 1.858071]
   26228469:
     type: enter
+    first_toll_node_id: 26228455
+    first_toll_latlon: [48.084021, 1.858071]
     prices:
       '04125': 44.7
       '04126': 41.7
@@ -2553,12 +2755,20 @@ toll_booths:
       '22001': 26.6
   26265393:
     type: exit
+    last_toll_node_id: 26265541
+    last_toll_latlon: [46.325641, 2.967256]
   26265822:
     type: exit
+    last_toll_node_id: 415450712
+    last_toll_latlon: [47.244007, 2.061435]
   26404247:
     type: exit
+    last_toll_node_id: 26404249
+    last_toll_latlon: [43.821189, 5.026578]
   26404271:
     type: enter
+    first_toll_node_id: 1703132788
+    first_toll_latlon: [43.821267, 5.021419]
     prices:
       '04201': 24.3
       '04203': 15.9
@@ -2581,6 +2791,8 @@ toll_booths:
       '04267': 2.7
   26410395:
     type: enter
+    first_toll_node_id: 26410500
+    first_toll_latlon: [43.56459, 5.226506]
     prices:
       '04201': 28.1
       '04203': 22.0
@@ -2603,13 +2815,19 @@ toll_booths:
       '04267': 2.2
   26410440:
     type: exit
+    last_toll_node_id: 1672330949
+    last_toll_latlon: [43.561096, 5.227993]
   26517916:
     type: passthrough
     price: 3.3
   26538223:
     type: exit
+    last_toll_node_id: 1836053313
+    last_toll_latlon: [44.755468, 4.790053]
   26589771:
     type: enter
+    first_toll_node_id: 26590802
+    first_toll_latlon: [46.958289, -1.349692]
     prices:
       '04533': 15.1
       '04534': 12.6
@@ -2649,6 +2867,8 @@ toll_booths:
     price: 4.5
   27086904:
     type: enter
+    first_toll_node_id: 476086898
+    first_toll_latlon: [45.495662, 6.059351]
     prices:
       '02050': 4.3
       '02051': 7.1
@@ -2666,6 +2886,8 @@ toll_booths:
       '03034': 3.7
   27087837:
     type: enter
+    first_toll_node_id: 27087836
+    first_toll_latlon: [45.555972, 6.248765]
     prices:
       '02050': 2.1
       '02051': 4.9
@@ -2682,8 +2904,12 @@ toll_booths:
       '03034': 2.0
   27174404:
     type: exit
+    last_toll_node_id: 27174416
+    last_toll_latlon: [45.349846, 5.568659]
   27174434:
     type: enter
+    first_toll_node_id: 559451680
+    first_toll_latlon: [45.349677, 5.568032]
     prices:
       '03001': 10.9
       '03002': 7.2
@@ -2715,6 +2941,8 @@ toll_booths:
       '15018': 23.4
   27297173:
     type: enter
+    first_toll_node_id: 27297160
+    first_toll_latlon: [45.266655, 5.897564]
     prices:
       '02050': 9.4
       '02051': 12.2
@@ -2731,8 +2959,12 @@ toll_booths:
       '03034': 9.6
   27297216:
     type: exit
+    last_toll_node_id: 138506
+    last_toll_latlon: [45.268264, 5.895039]
   27509156:
     type: enter
+    first_toll_node_id: 4726564614
+    first_toll_latlon: [47.259416, 5.032212]
     prices:
       '05050': 47.1
       '05052': 47.8
@@ -2805,10 +3037,16 @@ toll_booths:
       '14375': 22.3
   27509158:
     type: exit
+    last_toll_node_id: 889073587
+    last_toll_latlon: [47.261995, 5.034219]
   28025816:
     type: exit
+    last_toll_node_id: 28025813
+    last_toll_latlon: [48.452862, 0.122851]
   28099229:
     type: enter
+    first_toll_node_id: 1656284741
+    first_toll_latlon: [47.320617, 1.49651]
     prices:
       '04125': 37.3
       '04126': 34.3
@@ -2880,10 +3118,16 @@ toll_booths:
       '22001': 19.2
   28121110:
     type: exit
+    last_toll_node_id: 1656257542
+    last_toll_latlon: [47.320956, 1.496277]
   28126039:
     type: exit
+    last_toll_node_id: 28195977
+    last_toll_latlon: [45.281323, 1.610854]
   28126040:
     type: enter
+    first_toll_node_id: 28126041
+    first_toll_latlon: [45.282905, 1.616471]
     prices:
       '04123': 1.4
       '04124': 2.1
@@ -2906,6 +3150,8 @@ toll_booths:
       '22001': 24.3
   28126222:
     type: enter
+    first_toll_node_id: 28126128
+    first_toll_latlon: [45.828506, 3.233239]
     prices:
       '04171': 1.7
       '04172': 2.5
@@ -2921,6 +3167,8 @@ toll_booths:
       04183: 14.1
   28126748:
     type: enter
+    first_toll_node_id: 1668254723
+    first_toll_latlon: [45.54732, 4.272017]
     prices:
       '04170': 10.8
       '04171': 10.1
@@ -2936,6 +3184,8 @@ toll_booths:
       04183: 8.7
   28126751:
     type: exit
+    last_toll_node_id: 28126436
+    last_toll_latlon: [45.547876, 4.271073]
   28195303:
     type: passthrough
     price: 1.0
@@ -2944,8 +3194,12 @@ toll_booths:
     price: 1.0
   28868612:
     type: exit
+    last_toll_node_id: 36157175
+    last_toll_latlon: [47.508039, 3.991979]
   28868623:
     type: enter
+    first_toll_node_id: 2200669
+    first_toll_latlon: [47.508338, 3.99219]
     prices:
       '05010': 44.4
       '05011': 46.2
@@ -3038,6 +3292,8 @@ toll_booths:
       '14375': 9.9
   28868663:
     type: enter
+    first_toll_node_id: 425733206
+    first_toll_latlon: [47.252571, 4.561905]
     prices:
       '05010': 50.3
       '05011': 52.1
@@ -3141,6 +3397,8 @@ toll_booths:
       '14375': 15.8
   28870546:
     type: enter
+    first_toll_node_id: 246782467
+    first_toll_latlon: [48.338192, 2.596782]
     prices:
       07185: 15.7
       09101: 2.0
@@ -3219,8 +3477,12 @@ toll_booths:
       '14375': 5.7
   28870547:
     type: exit
+    last_toll_node_id: 242834496
+    last_toll_latlon: [48.338173, 2.596593]
   29761117:
     type: enter
+    first_toll_node_id: 471080
+    first_toll_latlon: [48.750607, 7.68204]
     prices:
       '07701': 10.4
       '07702': 8.0
@@ -3229,10 +3491,16 @@ toll_booths:
       '07705': 2.5
   29761118:
     type: exit
+    last_toll_node_id: 3010459713
+    last_toll_latlon: [48.751099, 7.681251]
   29763066:
     type: exit
+    last_toll_node_id: 957566330
+    last_toll_latlon: [49.109041, 6.854525]
   29763067:
     type: enter
+    first_toll_node_id: 957566556
+    first_toll_latlon: [49.109355, 6.853729]
     prices:
       '07702': 1.6
       '07703': 2.8
@@ -3243,6 +3511,8 @@ toll_booths:
       07708: 8.4
   29789322:
     type: enter
+    first_toll_node_id: 21031711
+    first_toll_latlon: [45.063246, 5.210252]
     prices:
       '03001': 16.2
       '03002': 13.5
@@ -3274,18 +3544,32 @@ toll_booths:
       '15018': 29.8
   30781582:
     type: exit
+    last_toll_node_id: 10844844216
+    last_toll_latlon: [46.064598, 5.862006]
   30801937:
     type: exit
+    last_toll_node_id: 1539974833
+    last_toll_latlon: [49.197379, 5.984172]
   30813498:
     type: exit
+    last_toll_node_id: 1871925871
+    last_toll_latlon: [49.038828, 4.322006]
   30841803:
     type: exit
+    last_toll_node_id: 30841824
+    last_toll_latlon: [48.768808, 7.238251]
   30904133:
     type: exit
+    last_toll_node_id: 30904096
+    last_toll_latlon: [45.717509, 5.922484]
   30923142:
     type: exit
+    last_toll_node_id: 1400965797
+    last_toll_latlon: [48.761543, 7.390276]
   31004566:
     type: enter
+    first_toll_node_id: 1683711903
+    first_toll_latlon: [50.329619, 2.916855]
     prices:
       '07001': 18.9
       '07006': 14.6
@@ -3323,6 +3607,8 @@ toll_booths:
     price: 1.3
   32212303:
     type: enter
+    first_toll_node_id: 1088029027
+    first_toll_latlon: [49.134664, 2.56363]
     prices:
       '07007': 3.8
       07008: 4.9
@@ -3351,6 +3637,8 @@ toll_booths:
       '07060': 17.2
   32213712:
     type: enter
+    first_toll_node_id: 403870529
+    first_toll_latlon: [50.267945, 2.863124]
     prices:
       '07001': 15.6
       '07006': 11.5
@@ -3385,8 +3673,12 @@ toll_booths:
       '07451': 7.9
   32425386:
     type: exit
+    last_toll_node_id: 431589079
+    last_toll_latlon: [49.858261, 2.264212]
   32628291:
     type: enter
+    first_toll_node_id: 270355260
+    first_toll_latlon: [49.740304, 1.538845]
     prices:
       '07413': 14.9
       '07414': 11.0
@@ -3410,6 +3702,8 @@ toll_booths:
       '07446': 3.4
   32699885:
     type: enter
+    first_toll_node_id: 3342811879
+    first_toll_latlon: [47.412001, 6.585792]
     prices:
       '05050': 57.4
       '05052': 58.1
@@ -3533,12 +3827,20 @@ toll_booths:
       '14375': 32.6
   32699891:
     type: exit
+    last_toll_node_id: 3342811875
+    last_toll_latlon: [47.41196, 6.585569]
   33148650:
     type: exit
+    last_toll_node_id: 33164161
+    last_toll_latlon: [47.045751, 2.342701]
   34562273:
     type: exit
+    last_toll_node_id: 1576007261
+    last_toll_latlon: [50.250524, 3.317294]
   34562274:
     type: enter
+    first_toll_node_id: 1682444774
+    first_toll_latlon: [50.251258, 3.318164]
     prices:
       '07001': 16.3
       '07006': 12.9
@@ -3572,6 +3874,8 @@ toll_booths:
       '07451': 9.5
   34720192:
     type: enter
+    first_toll_node_id: 2331802673
+    first_toll_latlon: [45.636333, 4.198773]
     prices:
       '04170': 10.7
       '04171': 8.8
@@ -3587,10 +3891,16 @@ toll_booths:
       04183: 6.4
   35340135:
     type: exit
+    last_toll_node_id: 395136613
+    last_toll_latlon: [45.348188, 5.963884]
   35665218:
     type: exit
+    last_toll_node_id: 5714929923
+    last_toll_latlon: [48.173344, 2.764977]
   35665220:
     type: enter
+    first_toll_node_id: 242800104
+    first_toll_latlon: [48.172158, 2.768162]
     prices:
       09101: 4.1
       09102: 2.3
@@ -3598,8 +3908,12 @@ toll_booths:
       09104: 1.2
   35675144:
     type: exit
+    last_toll_node_id: 228558984
+    last_toll_latlon: [48.454163, 2.523995]
   35926132:
     type: enter
+    first_toll_node_id: 11491218391
+    first_toll_latlon: [42.667235, 2.858946]
     prices:
       '04201': 50.7
       '04203': 42.4
@@ -3645,12 +3959,20 @@ toll_booths:
       04358: 20.3
   35926646:
     type: exit
+    last_toll_node_id: 11491218390
+    last_toll_latlon: [42.667195, 2.859191]
   36129702:
     type: exit
+    last_toll_node_id: 36129708
+    last_toll_latlon: [45.636176, 4.198266]
   36129805:
     type: exit
+    last_toll_node_id: 5544791342
+    last_toll_latlon: [43.647434, 1.421499]
   36130695:
     type: enter
+    first_toll_node_id: 277545010
+    first_toll_latlon: [44.689754, -0.49366]
     prices:
       '04455': 21.9
       '04456': 22.9
@@ -3692,13 +4014,19 @@ toll_booths:
       '18009': 28.8
   36133303:
     type: exit
+    last_toll_node_id: 277545333
+    last_toll_latlon: [44.689793, -0.493525]
   36263019:
     type: passthrough
     price: 0.5
   36304281:
     type: exit
+    last_toll_node_id: 415399207
+    last_toll_latlon: [47.438818, 6.725323]
   36534628:
     type: enter
+    first_toll_node_id: 36534623
+    first_toll_latlon: [45.976561, 5.312317]
     prices:
       '05050': 58.6
       '05052': 59.3
@@ -3819,10 +4147,16 @@ toll_booths:
       '14375': 33.8
   36675385:
     type: exit
+    last_toll_node_id: 36675072
+    last_toll_latlon: [45.575436, 5.799915]
   36713429:
     type: exit
+    last_toll_node_id: 36713431
+    last_toll_latlon: [45.58261, 5.299154]
   36715162:
     type: enter
+    first_toll_node_id: 137230
+    first_toll_latlon: [45.288367, 5.521286]
     prices:
       '03001': 11.8
       '03002': 9.0
@@ -3906,8 +4240,12 @@ toll_booths:
     price: 4.2
   49362760:
     type: exit
+    last_toll_node_id: 49362757
+    last_toll_latlon: [48.082845, -1.03487]
   49362776:
     type: enter
+    first_toll_node_id: 1364847830
+    first_toll_latlon: [48.082713, -1.03196]
     prices:
       04780: 13.6
       04781: 16.7
@@ -3946,8 +4284,12 @@ toll_booths:
     price: 10.4
   50771124:
     type: exit
+    last_toll_node_id: 50771127
+    last_toll_latlon: [46.10035, 3.136833]
   54774589:
     type: enter
+    first_toll_node_id: 1548901848
+    first_toll_latlon: [49.895371, 2.246171]
     prices:
       '07413': 9.7
       '07414': 7.1
@@ -3972,8 +4314,12 @@ toll_booths:
       '07446': 1.7
   55149606:
     type: exit
+    last_toll_node_id: 2000933503
+    last_toll_latlon: [47.559429, 0.59277]
   55394714:
     type: enter
+    first_toll_node_id: 55394563
+    first_toll_latlon: [47.558784, 0.593539]
     prices:
       04780: 12.2
       04781: 15.3
@@ -4009,8 +4355,12 @@ toll_booths:
       '12210': 26.0
   55440641:
     type: exit
+    last_toll_node_id: 5792761371
+    last_toll_latlon: [48.00526, 0.311378]
   57018993:
     type: enter
+    first_toll_node_id: 8458461707
+    first_toll_latlon: [48.021332, 0.127046]
     prices:
       04780: 1.0
       04781: 4.1
@@ -4054,6 +4404,8 @@ toll_booths:
       '12210': 17.2
   57345005:
     type: enter
+    first_toll_node_id: 756784687
+    first_toll_latlon: [47.954782, 0.316969]
     prices:
       04780: 4.1
       04781: 7.2
@@ -4095,6 +4447,8 @@ toll_booths:
       '12210': 17.0
   57565041:
     type: enter
+    first_toll_node_id: 48114231
+    first_toll_latlon: [48.048711, 0.1708]
     prices:
       04780: 1.7
       04781: 4.8
@@ -4138,6 +4492,8 @@ toll_booths:
       '12210': 15.6
   57760493:
     type: enter
+    first_toll_node_id: 924517828
+    first_toll_latlon: [47.131322, 4.966656]
     prices:
       '05050': 45.4
       '05052': 46.1
@@ -4258,8 +4614,12 @@ toll_booths:
       '14375': 20.6
   58805387:
     type: exit
+    last_toll_node_id: 58805392
+    last_toll_latlon: [47.252456, 4.563412]
   58917023:
     type: enter
+    first_toll_node_id: 1372036561
+    first_toll_latlon: [47.326863, 1.761502]
     prices:
       '04125': 35.3
       '04126': 32.3
@@ -4332,6 +4692,8 @@ toll_booths:
       '22001': 17.2
   60078772:
     type: enter
+    first_toll_node_id: 281242128
+    first_toll_latlon: [45.061449, 1.506317]
     prices:
       '04401': 15.9
       '04402': 13.6
@@ -4341,8 +4703,12 @@ toll_booths:
       '04406': 2.2
   60079493:
     type: exit
+    last_toll_node_id: 872756944
+    last_toll_latlon: [44.046704, 1.395796]
   60178994:
     type: enter
+    first_toll_node_id: 2510678591
+    first_toll_latlon: [43.455584, 6.690244]
     prices:
       '06002': 13.6
       '06003': 9.5
@@ -4358,6 +4724,8 @@ toll_booths:
       06049: 0.7
   60179013:
     type: exit
+    last_toll_node_id: 2510678604
+    last_toll_latlon: [43.455907, 6.689805]
   60180044:
     type: passthrough
     price: 3.0
@@ -4366,8 +4734,12 @@ toll_booths:
     price: 3.0
   60247058:
     type: exit
+    last_toll_node_id: 32857261
+    last_toll_latlon: [43.545526, 6.807517]
   60305316:
     type: enter
+    first_toll_node_id: 60292912
+    first_toll_latlon: [45.294274, 6.355485]
     prices:
       '02050': 3.7
       '02051': 1.0
@@ -4385,6 +4757,8 @@ toll_booths:
     price: 1.0
   60314536:
     type: enter
+    first_toll_node_id: 60314533
+    first_toll_latlon: [45.509118, 6.005828]
     prices:
       '02050': 4.9
       '02051': 7.7
@@ -4407,6 +4781,8 @@ toll_booths:
     price: 2.6
   60941644:
     type: exit
+    last_toll_node_id: 7820273369
+    last_toll_latlon: [47.955018, 0.316391]
   60944604:
     type: passthrough
     price: 0.9
@@ -4418,6 +4794,10 @@ toll_booths:
     price: 1.8
   61275307:
     type: bidirectional
+    first_toll_node_id: 61275281
+    first_toll_latlon: [47.306358, 0.789817]
+    last_toll_node_id: 61669910
+    last_toll_latlon: [47.30658, 0.789452]
     prices:
       '04126': 42.0
       '04127': 39.9
@@ -4452,6 +4832,8 @@ toll_booths:
     price: 1.3
   73963126:
     type: enter
+    first_toll_node_id: 7181047940
+    first_toll_latlon: [47.972955, 0.05801]
     prices:
       04781: 3.4
       04782: 4.5
@@ -4495,6 +4877,10 @@ toll_booths:
       '12210': 18.2
   81055576:
     type: bidirectional
+    first_toll_node_id: 892734237
+    first_toll_latlon: [49.035752, 0.440583]
+    last_toll_node_id: 81055536
+    last_toll_latlon: [49.035996, 0.43984]
     prices:
       04780: 23.1
       04781: 26.2
@@ -4532,6 +4918,10 @@ toll_booths:
       '12210': 9.9
   82222593:
     type: bidirectional
+    first_toll_node_id: 2343274204
+    first_toll_latlon: [45.847467, 3.796799]
+    last_toll_node_id: 8343874284
+    last_toll_latlon: [45.847368, 3.796695]
     prices:
       '04170': 5.8
       '04171': 3.8
@@ -4547,8 +4937,14 @@ toll_booths:
       04183: 7.4
   82502276:
     type: exit
+    last_toll_node_id: 60292145
+    last_toll_latlon: [45.294114, 6.354552]
   84428307:
     type: bidirectional
+    first_toll_node_id: 5468766743
+    first_toll_latlon: [46.049534, 5.328511]
+    last_toll_node_id: 5468766731
+    last_toll_latlon: [46.049582, 5.328973]
     prices:
       '05050': 56.9
       '05052': 57.6
@@ -4669,13 +5065,19 @@ toll_booths:
       '14375': 32.1
   85698610:
     type: exit
+    last_toll_node_id: 1503669833
+    last_toll_latlon: [47.248735, 0.664024]
   90457331:
     type: gantry
     price: 1.5
   95914543:
     type: exit
+    last_toll_node_id: 95912939
+    last_toll_latlon: [47.617284, 1.34676]
   97729391:
     type: enter
+    first_toll_node_id: 2847657906
+    first_toll_latlon: [50.25555, 1.746454]
     prices:
       '07413': 16.9
       '07414': 13.8
@@ -4700,8 +5102,12 @@ toll_booths:
       '07446': 7.9
   98322556:
     type: exit
+    last_toll_node_id: 98322564
+    last_toll_latlon: [48.003899, -0.219715]
   98322557:
     type: enter
+    first_toll_node_id: 98322570
+    first_toll_latlon: [48.003791, -0.219793]
     prices:
       04780: 5.0
       04781: 8.1
@@ -4748,10 +5154,16 @@ toll_booths:
     price: 2.3
   99454381:
     type: exit
+    last_toll_node_id: 99422296
+    last_toll_latlon: [49.499019, 0.272549]
   100086450:
     type: exit
+    last_toll_node_id: 5446644848
+    last_toll_latlon: [43.476468, 3.685488]
   100087287:
     type: enter
+    first_toll_node_id: 5446644847
+    first_toll_latlon: [43.476514, 3.68568]
     prices:
       '04201': 35.2
       '04203': 26.3
@@ -4797,10 +5209,16 @@ toll_booths:
       04358: 22.2
   101480497:
     type: exit
+    last_toll_node_id: 101480513
+    last_toll_latlon: [47.252021, 0.166308]
   101497372:
     type: exit
+    last_toll_node_id: 100315482
+    last_toll_latlon: [47.334013, 0.44365]
   101497519:
     type: enter
+    first_toll_node_id: 101513340
+    first_toll_latlon: [47.333806, 0.446385]
     prices:
       04780: 16.8
       04781: 13.5
@@ -4835,6 +5253,8 @@ toll_booths:
       '12210': 35.3
   102968315:
     type: enter
+    first_toll_node_id: 246808337
+    first_toll_latlon: [43.704218, 4.121902]
     prices:
       '04201': 29.1
       '04203': 20.6
@@ -4880,8 +5300,12 @@ toll_booths:
       04358: 27.4
   102968801:
     type: exit
+    last_toll_node_id: 88267777
+    last_toll_latlon: [43.70369, 4.122512]
   103579675:
     type: enter
+    first_toll_node_id: 103581940
+    first_toll_latlon: [43.719351, 4.182426]
     prices:
       '04201': 28.8
       '04203': 20.4
@@ -4927,8 +5351,12 @@ toll_booths:
       04358: 27.9
   103585422:
     type: exit
+    last_toll_node_id: 288334712
+    last_toll_latlon: [43.719467, 4.182275]
   104513274:
     type: enter
+    first_toll_node_id: 20931564
+    first_toll_latlon: [43.815781, 4.340454]
     prices:
       '04201': 27.1
       '04203': 18.3
@@ -4974,17 +5402,27 @@ toll_booths:
       04358: 29.5
   104513419:
     type: exit
+    last_toll_node_id: 20931575
+    last_toll_latlon: [43.815576, 4.341477]
   104534425:
     type: exit
+    last_toll_node_id: 98772247
+    last_toll_latlon: [43.857022, 4.419343]
   122212229:
     type: exit
+    last_toll_node_id: 122212244
+    last_toll_latlon: [49.211849, 2.145613]
   131854822:
     type: exit
+    last_toll_node_id: 920215656
+    last_toll_latlon: [48.543611, 2.798622]
   137501371:
     type: passthrough
     price: 11.8
   140090191:
     type: enter
+    first_toll_node_id: 700010910
+    first_toll_latlon: [47.938851, 3.245173]
     prices:
       '05010': 37.4
       '05011': 39.2
@@ -5047,8 +5485,12 @@ toll_booths:
       '14375': 2.9
   146207158:
     type: exit
+    last_toll_node_id: 3906569485
+    last_toll_latlon: [43.646638, 1.451602]
   146207162:
     type: enter
+    first_toll_node_id: 3906569476
+    first_toll_latlon: [43.646826, 1.452977]
     prices:
       '04455': 1.8
       04458: 1.1
@@ -5077,6 +5519,8 @@ toll_booths:
     price: 1.6
   150873766:
     type: enter
+    first_toll_node_id: 21520380
+    first_toll_latlon: [49.197481, 5.984193]
     prices:
       '07140': 27.1
       '07141': 25.2
@@ -5113,8 +5557,14 @@ toll_booths:
     price: 1.7
   179459179:
     type: exit
+    last_toll_node_id: 369695746
+    last_toll_latlon: [43.372259, 3.418491]
   190755700:
     type: bidirectional
+    first_toll_node_id: 442900846
+    first_toll_latlon: [46.724061, 2.459427]
+    last_toll_node_id: 11362396484
+    last_toll_latlon: [46.724044, 2.459808]
     prices:
       '04122': 29.4
       '04123': 27.7
@@ -5177,6 +5627,10 @@ toll_booths:
       '22001': 6.3
   197118807:
     type: bidirectional
+    first_toll_node_id: 267205127
+    first_toll_latlon: [48.236533, 1.032935]
+    last_toll_node_id: 1404744886
+    last_toll_latlon: [48.236311, 1.033449]
     prices:
       04780: 9.6
       04781: 12.7
@@ -5220,6 +5674,8 @@ toll_booths:
       '12210': 23.7
   207278408:
     type: enter
+    first_toll_node_id: 243639213
+    first_toll_latlon: [46.848656, 5.575395]
     prices:
       '05050': 52.5
       '05052': 53.2
@@ -5344,6 +5800,8 @@ toll_booths:
       '14375': 27.7
   211276424:
     type: enter
+    first_toll_node_id: 10611871726
+    first_toll_latlon: [46.365089, 4.840152]
     prices:
       '05050': 51.5
       '05052': 52.2
@@ -5463,6 +5921,8 @@ toll_booths:
       '14375': 26.7
   211475830:
     type: enter
+    first_toll_node_id: 211475835
+    first_toll_latlon: [46.578171, 4.901595]
     prices:
       '05050': 48.6
       '05052': 49.3
@@ -5587,6 +6047,8 @@ toll_booths:
     price: 3.1
   228863617:
     type: enter
+    first_toll_node_id: 2105191529
+    first_toll_latlon: [47.286297, 0.989294]
     prices:
       '04125': 42.6
       '04126': 39.6
@@ -5617,6 +6079,8 @@ toll_booths:
       '22001': 24.5
   228876004:
     type: enter
+    first_toll_node_id: 1596335736
+    first_toll_latlon: [46.299466, 4.895198]
     prices:
       '05050': 51.6
       '05052': 52.3
@@ -5736,12 +6200,18 @@ toll_booths:
       '14375': 26.8
   230233305:
     type: bidirectional
+    first_toll_node_id: 1227285322
+    first_toll_latlon: [49.111729, 5.412823]
+    last_toll_node_id: 230233303
+    last_toll_latlon: [49.111945, 5.413037]
     prices:
       07197: 1.3
       07198: 3.2
       07199: 5.6
   239563333:
     type: enter
+    first_toll_node_id: 26265566
+    first_toll_latlon: [46.325798, 2.9684]
     prices:
       '04122': 23.8
       '04123': 22.1
@@ -5785,6 +6255,8 @@ toll_booths:
       '14350': 31.1
   241054650:
     type: enter
+    first_toll_node_id: 1554274384
+    first_toll_latlon: [49.858511, 2.265394]
     prices:
       '07413': 10.2
       '07414': 7.2
@@ -5815,8 +6287,12 @@ toll_booths:
     price: 6.0
   242826082:
     type: exit
+    last_toll_node_id: 8951761697
+    last_toll_latlon: [50.667977, 2.256327]
   243072571:
     type: enter
+    first_toll_node_id: 243072566
+    first_toll_latlon: [45.649556, 5.114484]
     prices:
       '03003': 1.1
       '03004': 1.8
@@ -5847,8 +6323,12 @@ toll_booths:
       '15018': 24.1
   243198059:
     type: exit
+    last_toll_node_id: 2153738995
+    last_toll_latlon: [48.914773, 4.288365]
   243763172:
     type: enter
+    first_toll_node_id: 6250168661
+    first_toll_latlon: [47.935907, 5.287376]
     prices:
       '05010': 52.3
       '05011': 54.1
@@ -5978,10 +6458,16 @@ toll_booths:
       '14375': 17.8
   244893345:
     type: exit
+    last_toll_node_id: 1893283648
+    last_toll_latlon: [48.049522, 0.170363]
   245806764:
     type: exit
+    last_toll_node_id: 10899009430
+    last_toll_latlon: [47.003825, 4.852798]
   246011442:
     type: enter
+    first_toll_node_id: 711075279
+    first_toll_latlon: [43.740455, 5.091942]
     prices:
       '04201': 27.0
       '04203': 18.7
@@ -6004,14 +6490,24 @@ toll_booths:
       '04267': 1.5
   246213575:
     type: exit
+    last_toll_node_id: 711074933
+    last_toll_latlon: [43.74052, 5.091194]
   247189294:
     type: exit
+    last_toll_node_id: 259593276
+    last_toll_latlon: [48.206634, 1.845434]
   247389529:
     type: exit
+    last_toll_node_id: 700010909
+    last_toll_latlon: [47.938708, 3.245227]
   247393077:
     type: exit
+    last_toll_node_id: 385560686
+    last_toll_latlon: [48.061955, 2.67193]
   247393080:
     type: enter
+    first_toll_node_id: 35487851
+    first_toll_latlon: [48.060505, 2.671713]
     prices:
       09101: 10.0
       09102: 8.0
@@ -6034,6 +6530,8 @@ toll_booths:
     price: 0.8
   247949075:
     type: enter
+    first_toll_node_id: 247989595
+    first_toll_latlon: [43.381559, 1.615767]
     prices:
       '04201': 57.2
       '04203': 48.2
@@ -6079,10 +6577,16 @@ toll_booths:
       04358: 3.8
   247949087:
     type: exit
+    last_toll_node_id: 247989595
+    last_toll_latlon: [43.381559, 1.615767]
   248706668:
     type: exit
+    last_toll_node_id: 241619907
+    last_toll_latlon: [49.6325, 0.635251]
   248868492:
     type: enter
+    first_toll_node_id: 811292490
+    first_toll_latlon: [49.361221, 0.832117]
     prices:
       04780: 42.5
       04781: 45.6
@@ -6120,10 +6624,18 @@ toll_booths:
       '12210': 25.0
   248869003:
     type: exit
+    last_toll_node_id: 248867577
+    last_toll_latlon: [49.361237, 0.832262]
   249132733:
     type: exit
+    last_toll_node_id: 246765292
+    last_toll_latlon: [43.46218, 6.549018]
   249181379:
     type: bidirectional
+    first_toll_node_id: 444588046
+    first_toll_latlon: [44.698722, 1.585085]
+    last_toll_node_id: 249181367
+    last_toll_latlon: [44.698386, 1.585607]
     prices:
       '04401': 10.8
       '04402': 7.6
@@ -6133,10 +6645,16 @@ toll_booths:
       '04407': 5.8
   249778842:
     type: exit
+    last_toll_node_id: 292170656
+    last_toll_latlon: [44.881803, -0.31186]
   249798721:
     type: exit
+    last_toll_node_id: 310680951
+    last_toll_latlon: [47.308363, -0.031144]
   250286697:
     type: enter
+    first_toll_node_id: 306697337
+    first_toll_latlon: [47.898748, 1.854171]
     prices:
       '04125': 40.9
       '04126': 37.9
@@ -6268,12 +6786,18 @@ toll_booths:
     price: 1.4
   252948832:
     type: exit
+    last_toll_node_id: 252948838
+    last_toll_latlon: [43.367327, 5.645647]
   252949501:
     type: enter
+    first_toll_node_id: 252949500
+    first_toll_latlon: [43.367004, 5.644834]
     prices:
       '06036': 1.2
   253943275:
     type: enter
+    first_toll_node_id: 5544791350
+    first_toll_latlon: [43.649911, 1.422137]
     prices:
       '04455': 1.3
       04458: 0.8
@@ -6293,6 +6817,8 @@ toll_booths:
       '18003': 30.1
   253945696:
     type: enter
+    first_toll_node_id: 5229840696
+    first_toll_latlon: [44.165958, 0.606322]
     prices:
       '04455': 9.2
       '04456': 11.5
@@ -6325,8 +6851,12 @@ toll_booths:
       '18009': 33.1
   253948577:
     type: exit
+    last_toll_node_id: 2085523381
+    last_toll_latlon: [45.751957, -0.662711]
   253948654:
     type: enter
+    first_toll_node_id: 2085523381
+    first_toll_latlon: [45.751957, -0.662711]
     prices:
       '04533': 9.4
       '04534': 7.5
@@ -6364,6 +6894,8 @@ toll_booths:
       '05532': 14.3
   253951327:
     type: enter
+    first_toll_node_id: 252940990
+    first_toll_latlon: [46.531031, -1.076008]
     prices:
       '04533': 8.8
       '04534': 6.2
@@ -6403,6 +6935,8 @@ toll_booths:
     price: 0.9
   254662308:
     type: enter
+    first_toll_node_id: 256242292
+    first_toll_latlon: [48.356594, 1.442548]
     prices:
       '05601': 8.9
       '05603': 4.5
@@ -6418,6 +6952,8 @@ toll_booths:
     price: 1.0
   255871598:
     type: enter
+    first_toll_node_id: 255871603
+    first_toll_latlon: [43.150155, 1.616766]
     prices:
       '04201': 57.6
       '04203': 48.9
@@ -6463,6 +6999,8 @@ toll_booths:
       '04357': 1.1
   255936638:
     type: enter
+    first_toll_node_id: 3788960638
+    first_toll_latlon: [47.851186, 3.548847]
     prices:
       '05010': 40.2
       '05011': 42.0
@@ -6571,6 +7109,8 @@ toll_booths:
       '14375': 5.7
   256748954:
     type: enter
+    first_toll_node_id: 211217949
+    first_toll_latlon: [46.021444, 4.72066]
     prices:
       '05050': 55.0
       '05302': 57.6
@@ -6666,8 +7206,14 @@ toll_booths:
       '14375': 30.2
   257152241:
     type: exit
+    last_toll_node_id: 293769400
+    last_toll_latlon: [45.00965, 0.374567]
   257784733:
     type: bidirectional
+    first_toll_node_id: 7201064085
+    first_toll_latlon: [45.574526, 5.652047]
+    last_toll_node_id: 257784765
+    last_toll_latlon: [45.574666, 5.651929]
     prices:
       '03001': 9.2
       '03002': 6.2
@@ -6698,6 +7244,8 @@ toll_booths:
       '15018': 18.9
   258027361:
     type: enter
+    first_toll_node_id: 258027357
+    first_toll_latlon: [45.320254, 5.604993]
     prices:
       03087: 1.9
       03091: 9.9
@@ -6707,10 +7255,16 @@ toll_booths:
       03095: 1.4
   258934071:
     type: exit
+    last_toll_node_id: 258934072
+    last_toll_latlon: [46.365052, 4.840048]
   258942957:
     type: exit
+    last_toll_node_id: 294759271
+    last_toll_latlon: [46.5782, 4.901527]
   259003448:
     type: enter
+    first_toll_node_id: 259003399
+    first_toll_latlon: [49.045743, 7.030728]
     prices:
       '07701': 1.6
       '07703': 1.2
@@ -6723,6 +7277,8 @@ toll_booths:
     price: 1.5
   259093186:
     type: exit
+    last_toll_node_id: 421296106
+    last_toll_latlon: [47.519274, -0.42478]
   259970703:
     type: passthrough
     price: 2.0
@@ -6731,6 +7287,8 @@ toll_booths:
     price: 2.0
   259973397:
     type: enter
+    first_toll_node_id: 12169327
+    first_toll_latlon: [43.483687, 5.537487]
     prices:
       '06004': 4.4
       '06005': 6.9
@@ -6744,6 +7302,8 @@ toll_booths:
       06049: 13.8
   259977064:
     type: enter
+    first_toll_node_id: 1967103236
+    first_toll_latlon: [43.462776, 6.547983]
     prices:
       '06002': 11.5
       '06003': 7.8
@@ -6759,6 +7319,8 @@ toll_booths:
       06049: 2.3
   259977190:
     type: enter
+    first_toll_node_id: 259977152
+    first_toll_latlon: [43.4683, 6.733093]
     prices:
       '06002': 13.8
       '06003': 9.7
@@ -6773,11 +7335,15 @@ toll_booths:
       '06042': 9.7
   259977198:
     type: exit
+    last_toll_node_id: 259977144
+    last_toll_latlon: [43.468097, 6.732803]
   259980982:
     type: passthrough
     price: 1.5
   260171882:
     type: exit
+    last_toll_node_id: 246780795
+    last_toll_latlon: [48.061545, 3.094743]
   260490708:
     type: passthrough
     price: 2.3
@@ -6786,6 +7352,8 @@ toll_booths:
     price: 2.3
   261058618:
     type: enter
+    first_toll_node_id: 920215662
+    first_toll_latlon: [48.543655, 2.798101]
     prices:
       07185: 13.2
       09105: 7.9
@@ -6870,6 +7438,8 @@ toll_booths:
       '14375': 9.0
   261946952:
     type: enter
+    first_toll_node_id: 2279195963
+    first_toll_latlon: [45.582356, 5.29909]
     prices:
       '03001': 4.6
       '03002': 1.8
@@ -6901,21 +7471,35 @@ toll_booths:
       '15018': 21.7
   262861318:
     type: exit
+    last_toll_node_id: 270689429
+    last_toll_latlon: [49.859762, 2.390508]
   264064866:
     type: exit
+    last_toll_node_id: 170930320
+    last_toll_latlon: [48.454129, 1.53036]
   264140281:
     type: passthrough
     price: 2.4
   264386251:
     type: exit
+    last_toll_node_id: 8458461708
+    last_toll_latlon: [48.0214, 0.126911]
   264756447:
     type: exit
+    last_toll_node_id: 1042719247
+    last_toll_latlon: [48.975629, 4.291217]
   264788441:
     type: exit
+    last_toll_node_id: 282643727
+    last_toll_latlon: [48.108927, -0.739389]
   264993278:
     type: exit
+    last_toll_node_id: 1352426504
+    last_toll_latlon: [49.960219, 2.860922]
   267138475:
     type: enter
+    first_toll_node_id: 36675072
+    first_toll_latlon: [45.575436, 5.799915]
     prices:
       '03001': 11.0
       '03002': 7.4
@@ -6946,6 +7530,8 @@ toll_booths:
       '15018': 16.9
   267165980:
     type: enter
+    first_toll_node_id: 355200892
+    first_toll_latlon: [45.196428, 6.621418]
     prices:
       '02050': 7.9
       '02051': 5.5
@@ -6961,8 +7547,12 @@ toll_booths:
       '03034': 12.2
   267166028:
     type: exit
+    last_toll_node_id: 355200897
+    last_toll_latlon: [45.196389, 6.620908]
   267167000:
     type: enter
+    first_toll_node_id: 267166996
+    first_toll_latlon: [47.329157, -0.603244]
     prices:
       '04533': 19.3
       '04534': 17.0
@@ -6992,6 +7582,8 @@ toll_booths:
       '04570': 15.2
   267571099:
     type: enter
+    first_toll_node_id: 630720103
+    first_toll_latlon: [45.603354, 5.233327]
     prices:
       '03001': 3.7
       '03002': 1.1
@@ -7023,8 +7615,12 @@ toll_booths:
       '15018': 22.6
   268212668:
     type: exit
+    last_toll_node_id: 229546977
+    last_toll_latlon: [48.658441, 0.081489]
   268212669:
     type: enter
+    first_toll_node_id: 228891237
+    first_toll_latlon: [48.658286, 0.081676]
     prices:
       04780: 18.2
       04781: 21.3
@@ -7076,6 +7672,8 @@ toll_booths:
     price: 1.2
   270370119:
     type: enter
+    first_toll_node_id: 2159409115
+    first_toll_latlon: [50.105635, 2.866502]
     prices:
       '07001': 12.9
       '07006': 8.8
@@ -7107,8 +7705,12 @@ toll_booths:
       '07451': 5.7
   270376590:
     type: exit
+    last_toll_node_id: 1023654261
+    last_toll_latlon: [49.742686, 1.533493]
   270647374:
     type: enter
+    first_toll_node_id: 12657400930
+    first_toll_latlon: [46.669784, 0.360159]
     prices:
       '04533': 5.0
       '04534': 7.4
@@ -7175,10 +7777,16 @@ toll_booths:
       '07451': 3.6
   270684525:
     type: exit
+    last_toll_node_id: 5804845601
+    last_toll_latlon: [50.331333, 2.919025]
   272505901:
     type: exit
+    last_toll_node_id: 272505878
+    last_toll_latlon: [43.212358, 0.108782]
   272877809:
     type: enter
+    first_toll_node_id: 427088338
+    first_toll_latlon: [44.046919, 1.396526]
     prices:
       '04402': 1.7
       '04403': 4.4
@@ -7188,6 +7796,8 @@ toll_booths:
       '04407': 15.9
   273224399:
     type: enter
+    first_toll_node_id: 267877286
+    first_toll_latlon: [43.700191, 5.739432]
     prices:
       '06055': 4.0
       '06056': 2.5
@@ -7200,8 +7810,12 @@ toll_booths:
       '06070': 11.7
   274207796:
     type: exit
+    last_toll_node_id: 1546279229
+    last_toll_latlon: [47.329618, -0.602868]
   275169751:
     type: enter
+    first_toll_node_id: 5792761369
+    first_toll_latlon: [48.005129, 0.311295]
     prices:
       04780: 3.6
       04781: 6.7
@@ -7245,6 +7859,8 @@ toll_booths:
       '12210': 16.1
   275173451:
     type: enter
+    first_toll_node_id: 264788454
+    first_toll_latlon: [48.108919, -0.739964]
     prices:
       04780: 9.7
       04781: 12.8
@@ -7280,8 +7896,12 @@ toll_booths:
       '12210': 23.6
   275329462:
     type: exit
+    last_toll_node_id: 1282924218
+    last_toll_latlon: [46.957984, -1.350019]
   276335332:
     type: enter
+    first_toll_node_id: 8554555502
+    first_toll_latlon: [44.544826, -0.261012]
     prices:
       '04455': 17.6
       '04456': 20.1
@@ -7323,8 +7943,12 @@ toll_booths:
       '18009': 25.8
   276335747:
     type: exit
+    last_toll_node_id: 276334862
+    last_toll_latlon: [44.544589, -0.260552]
   276599460:
     type: enter
+    first_toll_node_id: 13026937033
+    first_toll_latlon: [46.105362, 4.750763]
     prices:
       '05050': 54.0
       '05302': 56.6
@@ -7420,6 +8044,8 @@ toll_booths:
       '14375': 29.2
   277398779:
     type: enter
+    first_toll_node_id: 1598155373
+    first_toll_latlon: [46.244062, -0.462115]
     prices:
       '04533': 3.0
       '04534': 1.6
@@ -7456,6 +8082,8 @@ toll_booths:
       '05532': 8.1
   277451985:
     type: enter
+    first_toll_node_id: 2101639278
+    first_toll_latlon: [44.167229, 4.76501]
     prices:
       '04210': 0.5
       '04211': 2.2
@@ -7506,6 +8134,8 @@ toll_booths:
     price: 1.5
   277820265:
     type: bidirectional
+    first_toll_node_id: 13564552
+    first_toll_latlon: [43.113455, 0.757922]
     prices:
       '04466': 39.6
       '04467': 40.9
@@ -7535,14 +8165,24 @@ toll_booths:
       '18009': 13.7
   277910939:
     type: exit
+    last_toll_node_id: 1955759382
+    last_toll_latlon: [43.120023, 0.896098]
   279128148:
     type: exit
+    last_toll_node_id: 7090382096
+    last_toll_latlon: [46.787853, -1.192537]
   279140830:
     type: exit
+    last_toll_node_id: 279140837
+    last_toll_latlon: [45.549375, 6.162387]
   279217617:
     type: exit
+    last_toll_node_id: 252940994
+    last_toll_latlon: [46.530714, -1.076423]
   279217857:
     type: enter
+    first_toll_node_id: 279373886
+    first_toll_latlon: [46.436712, -0.822769]
     prices:
       '04533': 6.3
       '04534': 3.8
@@ -7579,8 +8219,12 @@ toll_booths:
       '05532': 10.4
   279341406:
     type: exit
+    last_toll_node_id: 1316636862
+    last_toll_latlon: [47.042702, 4.850132]
   279441849:
     type: exit
+    last_toll_node_id: 924517822
+    last_toll_latlon: [47.131383, 4.966746]
   280351090:
     type: passthrough
     price: 2.0
@@ -7589,6 +8233,8 @@ toll_booths:
     price: 0.9
   280985131:
     type: enter
+    first_toll_node_id: 280985019
+    first_toll_latlon: [50.504388, 1.679078]
     prices:
       '07413': 21.0
       '07414': 17.3
@@ -7613,6 +8259,8 @@ toll_booths:
       '07446': 9.9
   281410101:
     type: enter
+    first_toll_node_id: 879291862
+    first_toll_latlon: [43.098161, 0.595925]
     prices:
       '04465': 39.4
       '04466': 38.7
@@ -7643,8 +8291,14 @@ toll_booths:
       '18009': 12.8
   282069502:
     type: exit
+    last_toll_node_id: 9975149023
+    last_toll_latlon: [46.62102, 0.342888]
   282351799:
     type: bidirectional
+    first_toll_node_id: 9009874178
+    first_toll_latlon: [47.818888, 0.299827]
+    last_toll_node_id: 9009874195
+    last_toll_latlon: [47.819248, 0.299419]
     prices:
       04780: 5.5
       04781: 8.6
@@ -7684,6 +8338,8 @@ toll_booths:
       '12210': 18.2
   285818973:
     type: enter
+    first_toll_node_id: 82801157
+    first_toll_latlon: [45.877902, 3.625913]
     prices:
       '04170': 3.8
       '04171': 2.0
@@ -7699,8 +8355,12 @@ toll_booths:
       04183: 9.1
   285839327:
     type: exit
+    last_toll_node_id: 1784434517
+    last_toll_latlon: [45.848359, 3.385025]
   286851357:
     type: enter
+    first_toll_node_id: 1728451787
+    first_toll_latlon: [44.901878, 1.503648]
     prices:
       '04401': 13.9
       '04402': 10.3
@@ -7710,6 +8370,8 @@ toll_booths:
       '04407': 2.2
   287697090:
     type: enter
+    first_toll_node_id: 2782616335
+    first_toll_latlon: [48.103666, -0.835531]
     prices:
       04780: 9.8
       04781: 12.9
@@ -7745,6 +8407,8 @@ toll_booths:
       '12210': 24.1
   288149616:
     type: enter
+    first_toll_node_id: 444805487
+    first_toll_latlon: [45.655946, 2.689982]
     prices:
       '04122': 14.5
       '04123': 11.1
@@ -7789,8 +8453,12 @@ toll_booths:
       '22001': 11.1
   288894155:
     type: exit
+    last_toll_node_id: 1451196115
+    last_toll_latlon: [44.512629, -0.051334]
   288919698:
     type: enter
+    first_toll_node_id: 599171287
+    first_toll_latlon: [49.156915, 2.240559]
     prices:
       '07414': 1.9
       '07415': 4.3
@@ -7815,8 +8483,12 @@ toll_booths:
       '07446': 10.7
   288919803:
     type: exit
+    last_toll_node_id: 240997497
+    last_toll_latlon: [49.153946, 2.244204]
   288922361:
     type: enter
+    first_toll_node_id: 288922334
+    first_toll_latlon: [44.436084, 0.130771]
     prices:
       '04455': 14.4
       '04456': 16.7
@@ -7855,6 +8527,8 @@ toll_booths:
       '18009': 28.1
   288926127:
     type: enter
+    first_toll_node_id: 5122294120
+    first_toll_latlon: [49.211631, 2.145426]
     prices:
       '07413': 1.9
       '07415': 2.0
@@ -7879,10 +8553,16 @@ toll_booths:
       '07446': 8.0
   288947708:
     type: exit
+    last_toll_node_id: 12030056420
+    last_toll_latlon: [49.612434, 2.203685]
   289258237:
     type: exit
+    last_toll_node_id: 274950124
+    last_toll_latlon: [45.42637, 5.994437]
   289258239:
     type: enter
+    first_toll_node_id: 251553506
+    first_toll_latlon: [45.426207, 5.99446]
     prices:
       '02050': 6.2
       '02051': 9.0
@@ -7900,10 +8580,16 @@ toll_booths:
       '03034': 6.2
   289381861:
     type: exit
+    last_toll_node_id: 289381866
+    last_toll_latlon: [43.479785, 5.756129]
   289537324:
     type: exit
+    last_toll_node_id: 6772034760
+    last_toll_latlon: [47.437086, 4.310412]
   289537367:
     type: enter
+    first_toll_node_id: 6772034741
+    first_toll_latlon: [47.437129, 4.310376]
     prices:
       '05010': 46.5
       '05011': 48.3
@@ -7996,6 +8682,8 @@ toll_booths:
       '14375': 12.0
   289537452:
     type: enter
+    first_toll_node_id: 289537449
+    first_toll_latlon: [47.003686, 4.852629]
     prices:
       '05050': 44.5
       '05052': 45.2
@@ -8117,6 +8805,8 @@ toll_booths:
       '14375': 19.7
   289537479:
     type: enter
+    first_toll_node_id: 1837422520
+    first_toll_latlon: [46.755907, 4.831394]
     prices:
       '05050': 46.9
       '05052': 47.6
@@ -8236,6 +8926,10 @@ toll_booths:
     price: 1.2
   289635259:
     type: bidirectional
+    first_toll_node_id: 289635655
+    first_toll_latlon: [48.213821, 5.831183]
+    last_toll_node_id: 1917613743
+    last_toll_latlon: [48.213986, 5.830254]
     prices:
       '05010': 57.2
       '05011': 59.0
@@ -8350,10 +9044,16 @@ toll_booths:
       '14375': 22.7
   289883367:
     type: exit
+    last_toll_node_id: 891045359
+    last_toll_latlon: [44.173179, 5.954617]
   290195298:
     type: exit
+    last_toll_node_id: 211217932
+    last_toll_latlon: [46.021427, 4.720381]
   290614344:
     type: enter
+    first_toll_node_id: 1116903982
+    first_toll_latlon: [43.128703, 0.942216]
     prices:
       '04466': 43.3
       '04467': 44.6
@@ -8383,8 +9083,12 @@ toll_booths:
       '18009': 17.4
   290812844:
     type: exit
+    last_toll_node_id: 7171485765
+    last_toll_latlon: [47.567161, -0.327775]
   290864784:
     type: enter
+    first_toll_node_id: 1665614852
+    first_toll_latlon: [44.441785, 6.027778]
     prices:
       '06055': 14.9
       '06056': 13.6
@@ -8397,6 +9101,8 @@ toll_booths:
       06068: 2.8
   290865658:
     type: enter
+    first_toll_node_id: 1917780066
+    first_toll_latlon: [44.224657, 5.913882]
     prices:
       '06055': 14.0
       '06056': 12.5
@@ -8412,10 +9118,16 @@ toll_booths:
     price: 2.3
   291392948:
     type: exit
+    last_toll_node_id: 30790867
+    last_toll_latlon: [45.991489, 6.129026]
   291568677:
     type: exit
+    last_toll_node_id: 5142446496
+    last_toll_latlon: [46.17721, 5.55864]
   291568687:
     type: enter
+    first_toll_node_id: 5142446497
+    first_toll_latlon: [46.177182, 5.559143]
     prices:
       '05050': 60.6
       '05052': 61.3
@@ -8536,6 +9248,8 @@ toll_booths:
       '14375': 35.8
   291747385:
     type: enter
+    first_toll_node_id: 1551192933
+    first_toll_latlon: [46.275903, 4.811927]
     prices:
       '07140': 57.3
       '07141': 55.1
@@ -8607,8 +9321,12 @@ toll_booths:
       '10159': 20.4
   292356937:
     type: exit
+    last_toll_node_id: 6116325480
+    last_toll_latlon: [46.159143, 5.64908]
   292356996:
     type: enter
+    first_toll_node_id: 6116325480
+    first_toll_latlon: [46.159143, 5.64908]
     prices:
       '05050': 61.0
       '05052': 61.7
@@ -8729,6 +9447,8 @@ toll_booths:
       '14375': 36.2
   292375190:
     type: enter
+    first_toll_node_id: 3587014320
+    first_toll_latlon: [47.082944, -0.828223]
     prices:
       '04533': 15.2
       '04534': 12.8
@@ -8758,8 +9478,12 @@ toll_booths:
       '04570': 9.7
   292384163:
     type: exit
+    last_toll_node_id: 292456705
+    last_toll_latlon: [47.02069, -0.882261]
   292944726:
     type: enter
+    first_toll_node_id: 292944711
+    first_toll_latlon: [48.457323, 1.906468]
     prices:
       '04125': 51.2
       '04126': 48.2
@@ -8857,10 +9581,16 @@ toll_booths:
       '22001': 33.1
   292944753:
     type: exit
+    last_toll_node_id: 292944715
+    last_toll_latlon: [48.457123, 1.907144]
   293659568:
     type: exit
+    last_toll_node_id: 280351830
+    last_toll_latlon: [49.211005, 2.623571]
   295028548:
     type: enter
+    first_toll_node_id: 285839350
+    first_toll_latlon: [45.848537, 3.384971]
     prices:
       '04170': 1.7
       '04172': 0.8
@@ -8876,8 +9606,12 @@ toll_booths:
       04183: 11.7
   295926425:
     type: exit
+    last_toll_node_id: 295926392
+    last_toll_latlon: [44.225124, 5.913359]
   295992385:
     type: enter
+    first_toll_node_id: 27457136
+    first_toll_latlon: [44.125554, 5.977398]
     prices:
       '06055': 10.9
       '06056': 9.2
@@ -8887,6 +9621,8 @@ toll_booths:
       '06063': 1.2
   296335430:
     type: enter
+    first_toll_node_id: 12884442573
+    first_toll_latlon: [50.411996, 1.689722]
     prices:
       '07413': 19.3
       '07414': 15.9
@@ -8911,8 +9647,12 @@ toll_booths:
       '07446': 8.8
   296335488:
     type: exit
+    last_toll_node_id: 6790154824
+    last_toll_latlon: [50.412173, 1.689903]
   297326241:
     type: enter
+    first_toll_node_id: 101480513
+    first_toll_latlon: [47.252021, 0.166308]
     prices:
       04780: 12.8
       04781: 9.5
@@ -8947,6 +9687,8 @@ toll_booths:
       '12210': 31.3
   298601377:
     type: enter
+    first_toll_node_id: 283324438
+    first_toll_latlon: [45.138089, 0.54359]
     prices:
       '04101': 11.6
       '04102': 9.7
@@ -8955,8 +9697,12 @@ toll_booths:
       '04105': 3.7
   298601379:
     type: exit
+    last_toll_node_id: 504598728
+    last_toll_latlon: [45.137742, 0.54328]
   298941861:
     type: enter
+    first_toll_node_id: 298941860
+    first_toll_latlon: [45.348212, 5.963729]
     prices:
       '02050': 6.7
       '02051': 9.5
@@ -8974,10 +9720,16 @@ toll_booths:
       '03034': 6.7
   300407818:
     type: exit
+    last_toll_node_id: 5644396542
+    last_toll_latlon: [50.09759, 1.867584]
   300447375:
     type: exit
+    last_toll_node_id: 1739278707
+    last_toll_latlon: [50.723673, 2.173306]
   300685333:
     type: enter
+    first_toll_node_id: 255559554
+    first_toll_latlon: [43.807192, 4.371783]
     prices:
       '04201': 27.2
       '04203': 18.5
@@ -9023,8 +9775,12 @@ toll_booths:
       04358: 29.6
   300688079:
     type: exit
+    last_toll_node_id: 2358511659
+    last_toll_latlon: [43.807684, 4.371978]
   300994716:
     type: enter
+    first_toll_node_id: 6021644389
+    first_toll_latlon: [47.840256, 1.875427]
     prices:
       '04125': 40.7
       '04126': 37.7
@@ -9178,6 +9934,8 @@ toll_booths:
       '18009': 27.1
   302010360:
     type: enter
+    first_toll_node_id: 255731181
+    first_toll_latlon: [45.01713, -0.431955]
     prices:
       '04533': 19.6
       '04534': 19.5
@@ -9215,8 +9973,12 @@ toll_booths:
       '05532': 20.0
   302017374:
     type: exit
+    last_toll_node_id: 280985064
+    last_toll_latlon: [50.504414, 1.678262]
   302107257:
     type: enter
+    first_toll_node_id: 1813873841
+    first_toll_latlon: [50.673573, 1.659868]
     prices:
       '07413': 23.8
       '07414': 19.7
@@ -9241,6 +10003,8 @@ toll_booths:
       '07446': 11.7
   302112697:
     type: enter
+    first_toll_node_id: 7245256339
+    first_toll_latlon: [50.703454, 1.633341]
     prices:
       '07413': 25.0
       '07414': 21.9
@@ -9265,11 +10029,15 @@ toll_booths:
       '07446': 14.7
   302229238:
     type: exit
+    last_toll_node_id: 302229242
+    last_toll_latlon: [45.649745, 5.118334]
   303085665:
     type: passthrough
     price: 0.9
   303191561:
     type: enter
+    first_toll_node_id: 348252985
+    first_toll_latlon: [47.214332, 2.11604]
     prices:
       '04125': 31.6
       '04126': 28.6
@@ -9343,6 +10111,10 @@ toll_booths:
       '22001': 13.5
   303350369:
     type: bidirectional
+    first_toll_node_id: 749661792
+    first_toll_latlon: [47.834494, 1.671129]
+    last_toll_node_id: 749661828
+    last_toll_latlon: [47.834113, 1.671832]
     prices:
       '04125': 43.8
       '04126': 40.8
@@ -9457,6 +10229,8 @@ toll_booths:
       '22001': 25.7
   303811524:
     type: enter
+    first_toll_node_id: 247189290
+    first_toll_latlon: [48.206621, 1.844861]
     prices:
       '04125': 47.0
       '04126': 44.0
@@ -9573,6 +10347,8 @@ toll_booths:
       '22001': 28.9
   304663622:
     type: enter
+    first_toll_node_id: 303939297
+    first_toll_latlon: [50.133342, 1.813617]
     prices:
       '07413': 15.9
       '07414': 12.0
@@ -9597,8 +10373,12 @@ toll_booths:
       '07446': 6.0
   304664253:
     type: exit
+    last_toll_node_id: 304664255
+    last_toll_latlon: [50.133445, 1.8133]
   304672214:
     type: enter
+    first_toll_node_id: 5644396549
+    first_toll_latlon: [50.096998, 1.867885]
     prices:
       '07413': 14.8
       '07414': 10.9
@@ -9623,8 +10403,12 @@ toll_booths:
       '07446': 5.4
   304673263:
     type: exit
+    last_toll_node_id: 302906934
+    last_toll_latlon: [49.935921, 2.243651]
   304862451:
     type: enter
+    first_toll_node_id: 304862450
+    first_toll_latlon: [49.860676, 3.242826]
     prices:
       '07001': 13.6
       '07006': 10.1
@@ -9660,10 +10444,16 @@ toll_booths:
       '07451': 6.5
   306479406:
     type: exit
+    last_toll_node_id: 472483094
+    last_toll_latlon: [42.938786, 2.97505]
   306620171:
     type: exit
+    last_toll_node_id: 4001005463
+    last_toll_latlon: [47.542428, 0.984078]
   306622478:
     type: enter
+    first_toll_node_id: 84536128
+    first_toll_latlon: [47.46501, 0.763604]
     prices:
       '05050': 13.4
       '05052': 15.5
@@ -9741,8 +10531,12 @@ toll_booths:
       '14380': 35.4
   306622595:
     type: exit
+    last_toll_node_id: 11017031924
+    last_toll_latlon: [47.490103, 0.817907]
   307057501:
     type: enter
+    first_toll_node_id: 3405399345
+    first_toll_latlon: [49.812683, 3.294102]
     prices:
       '07001': 12.6
       '07006': 9.4
@@ -9778,10 +10572,16 @@ toll_booths:
       '07451': 5.8
   307631007:
     type: exit
+    last_toll_node_id: 307631015
+    last_toll_latlon: [49.095065, 5.102153]
   308001966:
     type: exit
+    last_toll_node_id: 1456366653
+    last_toll_latlon: [43.636081, 5.022375]
   308079844:
     type: enter
+    first_toll_node_id: 80636343
+    first_toll_latlon: [43.625153, 5.101695]
     prices:
       '04201': 28.4
       '04203': 20.0
@@ -9801,6 +10601,8 @@ toll_booths:
       '04220': 2.0
   308235934:
     type: enter
+    first_toll_node_id: 492647268
+    first_toll_latlon: [43.658196, 5.103498]
     prices:
       '04201': 27.2
       '04203': 19.0
@@ -9818,10 +10620,16 @@ toll_booths:
       '04217': 6.0
   308777762:
     type: exit
+    last_toll_node_id: 1671540166
+    last_toll_latlon: [43.627945, 5.105305]
   309903361:
     type: exit
+    last_toll_node_id: 286832981
+    last_toll_latlon: [43.330323, -0.355913]
   309903362:
     type: enter
+    first_toll_node_id: 286832969
+    first_toll_latlon: [43.33008, -0.355283]
     prices:
       '04461': 41.4
       '04462': 38.3
@@ -9857,6 +10665,10 @@ toll_booths:
       '18009': 5.1
   309937348:
     type: bidirectional
+    first_toll_node_id: 277026415
+    first_toll_latlon: [45.960941, -0.545681]
+    last_toll_node_id: 314423734
+    last_toll_latlon: [45.961316, -0.546368]
     prices:
       '04533': 6.1
       '04534': 4.4
@@ -9893,19 +10705,31 @@ toll_booths:
       '05532': 10.9
   309941699:
     type: exit
+    last_toll_node_id: 4003122605
+    last_toll_latlon: [46.627061, -1.155828]
   310301329:
     type: exit
+    last_toll_node_id: 2325524229
+    last_toll_latlon: [49.078912, 4.887005]
   310948831:
     type: exit
+    last_toll_node_id: 310948835
+    last_toll_latlon: [44.441949, 6.028404]
   311638830:
     type: exit
+    last_toll_node_id: 311638825
+    last_toll_latlon: [43.17816, 0.241307]
   313361153:
     type: passthrough
     price: 6.8
   314081185:
     type: exit
+    last_toll_node_id: 300994711
+    last_toll_latlon: [47.840406, 1.871743]
   317071039:
     type: enter
+    first_toll_node_id: 794793946
+    first_toll_latlon: [47.276236, 5.989157]
     prices:
       '05050': 53.0
       '05052': 53.7
@@ -10035,6 +10859,8 @@ toll_booths:
       '14375': 28.2
   317670287:
     type: enter
+    first_toll_node_id: 1223199368
+    first_toll_latlon: [48.381059, 3.019959]
     prices:
       07185: 11.0
       09105: 5.3
@@ -10119,8 +10945,12 @@ toll_booths:
       '14375': 6.6
   317670314:
     type: exit
+    last_toll_node_id: 1223199368
+    last_toll_latlon: [48.381059, 3.019959]
   317802090:
     type: enter
+    first_toll_node_id: 317802088
+    first_toll_latlon: [46.145396, 5.285968]
     prices:
       '05050': 55.5
       '05052': 56.2
@@ -10241,6 +11071,8 @@ toll_booths:
       '14375': 30.7
   321454405:
     type: enter
+    first_toll_node_id: 2915928407
+    first_toll_latlon: [43.809934, 5.811782]
     prices:
       '06055': 5.6
       '06056': 4.0
@@ -10253,6 +11085,10 @@ toll_booths:
       '06070': 9.4
   322846284:
     type: bidirectional
+    first_toll_node_id: 322846285
+    first_toll_latlon: [44.343077, 1.486151]
+    last_toll_node_id: 322846285
+    last_toll_latlon: [44.343077, 1.486151]
     prices:
       '04401': 4.4
       '04402': 2.1
@@ -10262,8 +11098,12 @@ toll_booths:
       '04407': 10.6
   322869087:
     type: exit
+    last_toll_node_id: 3710640397
+    last_toll_latlon: [45.469491, 6.28722]
   323144666:
     type: enter
+    first_toll_node_id: 309208851
+    first_toll_latlon: [48.422922, 2.942001]
     prices:
       07185: 11.0
       09105: 5.3
@@ -10348,8 +11188,14 @@ toll_booths:
       '14375': 6.6
   324391958:
     type: exit
+    last_toll_node_id: 309207610
+    last_toll_latlon: [48.42316, 2.94257]
   327506022:
     type: bidirectional
+    first_toll_node_id: 836859755
+    first_toll_latlon: [46.504979, 2.630233]
+    last_toll_node_id: 836859755
+    last_toll_latlon: [46.504979, 2.630233]
     prices:
       '04122': 26.6
       '04123': 24.9
@@ -10411,6 +11257,8 @@ toll_booths:
       '22001': 3.8
   331203148:
     type: enter
+    first_toll_node_id: 828930731
+    first_toll_latlon: [48.237451, 3.60168]
     prices:
       '05010': 41.4
       '05011': 43.2
@@ -10530,11 +11378,15 @@ toll_booths:
       '14375': 6.9
   331251955:
     type: exit
+    last_toll_node_id: 2601088782
+    last_toll_latlon: [50.029149, 2.067369]
   331944036:
     type: passthrough
     price: 5.2
   332248643:
     type: enter
+    first_toll_node_id: 260216983
+    first_toll_latlon: [48.23456, 3.263523]
     prices:
       '05010': 38.1
       '05011': 39.9
@@ -10647,8 +11499,12 @@ toll_booths:
       '14375': 3.6
   332272132:
     type: exit
+    last_toll_node_id: 332272357
+    last_toll_latlon: [45.57285, -0.594109]
   332282171:
     type: enter
+    first_toll_node_id: 332276709
+    first_toll_latlon: [45.012045, -0.102163]
     prices:
       '04101': 2.7
       '04102': 1.4
@@ -10658,8 +11514,12 @@ toll_booths:
       '04107': 6.2
   332477934:
     type: exit
+    last_toll_node_id: 7171587484
+    last_toll_latlon: [46.073152, 6.290524]
   332477935:
     type: enter
+    first_toll_node_id: 1128888497
+    first_toll_latlon: [46.069484, 6.289306]
     prices:
       '03001': 22.5
       '03002': 19.4
@@ -10691,6 +11551,8 @@ toll_booths:
     price: 1.4
   335854857:
     type: enter
+    first_toll_node_id: 369695759
+    first_toll_latlon: [43.372775, 3.419664]
     prices:
       '04201': 37.8
       '04203': 28.7
@@ -10736,6 +11598,8 @@ toll_booths:
       04358: 19.1
   338974999:
     type: enter
+    first_toll_node_id: 338974978
+    first_toll_latlon: [43.17281, 2.740874]
     prices:
       '04201': 45.4
       '04203': 37.0
@@ -10781,6 +11645,8 @@ toll_booths:
       04358: 12.7
   340075349:
     type: enter
+    first_toll_node_id: 12030056369
+    first_toll_latlon: [49.612022, 2.203222]
     prices:
       '07413': 6.9
       '07414': 4.1
@@ -10805,6 +11671,8 @@ toll_booths:
       '07446': 4.5
   340097997:
     type: enter
+    first_toll_node_id: 7177223735
+    first_toll_latlon: [47.773923, -0.210319]
     prices:
       04780: 3.4
       04782: 1.3
@@ -10848,6 +11716,10 @@ toll_booths:
       '12210': 21.3
   340395444:
     type: bidirectional
+    first_toll_node_id: 1592878303
+    first_toll_latlon: [46.83653, 0.533799]
+    last_toll_node_id: 281333261
+    last_toll_latlon: [46.836211, 0.532749]
     prices:
       '04533': 8.0
       '04534': 10.4
@@ -10879,6 +11751,10 @@ toll_booths:
       '05532': 4.8
   340396503:
     type: bidirectional
+    first_toll_node_id: 2141094488
+    first_toll_latlon: [46.786344, 0.54703]
+    last_toll_node_id: 415578516
+    last_toll_latlon: [46.785898, 0.546843]
     prices:
       '04533': 7.2
       '04534': 9.6
@@ -10916,6 +11792,8 @@ toll_booths:
     price: 1.1
   341343259:
     type: enter
+    first_toll_node_id: 2071274887
+    first_toll_latlon: [47.370456, 6.379635]
     prices:
       '05050': 55.8
       '05052': 56.5
@@ -11039,8 +11917,12 @@ toll_booths:
       '14375': 31.0
   343206372:
     type: exit
+    last_toll_node_id: 760684154
+    last_toll_latlon: [47.234311, 5.899824]
   343206373:
     type: enter
+    first_toll_node_id: 760684174
+    first_toll_latlon: [47.234467, 5.899879]
     prices:
       '05050': 53.0
       '05052': 53.7
@@ -11179,6 +12061,8 @@ toll_booths:
     price: 1.4
   344466875:
     type: exit
+    last_toll_node_id: 1306247359
+    last_toll_latlon: [43.663134, 5.494977]
   344943470:
     type: passthrough
     price: 1.0
@@ -11199,8 +12083,12 @@ toll_booths:
     price: 0.7
   360047943:
     type: exit
+    last_toll_node_id: 360047983
+    last_toll_latlon: [43.032941, 2.958884]
   360047970:
     type: enter
+    first_toll_node_id: 360047987
+    first_toll_latlon: [43.033079, 2.958823]
     prices:
       '04201': 45.6
       '04203': 36.7
@@ -11249,8 +12137,12 @@ toll_booths:
     price: 1.5
   366923586:
     type: exit
+    last_toll_node_id: 872804792
+    last_toll_latlon: [44.144126, 1.519684]
   366940500:
     type: enter
+    first_toll_node_id: 872805032
+    first_toll_latlon: [44.144525, 1.519796]
     prices:
       '04401': 1.7
       '04403': 2.1
@@ -11260,10 +12152,18 @@ toll_booths:
       '04407': 13.6
   369043557:
     type: exit
+    last_toll_node_id: 303192082
+    last_toll_latlon: [47.214222, 2.116789]
   370025627:
     type: exit
+    last_toll_node_id: 2071274886
+    last_toll_latlon: [47.370451, 6.379455]
   370669859:
     type: bidirectional
+    first_toll_node_id: 370669911
+    first_toll_latlon: [47.58282, 1.98726]
+    last_toll_node_id: 370669872
+    last_toll_latlon: [47.582943, 1.987424]
     prices:
       '04125': 36.0
       '04126': 33.0
@@ -11383,13 +12283,19 @@ toll_booths:
       '07446': 1.7
   374119298:
     type: exit
+    last_toll_node_id: 12112787189
+    last_toll_latlon: [49.812754, 3.294195]
   375649933:
     type: exit
+    last_toll_node_id: 247702049
+    last_toll_latlon: [43.928842, 1.316505]
   376962116:
     type: passthrough
     price: 1.5
   376962319:
     type: enter
+    first_toll_node_id: 1848509890
+    first_toll_latlon: [45.846172, 3.165904]
     prices:
       '04122': 20.9
       '04123': 19.2
@@ -11434,14 +12340,24 @@ toll_booths:
       '22001': 6.3
   378374878:
     type: exit
+    last_toll_node_id: 272896576
+    last_toll_latlon: [45.06037, 1.506709]
   381250374:
     type: exit
+    last_toll_node_id: 251331252
+    last_toll_latlon: [43.569078, 1.493907]
   383210589:
     type: exit
+    last_toll_node_id: 438689304
+    last_toll_latlon: [43.700262, 5.738824]
   387693502:
     type: exit
+    last_toll_node_id: 10090044548
+    last_toll_latlon: [44.532635, 1.505831]
   387693540:
     type: enter
+    first_toll_node_id: 387693505
+    first_toll_latlon: [44.533301, 1.504154]
     prices:
       '04401': 7.4
       '04402': 5.0
@@ -11451,8 +12367,12 @@ toll_booths:
       '04407': 8.1
   387740859:
     type: exit
+    last_toll_node_id: 255736247
+    last_toll_latlon: [45.015411, -0.431176]
   388295686:
     type: enter
+    first_toll_node_id: 272505886
+    first_toll_latlon: [43.212575, 0.108767]
     prices:
       '04463': 39.2
       '04464': 37.1
@@ -11485,10 +12405,16 @@ toll_booths:
       '18009': 8.9
   392059515:
     type: exit
+    last_toll_node_id: 392059131
+    last_toll_latlon: [46.105449, 4.751263]
   393454821:
     type: exit
+    last_toll_node_id: 6581088385
+    last_toll_latlon: [47.898071, 1.854681]
   401513183:
     type: enter
+    first_toll_node_id: 11507943351
+    first_toll_latlon: [43.272185, -0.200319]
     prices:
       '04462': 38.9
       '04463': 36.0
@@ -11523,8 +12449,12 @@ toll_booths:
       '18009': 5.7
   401513184:
     type: exit
+    last_toll_node_id: 2206059990
+    last_toll_latlon: [43.272272, -0.200445]
   401829376:
     type: enter
+    first_toll_node_id: 272506097
+    first_toll_latlon: [43.222689, 0.025922]
     prices:
       '04463': 38.9
       '04464': 36.8
@@ -11557,8 +12487,12 @@ toll_booths:
       '18009': 8.6
   401910583:
     type: exit
+    last_toll_node_id: 401913136
+    last_toll_latlon: [43.466397, -0.75045]
   401910597:
     type: enter
+    first_toll_node_id: 401913131
+    first_toll_latlon: [43.466278, -0.750579]
     prices:
       '04461': 43.2
       '04462': 40.1
@@ -11594,8 +12528,12 @@ toll_booths:
       '18009': 6.9
   402871346:
     type: exit
+    last_toll_node_id: 403263942
+    last_toll_latlon: [43.222784, 0.026836]
   409788423:
     type: enter
+    first_toll_node_id: 59986978
+    first_toll_latlon: [43.202995, 2.416765]
     prices:
       '04201': 49.6
       '04203': 41.4
@@ -11642,6 +12580,8 @@ toll_booths:
       04358: 10.1
   410245598:
     type: enter
+    first_toll_node_id: 23767688
+    first_toll_latlon: [46.064238, 5.862356]
     prices:
       '05050': 66.9
       '05052': 67.6
@@ -11762,10 +12702,16 @@ toll_booths:
       '14375': 42.1
   410246295:
     type: exit
+    last_toll_node_id: 6093862650
+    last_toll_latlon: [46.131573, 5.541406]
   410388997:
     type: exit
+    last_toll_node_id: 1831932584
+    last_toll_latlon: [43.104355, 0.345048]
   410642970:
     type: enter
+    first_toll_node_id: 432425653
+    first_toll_latlon: [47.06404, 5.44788]
     prices:
       '05050': 49.3
       '05052': 50.0
@@ -11896,8 +12842,12 @@ toll_booths:
       '14375': 24.5
   411797121:
     type: exit
+    last_toll_node_id: 27086856
+    last_toll_latlon: [45.49579, 6.059566]
   412092432:
     type: enter
+    first_toll_node_id: 279140841
+    first_toll_latlon: [45.550004, 6.161602]
     prices:
       '03021': 6.8
       '03022': 6.1
@@ -11908,6 +12858,8 @@ toll_booths:
       '03031': 1.4
   412553203:
     type: enter
+    first_toll_node_id: 412553199
+    first_toll_latlon: [48.043668, 5.058551]
     prices:
       '05010': 50.2
       '05011': 52.0
@@ -12039,6 +12991,8 @@ toll_booths:
       '14375': 15.7
   417133980:
     type: enter
+    first_toll_node_id: 1116795266
+    first_toll_latlon: [43.292606, 1.951831]
     prices:
       '04201': 53.5
       '04203': 45.6
@@ -12084,16 +13038,26 @@ toll_booths:
       04358: 6.1
   418250959:
     type: enter
+    first_toll_node_id: 4368543894
+    first_toll_latlon: [49.070081, 6.920109]
     prices:
       '07701': 1.0
   418250961:
     type: exit
+    last_toll_node_id: 4368543827
+    last_toll_latlon: [49.067573, 6.920021]
   423739665:
     type: exit
+    last_toll_node_id: 11389408049
+    last_toll_latlon: [45.217593, 6.461327]
   423746542:
     type: exit
+    last_toll_node_id: 246847904
+    last_toll_latlon: [43.680153, 4.602977]
   427819482:
     type: enter
+    first_toll_node_id: 427817527
+    first_toll_latlon: [49.936194, 2.242812]
     prices:
       '07413': 10.6
       '07414': 7.6
@@ -12118,6 +13082,8 @@ toll_booths:
       '07446': 2.5
   428642826:
     type: enter
+    first_toll_node_id: 13008836497
+    first_toll_latlon: [43.51905, -1.103797]
     prices:
       '04461': 46.8
       '04462': 43.7
@@ -12152,10 +13118,16 @@ toll_booths:
       '18009': 10.5
   428642848:
     type: exit
+    last_toll_node_id: 13008864707
+    last_toll_latlon: [43.519017, -1.103288]
   429600582:
     type: exit
+    last_toll_node_id: 60314513
+    last_toll_latlon: [45.509252, 6.005905]
   429833002:
     type: enter
+    first_toll_node_id: 730405369
+    first_toll_latlon: [46.099086, 3.135981]
     prices:
       '04122': 21.8
       '04123': 20.1
@@ -12200,6 +13172,8 @@ toll_booths:
       '22001': 4.2
   431442217:
     type: enter
+    first_toll_node_id: 8810960041
+    first_toll_latlon: [45.573102, -0.593773]
     prices:
       '04533': 11.5
       '04534': 10.1
@@ -12237,6 +13211,8 @@ toll_booths:
       '05532': 15.8
   431586530:
     type: enter
+    first_toll_node_id: 305500002
+    first_toll_latlon: [49.856556, 2.524019]
     prices:
       '07010': 3.0
       '07011': 2.0
@@ -12266,8 +13242,12 @@ toll_booths:
       '07451': 1.2
   431586544:
     type: exit
+    last_toll_node_id: 3210800682
+    last_toll_latlon: [49.85633, 2.524014]
   432436227:
     type: enter
+    first_toll_node_id: 389079980
+    first_toll_latlon: [45.952301, 2.980528]
     prices:
       '04122': 18.0
       '04123': 15.2
@@ -12312,8 +13292,12 @@ toll_booths:
       '22001': 6.1
   439211885:
     type: exit
+    last_toll_node_id: 1059557793
+    last_toll_latlon: [43.925355, 5.894866]
   439211886:
     type: enter
+    first_toll_node_id: 1059557852
+    first_toll_latlon: [43.925182, 5.894596]
     prices:
       '06055': 7.2
       '06056': 5.8
@@ -12326,16 +13310,24 @@ toll_booths:
       '06070': 7.5
   439211891:
     type: exit
+    last_toll_node_id: 442744211
+    last_toll_latlon: [44.038463, 5.962975]
   440447069:
     type: exit
+    last_toll_node_id: 440447072
+    last_toll_latlon: [44.123296, 5.985185]
   440449019:
     type: enter
+    first_toll_node_id: 1059578063
+    first_toll_latlon: [44.123325, 5.985342]
     prices:
       '06067': 0.6
       06068: 1.8
       '06070': 4.5
   442086723:
     type: enter
+    first_toll_node_id: 10915545307
+    first_toll_latlon: [44.952125, -0.23893]
     prices:
       '04101': 1.2
       '04103': 1.4
@@ -12345,6 +13337,8 @@ toll_booths:
       '04107': 8.0
   442744016:
     type: enter
+    first_toll_node_id: 442744211
+    first_toll_latlon: [44.038463, 5.962975]
     prices:
       '06055': 9.1
       '06056': 7.9
@@ -12360,11 +13354,15 @@ toll_booths:
     price: 3.4
   444805506:
     type: exit
+    last_toll_node_id: 288150036
+    last_toll_latlon: [45.655632, 2.689377]
   445832829:
     type: passthrough
     price: 3.4
   447081125:
     type: enter
+    first_toll_node_id: 447081064
+    first_toll_latlon: [49.321111, 2.697704]
     prices:
       '07001': 3.8
       '07006': 1.5
@@ -12394,11 +13392,17 @@ toll_booths:
       '07060': 11.8
   447081126:
     type: exit
+    last_toll_node_id: 447081094
+    last_toll_latlon: [49.320801, 2.69784]
   448420478:
     type: passthrough
     price: 0.7
   448438837:
     type: bidirectional
+    first_toll_node_id: 4441198641
+    first_toll_latlon: [47.724816, 1.514008]
+    last_toll_node_id: 4441170572
+    last_toll_latlon: [47.724882, 1.513571]
     prices:
       '04125': 46.2
       '04126': 43.2
@@ -12512,12 +13516,20 @@ toll_booths:
       '22001': 28.1
   448451541:
     type: exit
+    last_toll_node_id: 690618
+    last_toll_latlon: [44.136482, 4.796843]
   449598015:
     type: exit
+    last_toll_node_id: 806378633
+    last_toll_latlon: [46.946799, -0.980341]
   453443789:
     type: exit
+    last_toll_node_id: 453443746
+    last_toll_latlon: [44.286093, 0.269845]
   456955619:
     type: enter
+    first_toll_node_id: 1883688744
+    first_toll_latlon: [48.296655, 2.67961]
     prices:
       07185: 14.9
       09104: 0.3
@@ -12595,8 +13607,12 @@ toll_booths:
       '14375': 4.9
   457896763:
     type: exit
+    last_toll_node_id: 2976485469
+    last_toll_latlon: [43.097149, 0.390291]
   457896791:
     type: enter
+    first_toll_node_id: 1856830711
+    first_toll_latlon: [43.104133, 0.34443]
     prices:
       '04464': 38.4
       '04465': 36.8
@@ -12628,8 +13644,12 @@ toll_booths:
       '18009': 10.2
   458731540:
     type: exit
+    last_toll_node_id: 21465878
+    last_toll_latlon: [44.986614, 0.159265]
   458735332:
     type: enter
+    first_toll_node_id: 1042814234
+    first_toll_latlon: [48.197526, 0.168628]
     prices:
       04780: 4.2
       04781: 7.3
@@ -12673,12 +13693,20 @@ toll_booths:
       '12210': 13.1
   458735366:
     type: exit
+    last_toll_node_id: 7592840427
+    last_toll_latlon: [48.311375, 0.13319]
   458881141:
     type: exit
+    last_toll_node_id: 1451681693
+    last_toll_latlon: [44.064186, 0.867111]
   459173225:
     type: exit
+    last_toll_node_id: 9190711743
+    last_toll_latlon: [46.548503, 0.290083]
   461625472:
     type: exit
+    last_toll_node_id: 530427622
+    last_toll_latlon: [48.119456, 2.186897]
   465501470:
     type: passthrough
     price: 2.0
@@ -12818,6 +13846,8 @@ toll_booths:
     price: 0.8
   471330156:
     type: exit
+    last_toll_node_id: 1563593258
+    last_toll_latlon: [46.276168, 4.811175]
   471526695:
     type: passthrough
     price: 2.3
@@ -12826,6 +13856,10 @@ toll_booths:
     price: 2.5
   472444139:
     type: bidirectional
+    first_toll_node_id: 1898920489
+    first_toll_latlon: [47.685148, 0.374333]
+    last_toll_node_id: 1898920473
+    last_toll_latlon: [47.684801, 0.373922]
     prices:
       04780: 7.6
       04781: 10.7
@@ -12861,8 +13895,12 @@ toll_booths:
       '12210': 20.4
   481373537:
     type: exit
+    last_toll_node_id: 344301367
+    last_toll_latlon: [50.515428, 2.620501]
   481373539:
     type: enter
+    first_toll_node_id: 344301444
+    first_toll_latlon: [50.516019, 2.620529]
     prices:
       '07001': 18.7
       '07006': 14.4
@@ -12897,6 +13935,8 @@ toll_booths:
       '07451': 10.7
   482593907:
     type: enter
+    first_toll_node_id: 1449428926
+    first_toll_latlon: [47.243671, 2.063658]
     prices:
       '04125': 31.8
       '04126': 28.8
@@ -12971,8 +14011,12 @@ toll_booths:
       '22001': 13.7
   482798587:
     type: exit
+    last_toll_node_id: 1560789806
+    last_toll_latlon: [43.250871, 6.098257]
   482798707:
     type: enter
+    first_toll_node_id: 103906426
+    first_toll_latlon: [43.250843, 6.098405]
     prices:
       '06005': 7.0
       '06006': 4.9
@@ -12983,6 +14027,8 @@ toll_booths:
       06049: 9.7
   482956516:
     type: enter
+    first_toll_node_id: 482956523
+    first_toll_latlon: [47.308722, -0.030637]
     prices:
       04780: 10.6
       04781: 7.3
@@ -13025,8 +14071,12 @@ toll_booths:
     price: 2.6
   494910454:
     type: exit
+    last_toll_node_id: 494910490
+    last_toll_latlon: [45.383569, -0.575807]
   494910456:
     type: enter
+    first_toll_node_id: 494910477
+    first_toll_latlon: [45.383765, -0.576004]
     prices:
       '04533': 13.2
       '04534': 12.7
@@ -13064,6 +14114,8 @@ toll_booths:
       '05532': 17.7
   502976800:
     type: enter
+    first_toll_node_id: 362907558
+    first_toll_latlon: [48.28734, 4.161435]
     prices:
       '05010': 45.4
       '05011': 47.2
@@ -13199,6 +14251,8 @@ toll_booths:
       '14375': 10.9
   504607734:
     type: enter
+    first_toll_node_id: 293769513
+    first_toll_latlon: [45.009378, 0.374534]
     prices:
       '04101': 8.5
       '04102': 6.3
@@ -13208,8 +14262,14 @@ toll_booths:
       '04107': 0.7
   504619378:
     type: exit
+    last_toll_node_id: 332276709
+    last_toll_latlon: [45.012045, -0.102163]
   511062430:
     type: bidirectional
+    first_toll_node_id: 511062576
+    first_toll_latlon: [48.116289, 4.78808]
+    last_toll_node_id: 4071298388
+    last_toll_latlon: [48.115952, 4.787969]
     prices:
       '05010': 48.3
       '05011': 50.1
@@ -13344,10 +14404,16 @@ toll_booths:
       '14375': 13.8
   511439486:
     type: exit
+    last_toll_node_id: 1668541884
+    last_toll_latlon: [43.6228, 5.086951]
   512632720:
     type: exit
+    last_toll_node_id: 512640676
+    last_toll_latlon: [45.06829, 0.432568]
   512645301:
     type: enter
+    first_toll_node_id: 512640665
+    first_toll_latlon: [45.06807, 0.432233]
     prices:
       '04101': 10.4
       '04102': 8.0
@@ -13356,8 +14422,12 @@ toll_booths:
       '04105': 0.7
   513660073:
     type: exit
+    last_toll_node_id: 1647310348
+    last_toll_latlon: [44.056368, 1.099116]
   513660085:
     type: enter
+    first_toll_node_id: 1647310370
+    first_toll_latlon: [44.05703, 1.098838]
     prices:
       '04455': 4.2
       '04456': 6.7
@@ -13381,6 +14451,8 @@ toll_booths:
       '18009': 38.5
   532177764:
     type: enter
+    first_toll_node_id: 8951761704
+    first_toll_latlon: [50.554274, 2.462907]
     prices:
       '07001': 19.5
       '07006': 15.1
@@ -13415,10 +14487,16 @@ toll_booths:
       '07451': 11.4
   534931451:
     type: exit
+    last_toll_node_id: 149019551
+    last_toll_latlon: [43.393955, 6.351034]
   540556952:
     type: exit
+    last_toll_node_id: 8736209084
+    last_toll_latlon: [48.04376, 5.058925]
   560799932:
     type: enter
+    first_toll_node_id: 560793478
+    first_toll_latlon: [45.859884, 3.505217]
     prices:
       '04170': 2.5
       '04171': 0.8
@@ -13434,8 +14512,12 @@ toll_booths:
       04183: 10.7
   563328105:
     type: exit
+    last_toll_node_id: 563326723
+    last_toll_latlon: [50.611119, 1.64586]
   571659009:
     type: enter
+    first_toll_node_id: 417019184
+    first_toll_latlon: [44.173481, 5.954259]
     prices:
       '06055': 11.5
       '06056': 10.2
@@ -13448,6 +14530,8 @@ toll_booths:
       '06070': 3.7
   578797805:
     type: enter
+    first_toll_node_id: 448915396
+    first_toll_latlon: [47.419, 2.030431]
     prices:
       '04125': 33.9
       '04126': 30.9
@@ -13539,15 +14623,23 @@ toll_booths:
       '22001': 15.8
   578799574:
     type: exit
+    last_toll_node_id: 448915401
+    last_toll_latlon: [47.418706, 2.029485]
   586530226:
     type: exit
+    last_toll_node_id: 4740507084
+    last_toll_latlon: [47.997745, 5.512051]
   600154188:
     type: passthrough
     price: 0.8
   601623780:
     type: exit
+    last_toll_node_id: 60291097
+    last_toll_latlon: [45.254109, 6.394667]
   603286199:
     type: exit
+    last_toll_node_id: 1573877900
+    last_toll_latlon: [49.63524, 1.048434]
   609200151:
     type: bidirectional
     prices:
@@ -13646,8 +14738,12 @@ toll_booths:
       '10159': 28.5
   609217653:
     type: exit
+    last_toll_node_id: 1693432773
+    last_toll_latlon: [47.135451, 5.504108]
   609218048:
     type: enter
+    first_toll_node_id: 1693432773
+    first_toll_latlon: [47.135451, 5.504108]
     prices:
       '05050': 49.3
       '05052': 50.0
@@ -13822,6 +14918,8 @@ toll_booths:
       04358: 4.8
   613525527:
     type: enter
+    first_toll_node_id: 659768200
+    first_toll_latlon: [48.144567, 5.688936]
     prices:
       09166: 1.3
       09167: 2.3
@@ -13829,8 +14927,12 @@ toll_booths:
       09169: 6.4
   613525538:
     type: exit
+    last_toll_node_id: 6250168663
+    last_toll_latlon: [48.147186, 5.685847]
   623483095:
     type: exit
+    last_toll_node_id: 2292079073
+    last_toll_latlon: [45.571137, 5.603736]
   624029461:
     type: passthrough
     price: 3.5
@@ -13839,8 +14941,12 @@ toll_booths:
     price: 1.1
   635884768:
     type: exit
+    last_toll_node_id: 25195795
+    last_toll_latlon: [48.953219, 3.044596]
   635884770:
     type: enter
+    first_toll_node_id: 5779994310
+    first_toll_latlon: [48.951626, 3.042913]
     prices:
       '07144': 4.6
       '07146': 7.2
@@ -13928,6 +15034,8 @@ toll_booths:
       '10159': 69.2
   641831295:
     type: enter
+    first_toll_node_id: 642003084
+    first_toll_latlon: [45.218676, 6.462068]
     prices:
       '02050': 5.8
       '02051': 3.3
@@ -13943,6 +15051,8 @@ toll_booths:
       '03034': 10.2
   649150142:
     type: enter
+    first_toll_node_id: 649587070
+    first_toll_latlon: [48.268861, 2.713556]
     prices:
       07185: 14.9
       09101: 3.3
@@ -14022,14 +15132,24 @@ toll_booths:
       '14375': 4.9
   649587072:
     type: exit
+    last_toll_node_id: 10792993455
+    last_toll_latlon: [48.268408, 2.713326]
   650926914:
     type: exit
+    last_toll_node_id: 6221692578
+    last_toll_latlon: [48.29659, 2.679772]
   652123095:
     type: exit
+    last_toll_node_id: 652123107
+    last_toll_latlon: [46.259735, 5.168575]
   659768198:
     type: exit
+    last_toll_node_id: 659768199
+    last_toll_latlon: [48.144585, 5.688831]
   659768209:
     type: enter
+    first_toll_node_id: 6250168664
+    first_toll_latlon: [48.147181, 5.685924]
     prices:
       '05010': 55.7
       '05011': 57.5
@@ -14150,8 +15270,12 @@ toll_booths:
       '14375': 21.2
   661810865:
     type: exit
+    last_toll_node_id: 875990233
+    last_toll_latlon: [43.448637, 5.875609]
   661810866:
     type: enter
+    first_toll_node_id: 387774554
+    first_toll_latlon: [43.448301, 5.875492]
     prices:
       '06002': 4.4
       '06003': 1.1
@@ -14166,8 +15290,14 @@ toll_booths:
       06049: 9.3
   664688045:
     type: exit
+    last_toll_node_id: 538644
+    last_toll_latlon: [46.848563, 5.575205]
   665051348:
     type: bidirectional
+    first_toll_node_id: 665051325
+    first_toll_latlon: [45.254089, -0.550141]
+    last_toll_node_id: 665051341
+    last_toll_latlon: [45.254185, -0.549847]
     prices:
       '04533': 15.5
       '04534': 14.7
@@ -14205,10 +15335,16 @@ toll_booths:
       '05532': 19.4
   672506884:
     type: exit
+    last_toll_node_id: 672506810
+    last_toll_latlon: [46.307923, -0.368539]
   673351722:
     type: exit
+    last_toll_node_id: 243342639
+    last_toll_latlon: [48.408883, 4.143476]
   690686570:
     type: exit
+    last_toll_node_id: 3607725265
+    last_toll_latlon: [48.589303, 2.722918]
   692840226:
     type: passthrough
     price: 4.6
@@ -14217,8 +15353,12 @@ toll_booths:
     price: 0.9
   700985577:
     type: exit
+    last_toll_node_id: 299842491
+    last_toll_latlon: [49.707756, 2.769675]
   700987531:
     type: enter
+    first_toll_node_id: 6433642687
+    first_toll_latlon: [49.707813, 2.768917]
     prices:
       '07001': 8.8
       '07006': 6.0
@@ -14268,6 +15408,8 @@ toll_booths:
       04183: 5.1
   705472696:
     type: enter
+    first_toll_node_id: 705472691
+    first_toll_latlon: [49.635113, 1.047953]
     prices:
       08321: 6.7
       08322: 4.9
@@ -14277,8 +15419,12 @@ toll_booths:
       08391: 2.0
   705563120:
     type: exit
+    last_toll_node_id: 1825928525
+    last_toll_latlon: [45.512344, 2.255549]
   711774392:
     type: enter
+    first_toll_node_id: 11027719128
+    first_toll_latlon: [47.042622, 4.849901]
     prices:
       '05050': 43.2
       '05052': 43.9
@@ -14399,6 +15545,8 @@ toll_booths:
       '14375': 18.4
   718696359:
     type: enter
+    first_toll_node_id: 718696739
+    first_toll_latlon: [47.669905, -0.257883]
     prices:
       04780: 4.5
       04781: 1.3
@@ -14436,8 +15584,12 @@ toll_booths:
       '12210': 22.3
   718697029:
     type: exit
+    last_toll_node_id: 718696786
+    last_toll_latlon: [47.669839, -0.257035]
   719474972:
     type: enter
+    first_toll_node_id: 1748794045
+    first_toll_latlon: [49.500247, 0.276047]
     prices:
       08341: 2.5
       08351: 4.2
@@ -14448,8 +15600,12 @@ toll_booths:
       '20001': 9.9
   720744291:
     type: exit
+    last_toll_node_id: 3973208456
+    last_toll_latlon: [46.75738, 4.834012]
   726432887:
     type: enter
+    first_toll_node_id: 1503669903
+    first_toll_latlon: [47.252977, 0.66485]
     prices:
       '04533': 18.1
       '04534': 20.5
@@ -14480,6 +15636,8 @@ toll_booths:
       '05532': 14.9
   727671128:
     type: enter
+    first_toll_node_id: 264589949
+    first_toll_latlon: [45.76869, 5.084107]
     prices:
       '07140': 60.9
       '07141': 58.7
@@ -14552,10 +15710,16 @@ toll_booths:
       '10159': 18.5
   727755213:
     type: exit
+    last_toll_node_id: 2833842145
+    last_toll_latlon: [46.440135, 5.268911]
   735016190:
     type: exit
+    last_toll_node_id: 1120603035
+    last_toll_latlon: [46.354981, -0.330771]
   747145320:
     type: enter
+    first_toll_node_id: 1041090283
+    first_toll_latlon: [49.607514, 3.663292]
     prices:
       '07001': 14.3
       '07006': 11.7
@@ -14591,8 +15755,12 @@ toll_booths:
       '07451': 9.5
   751967582:
     type: exit
+    last_toll_node_id: 1471437844
+    last_toll_latlon: [43.418891, 6.064522]
   761835083:
     type: enter
+    first_toll_node_id: 11482378367
+    first_toll_latlon: [43.4188, 6.064645]
     prices:
       '06002': 6.9
       '06003': 3.1
@@ -14608,10 +15776,16 @@ toll_booths:
       06049: 7.4
   762433556:
     type: exit
+    last_toll_node_id: 1116947910
+    last_toll_latlon: [43.150291, 1.616559]
   768541481:
     type: exit
+    last_toll_node_id: 1408752528
+    last_toll_latlon: [48.913177, 7.126381]
   768541482:
     type: enter
+    first_toll_node_id: 1408752522
+    first_toll_latlon: [48.913119, 7.126195]
     prices:
       '07701': 2.8
       '07702': 1.2
@@ -14621,6 +15795,8 @@ toll_booths:
       07708: 4.1
   773072337:
     type: enter
+    first_toll_node_id: 7232318982
+    first_toll_latlon: [45.841624, 5.048556]
     prices:
       '07140': 59.3
       '07141': 57.1
@@ -14693,10 +15869,16 @@ toll_booths:
       '10159': 17.6
   773072342:
     type: exit
+    last_toll_node_id: 7232425791
+    last_toll_latlon: [45.841166, 5.048901]
   773491363:
     type: exit
+    last_toll_node_id: 352784921
+    last_toll_latlon: [45.843662, 6.057538]
   773491371:
     type: enter
+    first_toll_node_id: 352780182
+    first_toll_latlon: [45.843807, 6.058094]
     prices:
       '03001': 16.4
       '03002': 13.0
@@ -14727,6 +15909,8 @@ toll_booths:
       '15018': 10.6
   774739116:
     type: enter
+    first_toll_node_id: 1838416334
+    first_toll_latlon: [45.850768, 5.100781]
     prices:
       '07140': 57.7
       '07141': 55.5
@@ -14803,6 +15987,8 @@ toll_booths:
       '10159': 16.3
   778662845:
     type: enter
+    first_toll_node_id: 15866480
+    first_toll_latlon: [43.164625, 2.989346]
     prices:
       '04201': 43.5
       '04203': 34.8
@@ -14848,6 +16034,8 @@ toll_booths:
       04358: 14.9
   778662954:
     type: exit
+    last_toll_node_id: 614414088
+    last_toll_latlon: [43.164783, 2.989802]
   791949259:
     type: passthrough
     price: 2.6
@@ -14856,6 +16044,8 @@ toll_booths:
     price: 2.6
   801745089:
     type: enter
+    first_toll_node_id: 1721702790
+    first_toll_latlon: [46.307549, -0.366971]
     prices:
       '04533': 1.9
       '04534': 0.7
@@ -14892,6 +16082,8 @@ toll_booths:
       '05532': 5.9
   806378596:
     type: enter
+    first_toll_node_id: 806378667
+    first_toll_latlon: [46.94644, -0.980171]
     prices:
       '04533': 14.8
       '04534': 12.4
@@ -14924,8 +16116,12 @@ toll_booths:
       '05532': 16.7
   807894118:
     type: exit
+    last_toll_node_id: 807894385
+    last_toll_latlon: [46.901528, -1.043368]
   807894416:
     type: enter
+    first_toll_node_id: 807894417
+    first_toll_latlon: [46.901972, -1.04344]
     prices:
       '04533': 13.9
       '04534': 11.8
@@ -14960,8 +16156,12 @@ toll_booths:
       '05532': 16.5
   811337384:
     type: exit
+    last_toll_node_id: 6440643294
+    last_toll_latlon: [47.796389, 3.653664]
   814664691:
     type: enter
+    first_toll_node_id: 1427498599
+    first_toll_latlon: [47.331818, 6.149913]
     prices:
       '05050': 53.0
       '05052': 53.7
@@ -15091,8 +16291,12 @@ toll_booths:
       '14375': 28.2
   814664757:
     type: exit
+    last_toll_node_id: 1427498604
+    last_toll_latlon: [47.331858, 6.149858]
   824250288:
     type: enter
+    first_toll_node_id: 7090382095
+    first_toll_latlon: [46.787884, -1.192443]
     prices:
       '04533': 12.5
       '04534': 9.7
@@ -15129,8 +16333,12 @@ toll_booths:
       '05532': 15.7
   826152705:
     type: exit
+    last_toll_node_id: 14003190566
+    last_toll_latlon: [50.174834, 3.196897]
   828809344:
     type: enter
+    first_toll_node_id: 1098856406
+    first_toll_latlon: [47.658994, 3.877193]
     prices:
       '05010': 42.5
       '05011': 44.3
@@ -15225,6 +16433,8 @@ toll_booths:
       '14375': 8.0
   828894371:
     type: enter
+    first_toll_node_id: 1665577398
+    first_toll_latlon: [48.179954, 4.439249]
     prices:
       '05010': 46.7
       '05011': 48.5
@@ -15359,16 +16569,22 @@ toll_booths:
       '14375': 12.2
   828930660:
     type: exit
+    last_toll_node_id: 828930731
+    last_toll_latlon: [48.237451, 3.60168]
   836215726:
     type: passthrough
     price: 4.6
   839038429:
     type: exit
+    last_toll_node_id: 353709967
+    last_toll_latlon: [47.536964, 5.192897]
   848265449:
     type: passthrough
     price: 2.9
   850197729:
     type: enter
+    first_toll_node_id: 504799446
+    first_toll_latlon: [43.508795, -0.919708]
     prices:
       '04461': 44.1
       '04462': 41.0
@@ -15406,8 +16622,12 @@ toll_booths:
     price: 0.8
   865277253:
     type: exit
+    last_toll_node_id: 2293429713
+    last_toll_latlon: [48.729765, 4.23273]
   865277258:
     type: enter
+    first_toll_node_id: 2293429714
+    first_toll_latlon: [48.729876, 4.232765]
     prices:
       '07140': 15.3
       '07141': 13.2
@@ -15500,6 +16720,8 @@ toll_booths:
     price: 2.9
   882099674:
     type: enter
+    first_toll_node_id: 1519807108
+    first_toll_latlon: [49.42587, 3.927935]
     prices:
       '07001': 15.9
       '07006': 13.5
@@ -15535,8 +16757,12 @@ toll_booths:
       '07451': 10.9
   883346500:
     type: exit
+    last_toll_node_id: 1606475204
+    last_toll_latlon: [46.421376, -0.083532]
   883347456:
     type: enter
+    first_toll_node_id: 1606475201
+    first_toll_latlon: [46.421359, -0.082874]
     prices:
       '04534': 1.7
       '04535': 3.0
@@ -15573,6 +16799,8 @@ toll_booths:
       '05532': 3.2
   885163176:
     type: enter
+    first_toll_node_id: 10471880
+    first_toll_latlon: [43.202789, 2.313718]
     prices:
       '04201': 49.8
       '04203': 41.7
@@ -15651,8 +16879,12 @@ toll_booths:
     price: 0.8
   901258167:
     type: exit
+    last_toll_node_id: 1574747679
+    last_toll_latlon: [46.420792, -0.396838]
   921929655:
     type: bidirectional
+    last_toll_node_id: 1106484766
+    last_toll_latlon: [45.40177, 2.022432]
     prices:
       '04122': 4.9
       '04123': 2.5
@@ -15696,8 +16928,12 @@ toll_booths:
       '22001': 19.0
   924440768:
     type: exit
+    last_toll_node_id: 750492312
+    last_toll_latlon: [48.234706, 3.26279]
   926794469:
     type: enter
+    first_toll_node_id: 1769466592
+    first_toll_latlon: [49.687071, 3.4623]
     prices:
       '07001': 12.8
       '07006': 10.5
@@ -15733,6 +16969,8 @@ toll_booths:
       '07451': 7.2
   934821090:
     type: enter
+    first_toll_node_id: 6779014118
+    first_toll_latlon: [47.344543, 5.157765]
     prices:
       '07140': 39.5
       '07141': 37.3
@@ -15829,8 +17067,12 @@ toll_booths:
       '10159': 30.4
   934821205:
     type: exit
+    last_toll_node_id: 934820716
+    last_toll_latlon: [47.344586, 5.157757]
   938388636:
     type: enter
+    first_toll_node_id: 5043358403
+    first_toll_latlon: [49.632299, 0.635718]
     prices:
       08321: 4.2
       08322: 2.4
@@ -15842,6 +17084,8 @@ toll_booths:
       '20001': 6.1
   938406584:
     type: enter
+    first_toll_node_id: 5022609501
+    first_toll_latlon: [49.645571, 0.841809]
     prices:
       08321: 5.6
       08322: 3.7
@@ -15851,6 +17095,8 @@ toll_booths:
       08391: 3.1
   938406621:
     type: exit
+    last_toll_node_id: 4833245637
+    last_toll_latlon: [49.645529, 0.841337]
   943682035:
     type: passthrough
     price: 1.8
@@ -15859,8 +17105,12 @@ toll_booths:
     price: 1.8
   944248712:
     type: exit
+    last_toll_node_id: 944248737
+    last_toll_latlon: [45.59002, 2.413138]
   944248772:
     type: enter
+    first_toll_node_id: 944248737
+    first_toll_latlon: [45.59002, 2.413138]
     prices:
       '04122': 9.9
       '04123': 7.2
@@ -15908,6 +17158,8 @@ toll_booths:
     price: 0.4
   984859296:
     type: enter
+    first_toll_node_id: 780339908
+    first_toll_latlon: [49.582271, 0.445819]
     prices:
       08321: 2.5
       08322: 1.0
@@ -15919,6 +17171,8 @@ toll_booths:
       '20001': 7.7
   984859299:
     type: exit
+    last_toll_node_id: 780339849
+    last_toll_latlon: [49.581977, 0.446464]
   986537073:
     type: bidirectional
     prices:
@@ -15957,8 +17211,12 @@ toll_booths:
       '18008': 2.1
   987093311:
     type: exit
+    last_toll_node_id: 8460939883
+    last_toll_latlon: [46.274877, 5.006979]
   987094003:
     type: enter
+    first_toll_node_id: 12531547217
+    first_toll_latlon: [46.272223, 5.005976]
     prices:
       '07140': 54.3
       '07141': 52.1
@@ -16030,10 +17288,16 @@ toll_booths:
       '10159': 16.8
   988049756:
     type: exit
+    last_toll_node_id: 1529356087
+    last_toll_latlon: [49.807886, 1.966718]
   991655074:
     type: exit
+    last_toll_node_id: 925864866
+    last_toll_latlon: [43.233822, 1.634796]
   991655139:
     type: enter
+    first_toll_node_id: 991655030
+    first_toll_latlon: [43.233772, 1.63484]
     prices:
       '04201': 57.4
       '04203': 48.4
@@ -16079,6 +17343,8 @@ toll_booths:
       04358: 1.1
   1003948981:
     type: enter
+    first_toll_node_id: 311638827
+    first_toll_latlon: [43.178515, 0.241343]
     prices:
       '04463': 39.5
       '04464': 37.4
@@ -16111,6 +17377,8 @@ toll_booths:
       '18009': 9.2
   1013965167:
     type: enter
+    first_toll_node_id: 1014000161
+    first_toll_latlon: [43.763259, 4.42622]
     prices:
       '04201': 27.4
       '04203': 19.1
@@ -16156,6 +17424,8 @@ toll_booths:
       04358: 30.3
   1015347348:
     type: enter
+    first_toll_node_id: 267181951
+    first_toll_latlon: [43.65998, 5.494633]
     prices:
       06059: 2.5
       '06060': 4.0
@@ -16173,8 +17443,12 @@ toll_booths:
     price: 1.0
   1034029729:
     type: exit
+    last_toll_node_id: 4693880524
+    last_toll_latlon: [47.028669, 5.170148]
   1034029730:
     type: enter
+    first_toll_node_id: 4693880523
+    first_toll_latlon: [47.028726, 5.170326]
     prices:
       '05050': 46.6
       '05052': 47.3
@@ -16302,14 +17576,24 @@ toll_booths:
       '14375': 21.8
   1041090254:
     type: exit
+    last_toll_node_id: 1041090283
+    last_toll_latlon: [49.607514, 3.663292]
   1041135056:
     type: exit
+    last_toll_node_id: 1753911235
+    last_toll_latlon: [49.860733, 3.242499]
   1041312966:
     type: exit
+    last_toll_node_id: 1813873828
+    last_toll_latlon: [50.673612, 1.659678]
   1041328348:
     type: exit
+    last_toll_node_id: 259003405
+    last_toll_latlon: [49.045268, 7.031229]
   1042719181:
     type: enter
+    first_toll_node_id: 1042719274
+    first_toll_latlon: [48.975776, 4.29141]
     prices:
       '07140': 13.7
       '07141': 10.9
@@ -16399,10 +17683,16 @@ toll_booths:
       '10159': 54.1
   1042813884:
     type: exit
+    last_toll_node_id: 1042814234
+    last_toll_latlon: [48.197526, 0.168628]
   1042826699:
     type: exit
+    last_toll_node_id: 1042826754
+    last_toll_latlon: [48.77086, 0.312472]
   1042826707:
     type: enter
+    first_toll_node_id: 1435183378
+    first_toll_latlon: [48.778048, 0.301897]
     prices:
       04780: 18.1
       04781: 21.2
@@ -16442,13 +17732,21 @@ toll_booths:
       '12210': 6.9
   1042834566:
     type: bidirectional
+    first_toll_node_id: 8829142261
+    first_toll_latlon: [49.033412, 0.445258]
+    last_toll_node_id: 1042834505
+    last_toll_latlon: [49.033284, 0.445918]
     prices:
       '12050': 5.3
       '12060': 10.5
   1042852216:
     type: exit
+    last_toll_node_id: 1662497656
+    last_toll_latlon: [43.508838, -0.919971]
   1049830277:
     type: exit
+    last_toll_node_id: 362907562
+    last_toll_latlon: [48.287623, 4.161875]
   1054617575:
     type: bidirectional
     prices:
@@ -16564,6 +17862,8 @@ toll_booths:
       '14375': 23.3
   1054665949:
     type: enter
+    first_toll_node_id: 4740507067
+    first_toll_latlon: [47.997755, 5.51193]
     prices:
       '05010': 54.0
       '05011': 55.8
@@ -16691,10 +17991,16 @@ toll_booths:
       '14375': 19.5
   1054674013:
     type: exit
+    last_toll_node_id: 6250168662
+    last_toll_latlon: [47.935705, 5.287726]
   1059557820:
     type: exit
+    last_toll_node_id: 278972030
+    last_toll_latlon: [43.809678, 5.812405]
   1064448301:
     type: enter
+    first_toll_node_id: 7258015907
+    first_toll_latlon: [43.294091, 6.200481]
     prices:
       '06042': 2.7
   1091772679:
@@ -16740,6 +18046,8 @@ toll_booths:
       '18009': 15.5
   1092685933:
     type: enter
+    first_toll_node_id: 300227278
+    first_toll_latlon: [43.724122, -0.270922]
     prices:
       04459: 35.1
       '04460': 32.6
@@ -16777,8 +18085,12 @@ toll_booths:
       '18009': 4.8
   1098856873:
     type: exit
+    last_toll_node_id: 1098857382
+    last_toll_latlon: [47.659222, 3.877245]
   1102545284:
     type: enter
+    first_toll_node_id: 601623773
+    first_toll_latlon: [45.254078, 6.394604]
     prices:
       '02054': 1.1
       '02056': 3.5
@@ -16825,6 +18137,8 @@ toll_booths:
     price: 0.7
   1121574488:
     type: enter
+    first_toll_node_id: 11737045929
+    first_toll_latlon: [49.43294, 2.121901]
     prices:
       '07413': 5.1
       '07414': 2.6
@@ -16849,8 +18163,12 @@ toll_booths:
       '07446': 5.7
   1121574741:
     type: exit
+    last_toll_node_id: 7851294760
+    last_toll_latlon: [49.433306, 2.121163]
   1124844164:
     type: enter
+    first_toll_node_id: 60079444
+    first_toll_latlon: [43.928987, 1.315905]
     prices:
       '04455': 1.7
       '04456': 3.9
@@ -16873,6 +18191,10 @@ toll_booths:
       '18008': 35.9
   1125653080:
     type: bidirectional
+    first_toll_node_id: 288145607
+    first_toll_latlon: [45.327805, 1.7685]
+    last_toll_node_id: 339437848
+    last_toll_latlon: [45.327529, 1.76862]
     prices:
       '04122': 1.4
       '04124': 0.7
@@ -16898,8 +18220,12 @@ toll_booths:
     price: 2.6
   1143005916:
     type: exit
+    last_toll_node_id: 3480829531
+    last_toll_latlon: [43.664118, -0.274948]
   1146528641:
     type: enter
+    first_toll_node_id: 289381930
+    first_toll_latlon: [43.477495, 5.756778]
     prices:
       '06004': 1.1
       '06005': 3.1
@@ -16913,6 +18239,8 @@ toll_booths:
     price: 2.3
   1157490221:
     type: enter
+    first_toll_node_id: 30402356
+    first_toll_latlon: [47.509205, -0.446665]
     prices:
       04780: 9.3
       04781: 4.6
@@ -16945,8 +18273,12 @@ toll_booths:
       '12210': 27.4
   1157490222:
     type: exit
+    last_toll_node_id: 421296106
+    last_toll_latlon: [47.519274, -0.42478]
   1157490224:
     type: enter
+    first_toll_node_id: 30402356
+    first_toll_latlon: [47.509205, -0.446665]
     prices:
       05958: 4.1
       05959: 5.1
@@ -16961,8 +18293,12 @@ toll_booths:
     price: 3.4
   1190068311:
     type: exit
+    last_toll_node_id: 170807055
+    last_toll_latlon: [45.878701, 4.900586]
   1195217379:
     type: enter
+    first_toll_node_id: 825244207
+    first_toll_latlon: [44.446374, -0.23934]
     prices:
       '04455': 18.9
       '04456': 21.3
@@ -17004,10 +18340,16 @@ toll_booths:
       '18009': 18.4
   1195217501:
     type: exit
+    last_toll_node_id: 3472682483
+    last_toll_latlon: [44.446058, -0.239028]
   1200490953:
     type: exit
+    last_toll_node_id: 1458560734
+    last_toll_latlon: [50.068487, 3.170541]
   1200494231:
     type: enter
+    first_toll_node_id: 299846194
+    first_toll_latlon: [49.960015, 2.861694]
     prices:
       '07001': 11.0
       '07006': 7.3
@@ -17044,6 +18386,8 @@ toll_booths:
     price: 5.7
   1204177181:
     type: exit
+    last_toll_node_id: 1400972276
+    last_toll_latlon: [45.891817, 4.402175]
   1238723845:
     type: passthrough
     price: 11.8
@@ -17055,6 +18399,8 @@ toll_booths:
     price: 2.8
   1241259673:
     type: enter
+    first_toll_node_id: 300446767
+    first_toll_latlon: [50.720805, 2.167221]
     prices:
       '07001': 22.5
       '07006': 18.2
@@ -17088,6 +18434,10 @@ toll_booths:
       '07451': 13.7
   1246344270:
     type: bidirectional
+    first_toll_node_id: 1597982887
+    first_toll_latlon: [43.944877, -0.394689]
+    last_toll_node_id: 1597982806
+    last_toll_latlon: [43.944633, -0.395066]
     prices:
       '04463': 18.9
       '04464': 16.8
@@ -17132,8 +18482,12 @@ toll_booths:
     price: 1.0
   1264038008:
     type: exit
+    last_toll_node_id: 281434334
+    last_toll_latlon: [48.037257, 3.025032]
   1265561526:
     type: bidirectional
+    last_toll_node_id: 10123250950
+    last_toll_latlon: [49.240374, 0.772911]
     prices:
       04780: 33.1
       04781: 36.2
@@ -17176,8 +18530,12 @@ toll_booths:
     price: 1.3
   1269194826:
     type: exit
+    last_toll_node_id: 1605664105
+    last_toll_latlon: [50.268037, 2.862204]
   1274932342:
     type: enter
+    first_toll_node_id: 6909019391
+    first_toll_latlon: [48.399106, 0.099776]
     prices:
       04780: 6.3
       04781: 9.4
@@ -17221,12 +18579,20 @@ toll_booths:
       '12210': 11.1
   1274932724:
     type: exit
+    last_toll_node_id: 1274932644
+    last_toll_latlon: [48.399563, 0.099395]
   1285330579:
     type: exit
+    last_toll_node_id: 3480668511
+    last_toll_latlon: [43.723811, -0.270323]
   1289586777:
     type: exit
+    last_toll_node_id: 32629120
+    last_toll_latlon: [49.648369, 1.252525]
   1289587312:
     type: enter
+    first_toll_node_id: 4831271701
+    first_toll_latlon: [49.648501, 1.252768]
     prices:
       08321: 9.5
       08322: 6.0
@@ -17236,6 +18602,8 @@ toll_booths:
       08381: 2.0
   1330238093:
     type: enter
+    first_toll_node_id: 253900350
+    first_toll_latlon: [46.236384, 5.272517]
     prices:
       '05050': 54.3
       '05052': 55.0
@@ -17356,12 +18724,20 @@ toll_booths:
       '14375': 29.5
   1330238094:
     type: exit
+    last_toll_node_id: 253900349
+    last_toll_latlon: [46.236561, 5.272868]
   1335678463:
     type: exit
+    last_toll_node_id: 384363890
+    last_toll_latlon: [46.466668, -0.876235]
   1339371506:
     type: exit
+    last_toll_node_id: 281407831
+    last_toll_latlon: [48.064867, 2.765375]
   1344207311:
     type: enter
+    first_toll_node_id: 1344207423
+    first_toll_latlon: [48.771852, 4.235718]
     prices:
       '07140': 14.6
       '07141': 12.2
@@ -17452,8 +18828,12 @@ toll_booths:
       '10159': 51.5
   1344207363:
     type: exit
+    last_toll_node_id: 1344207389
+    last_toll_latlon: [48.771965, 4.235972]
   1366555922:
     type: enter
+    first_toll_node_id: 1373820421
+    first_toll_latlon: [45.843713, 4.163895]
     prices:
       '04170': 10.0
       '04171': 7.7
@@ -17484,8 +18864,12 @@ toll_booths:
     price: 2.8
   1371703167:
     type: exit
+    last_toll_node_id: 9260463461
+    last_toll_latlon: [50.205548, 3.10689]
   1371703269:
     type: enter
+    first_toll_node_id: 9260463460
+    first_toll_latlon: [50.205753, 3.106243]
     prices:
       '07001': 12.9
       '07006': 10.3
@@ -17520,6 +18904,8 @@ toll_booths:
       '07451': 9.1
   1371770814:
     type: enter
+    first_toll_node_id: 406450151
+    first_toll_latlon: [50.344435, 2.786269]
     prices:
       '07001': 16.1
       '07006': 12.1
@@ -17554,12 +18940,20 @@ toll_booths:
       '07451': 8.7
   1373677796:
     type: exit
+    last_toll_node_id: 794793948
+    last_toll_latlon: [47.276055, 5.98913]
   1373820400:
     type: exit
+    last_toll_node_id: 1373820427
+    last_toll_latlon: [45.843816, 4.163967]
   1374640112:
     type: exit
+    last_toll_node_id: 1374640070
+    last_toll_latlon: [45.860493, 5.182555]
   1374640131:
     type: enter
+    first_toll_node_id: 430204809
+    first_toll_latlon: [45.860697, 5.182641]
     prices:
       '05050': 59.5
       '05302': 62.1
@@ -17685,8 +19079,12 @@ toll_booths:
     price: 1.8
   1375532385:
     type: exit
+    last_toll_node_id: 1375532400
+    last_toll_latlon: [48.359799, 1.444218]
   1375532386:
     type: enter
+    first_toll_node_id: 1560431350
+    first_toll_latlon: [48.366045, 1.442848]
     prices:
       04780: 14.9
       04781: 18.0
@@ -17725,13 +19123,19 @@ toll_booths:
       '12210': 28.3
   1375535641:
     type: exit
+    last_toll_node_id: 170974806
+    last_toll_latlon: [48.455733, 1.542122]
   1375535646:
     type: enter
+    first_toll_node_id: 3819673858
+    first_toll_latlon: [48.454436, 1.541498]
     prices:
       '05601': 8.0
       '05603': 2.8
   1375535663:
     type: enter
+    first_toll_node_id: 170974835
+    first_toll_latlon: [48.455339, 1.54261]
     prices:
       04780: 16.8
       04781: 19.9
@@ -17770,6 +19174,8 @@ toll_booths:
       '12210': 29.6
   1382180500:
     type: enter
+    first_toll_node_id: 1753679945
+    first_toll_latlon: [49.077682, 3.396272]
     prices:
       '07140': 4.6
       '07141': 2.1
@@ -17858,10 +19264,16 @@ toll_booths:
       '10159': 64.4
   1382180508:
     type: exit
+    last_toll_node_id: 1753679978
+    last_toll_latlon: [49.078053, 3.39626]
   1387739267:
     type: exit
+    last_toll_node_id: 8517924949
+    last_toll_latlon: [49.132153, 5.624662]
   1389350279:
     type: enter
+    first_toll_node_id: 94698438
+    first_toll_latlon: [48.59287, 2.642378]
     prices:
       07185: 15.4
       09105: 9.2
@@ -17944,6 +19356,8 @@ toll_booths:
       '14375': 10.1
   1389350280:
     type: exit
+    last_toll_node_id: 94690453
+    last_toll_latlon: [48.594145, 2.638797]
   1391610490:
     type: passthrough
     price: 1.4
@@ -17952,10 +19366,14 @@ toll_booths:
     price: 1.8
   1405960889:
     type: enter
+    first_toll_node_id: 264589949
+    first_toll_latlon: [45.76869, 5.084107]
     prices:
       09150: 3.3
   1405976152:
     type: enter
+    first_toll_node_id: 1405976048
+    first_toll_latlon: [47.306349, 1.350304]
     prices:
       '04125': 39.1
       '04126': 36.1
@@ -17987,12 +19405,20 @@ toll_booths:
       '22001': 21.0
   1405976248:
     type: exit
+    last_toll_node_id: 1405976048
+    last_toll_latlon: [47.306349, 1.350304]
   1409048067:
     type: exit
+    last_toll_node_id: 280982436
+    last_toll_latlon: [50.344346, 2.785899]
   1419329118:
     type: exit
+    last_toll_node_id: 283540390
+    last_toll_latlon: [47.794777, 5.227002]
   1419329124:
     type: enter
+    first_toll_node_id: 586530164
+    first_toll_latlon: [47.794727, 5.226428]
     prices:
       '05010': 53.1
       '05011': 54.9
@@ -18126,8 +19552,12 @@ toll_booths:
     price: 0.5
   1430770870:
     type: exit
+    last_toll_node_id: 700010967
+    last_toll_latlon: [47.938364, 3.24243]
   1432280813:
     type: enter
+    first_toll_node_id: 304745581
+    first_toll_latlon: [50.611014, 1.645992]
     prices:
       '07413': 21.8
       '07414': 18.2
@@ -18152,8 +19582,12 @@ toll_booths:
       '07446': 11.4
   1433077455:
     type: exit
+    last_toll_node_id: 281788434
+    last_toll_latlon: [49.251537, 3.963763]
   1433638219:
     type: exit
+    last_toll_node_id: 268869133
+    last_toll_latlon: [49.756568, 1.695055]
   1445378851:
     type: passthrough
     price: 0.9
@@ -18162,6 +19596,8 @@ toll_booths:
     price: 0.9
   1449746827:
     type: enter
+    first_toll_node_id: 1449746796
+    first_toll_latlon: [44.285216, 0.269681]
     prices:
       '04455': 11.5
       '04456': 13.8
@@ -18198,8 +19634,12 @@ toll_booths:
       '18009': 30.2
   1450618855:
     type: exit
+    last_toll_node_id: 1450618857
+    last_toll_latlon: [44.166609, 0.606649]
   1451196227:
     type: enter
+    first_toll_node_id: 1451196246
+    first_toll_latlon: [44.512779, -0.051951]
     prices:
       '04455': 16.0
       '04456': 18.5
@@ -18239,8 +19679,12 @@ toll_booths:
       '18009': 26.5
   1451223683:
     type: exit
+    last_toll_node_id: 1870100019
+    last_toll_latlon: [44.436487, 0.13106]
   1451681686:
     type: enter
+    first_toll_node_id: 5822104213
+    first_toll_latlon: [44.064282, 0.867079]
     prices:
       '04455': 6.2
       '04456': 8.9
@@ -18271,8 +19715,12 @@ toll_booths:
       '18009': 36.2
   1452208046:
     type: exit
+    last_toll_node_id: 414054849
+    last_toll_latlon: [43.764477, 1.375052]
   1452208143:
     type: enter
+    first_toll_node_id: 414054857
+    first_toll_latlon: [43.764243, 1.374432]
     prices:
       '04456': 1.8
       '04457': 1.3
@@ -18293,6 +19741,8 @@ toll_booths:
       '18003': 28.4
   1452229755:
     type: enter
+    first_toll_node_id: 262291168
+    first_toll_latlon: [43.719959, 1.396851]
     prices:
       '04455': 0.7
       '04456': 1.1
@@ -18313,8 +19763,12 @@ toll_booths:
       '18003': 29.6
   1452229766:
     type: exit
+    last_toll_node_id: 1452239055
+    last_toll_latlon: [43.719372, 1.397049]
   1456366661:
     type: enter
+    first_toll_node_id: 1456366644
+    first_toll_latlon: [43.63597, 5.022507]
     prices:
       '04201': 30.0
       '04203': 21.3
@@ -18336,6 +19790,8 @@ toll_booths:
       '04267': 0.5
   1457800884:
     type: exit
+    last_toll_node_id: 1457840992
+    last_toll_latlon: [43.673918, 5.092455]
   1465598768:
     type: passthrough
     price: 0.6
@@ -18344,8 +19800,12 @@ toll_booths:
     price: 0.6
   1474506894:
     type: exit
+    last_toll_node_id: 1803013729
+    last_toll_latlon: [44.951933, -0.238611]
   1474599102:
     type: enter
+    first_toll_node_id: 249779406
+    first_toll_latlon: [44.987029, 0.159313]
     prices:
       '04101': 5.1
       '04102': 3.5
@@ -18355,6 +19815,8 @@ toll_booths:
       '04107': 3.4
   1477388127:
     type: enter
+    first_toll_node_id: 288947836
+    first_toll_latlon: [48.588893, 2.722404]
     prices:
       07185: 13.2
       09105: 7.9
@@ -18439,6 +19901,8 @@ toll_booths:
       '14375': 9.0
   1482474156:
     type: enter
+    first_toll_node_id: 142631
+    first_toll_latlon: [48.648603, 5.880053]
     prices:
       '05010': 62.9
       '05011': 64.7
@@ -18549,6 +20013,8 @@ toll_booths:
       '14375': 28.4
   1482474157:
     type: exit
+    last_toll_node_id: 10289626
+    last_toll_latlon: [48.649881, 5.8804]
   1498503669:
     type: passthrough
     price: 5.9
@@ -18566,8 +20032,12 @@ toll_booths:
     price: 2.0
   1513763776:
     type: exit
+    last_toll_node_id: 281128249
+    last_toll_latlon: [50.436364, 2.708247]
   1513763927:
     type: enter
+    first_toll_node_id: 1513763832
+    first_toll_latlon: [50.436551, 2.708198]
     prices:
       '07001': 16.6
       '07006': 12.9
@@ -18602,6 +20072,8 @@ toll_booths:
       '07451': 9.9
   1517753229:
     type: enter
+    first_toll_node_id: 1458560734
+    first_toll_latlon: [50.068487, 3.170541]
     prices:
       '07001': 12.7
       '07006': 9.8
@@ -18636,10 +20108,16 @@ toll_booths:
       '07451': 7.4
   1519182855:
     type: exit
+    last_toll_node_id: 926794680
+    last_toll_latlon: [49.68751, 3.462078]
   1519807832:
     type: exit
+    last_toll_node_id: 1519807753
+    last_toll_latlon: [49.426712, 3.927993]
   1520347089:
     type: enter
+    first_toll_node_id: 6398616102
+    first_toll_latlon: [49.285125, 3.97952]
     prices:
       '07154': 0.5
       07185: 13.2
@@ -18723,6 +20201,8 @@ toll_booths:
       '10159': 60.6
   1520347094:
     type: enter
+    first_toll_node_id: 23217864
+    first_toll_latlon: [49.250361, 3.958768]
     prices:
       '07140': 10.2
       '07141': 7.3
@@ -18811,8 +20291,12 @@ toll_booths:
       '10159': 61.0
   1520347114:
     type: exit
+    last_toll_node_id: 285935209
+    last_toll_latlon: [49.283201, 3.976368]
   1521075220:
     type: enter
+    first_toll_node_id: 550380863
+    first_toll_latlon: [49.399588, 2.699296]
     prices:
       '07001': 4.9
       '07006': 1.9
@@ -18890,13 +20374,19 @@ toll_booths:
       04358: 4.7
   1560431421:
     type: exit
+    last_toll_node_id: 1560431397
+    last_toll_latlon: [48.365495, 1.442508]
   1561101896:
     type: exit
+    last_toll_node_id: 879293202
+    last_toll_latlon: [43.096605, 0.596294]
   1562494772:
     type: passthrough
     price: 1.0
   1564463968:
     type: enter
+    first_toll_node_id: 2213598631
+    first_toll_latlon: [44.043081, -0.346258]
     prices:
       '04455': 28.4
       '04456': 30.8
@@ -18938,6 +20428,8 @@ toll_booths:
       '18009': 10.9
   1575767382:
     type: enter
+    first_toll_node_id: 2153739024
+    first_toll_latlon: [48.914506, 4.287728]
     prices:
       '07140': 13.9
       '07141': 11.7
@@ -19027,6 +20519,8 @@ toll_booths:
       '10159': 53.0
   1575874809:
     type: bidirectional
+    first_toll_node_id: 131062904
+    first_toll_latlon: [49.201055, 5.905304]
     prices:
       '07140': 24.3
       '07141': 21.3
@@ -19057,6 +20551,8 @@ toll_booths:
       09183: 19.4
   1575874810:
     type: enter
+    first_toll_node_id: 2613383818
+    first_toll_latlon: [49.033436, 4.434303]
     prices:
       '07140': 14.2
       '07141': 11.6
@@ -19145,8 +20641,12 @@ toll_booths:
       '10159': 54.9
   1575874813:
     type: exit
+    last_toll_node_id: 197824140
+    last_toll_latlon: [49.033486, 4.4343]
   1575874816:
     type: exit
+    last_toll_node_id: 1625503814
+    last_toll_latlon: [49.092935, 5.282698]
   1581498325:
     type: enter
     prices:
@@ -19275,8 +20775,12 @@ toll_booths:
     price: 0.7
   1588137485:
     type: exit
+    last_toll_node_id: 363708793
+    last_toll_latlon: [43.347254, 3.280954]
   1588137486:
     type: enter
+    first_toll_node_id: 728564126
+    first_toll_latlon: [43.345824, 3.283416]
     prices:
       '04201': 38.9
       '04203': 30.3
@@ -19322,10 +20826,16 @@ toll_booths:
       04358: 18.0
   1589996095:
     type: exit
+    last_toll_node_id: 18169402
+    last_toll_latlon: [45.77032, 5.083503]
   1597432903:
     type: exit
+    last_toll_node_id: 1596335736
+    last_toll_latlon: [46.299466, 4.895198]
   1604117575:
     type: enter
+    first_toll_node_id: 1604100951
+    first_toll_latlon: [49.627736, 0.801228]
     prices:
       08321: 5.7
       08322: 3.7
@@ -19334,10 +20844,16 @@ toll_booths:
       '20001': 4.2
   1604117578:
     type: exit
+    last_toll_node_id: 5022732000
+    last_toll_latlon: [49.628191, 0.801853]
   1618060722:
     type: exit
+    last_toll_node_id: 4690490488
+    last_toll_latlon: [43.566388, -0.290845]
   1626004708:
     type: enter
+    first_toll_node_id: 14003190550
+    first_toll_latlon: [50.17436, 3.197507]
     prices:
       '07001': 14.9
       '07006': 10.4
@@ -19371,6 +20887,8 @@ toll_booths:
       '07451': 7.7
   1629180187:
     type: enter
+    first_toll_node_id: 265493613
+    first_toll_latlon: [43.595417, 5.48727]
     prices:
       06059: 4.0
       '06060': 5.6
@@ -19382,10 +20900,16 @@ toll_booths:
       '06070': 14.9
   1629180214:
     type: exit
+    last_toll_node_id: 290857626
+    last_toll_latlon: [43.595319, 5.486906]
   1651430004:
     type: exit
+    last_toll_node_id: 1651430018
+    last_toll_latlon: [48.085378, 2.477892]
   1651430019:
     type: enter
+    first_toll_node_id: 1651430053
+    first_toll_latlon: [48.085777, 2.478117]
     prices:
       '05010': 23.0
       '05011': 24.8
@@ -19489,8 +21013,12 @@ toll_booths:
       '14380': 6.4
   1651976773:
     type: exit
+    last_toll_node_id: 1651976856
+    last_toll_latlon: [43.763403, 4.426488]
   1652042833:
     type: enter
+    first_toll_node_id: 246847916
+    first_toll_latlon: [43.680407, 4.602586]
     prices:
       '04201': 27.6
       '04203': 20.3
@@ -19536,8 +21064,12 @@ toll_booths:
       04358: 32.6
   1665577393:
     type: exit
+    last_toll_node_id: 1665577398
+    last_toll_latlon: [48.179954, 4.439249]
   1668541932:
     type: enter
+    first_toll_node_id: 1668541979
+    first_toll_latlon: [43.623192, 5.086294]
     prices:
       '04201': 28.5
       '04203': 20.1
@@ -19559,8 +21091,12 @@ toll_booths:
       '04266': 0.5
   1669974371:
     type: exit
+    last_toll_node_id: 10688854
+    last_toll_latlon: [43.180492, 3.036359]
   1669974392:
     type: enter
+    first_toll_node_id: 20934222
+    first_toll_latlon: [43.180937, 3.035999]
     prices:
       '04201': 43.3
       '04203': 34.6
@@ -19606,6 +21142,8 @@ toll_booths:
       04358: 15.2
   1672388768:
     type: enter
+    first_toll_node_id: 1672388843
+    first_toll_latlon: [43.939766, 4.596341]
     prices:
       '04201': 24.1
       '04203': 15.4
@@ -19651,6 +21189,8 @@ toll_booths:
       04358: 32.3
   1672388771:
     type: exit
+    last_toll_node_id: 1672388840
+    last_toll_latlon: [43.939733, 4.597439]
   1673842702:
     type: passthrough
     price: 2.2
@@ -19659,6 +21199,8 @@ toll_booths:
     price: 2.2
   1674020827:
     type: enter
+    first_toll_node_id: 12348345362
+    first_toll_latlon: [44.028391, 4.736602]
     prices:
       '04201': 23.3
       '04203': 14.4
@@ -19704,8 +21246,12 @@ toll_booths:
       04358: 34.1
   1674020828:
     type: exit
+    last_toll_node_id: 11881104899
+    last_toll_latlon: [44.028027, 4.73667]
   1674101568:
     type: enter
+    first_toll_node_id: 4092449965
+    first_toll_latlon: [43.982633, 4.886672]
     prices:
       '04201': 23.2
       '04203': 14.9
@@ -19728,6 +21274,8 @@ toll_booths:
       '04267': 5.1
   1676618836:
     type: enter
+    first_toll_node_id: 277358177
+    first_toll_latlon: [43.304214, 3.216003]
     prices:
       '04201': 39.3
       '04203': 30.9
@@ -19773,8 +21321,12 @@ toll_booths:
       04358: 17.0
   1676618837:
     type: exit
+    last_toll_node_id: 255703315
+    last_toll_latlon: [43.304327, 3.216213]
   1679523552:
     type: enter
+    first_toll_node_id: 1638368778
+    first_toll_latlon: [48.149048, 0.685074]
     prices:
       04780: 6.5
       04781: 9.6
@@ -19818,8 +21370,12 @@ toll_booths:
       '12210': 20.1
   1679523744:
     type: exit
+    last_toll_node_id: 1638368775
+    last_toll_latlon: [48.149496, 0.684659]
   1680929295:
     type: enter
+    first_toll_node_id: 3935857350
+    first_toll_latlon: [43.393597, 6.350792]
     prices:
       '06002': 9.3
       '06003': 5.5
@@ -19835,8 +21391,12 @@ toll_booths:
       06049: 4.9
   1684777150:
     type: exit
+    last_toll_node_id: 4960947797
+    last_toll_latlon: [49.839673, 2.992354]
   1684777167:
     type: enter
+    first_toll_node_id: 4960947797
+    first_toll_latlon: [49.839673, 2.992354]
     prices:
       '07001': 9.4
       '07006': 6.9
@@ -19872,13 +21432,19 @@ toll_booths:
       '07451': 4.6
   1685070980:
     type: exit
+    last_toll_node_id: 27457136
+    last_toll_latlon: [44.125554, 5.977398]
   1690642278:
     type: passthrough
     price: 0.7
   1693318417:
     type: exit
+    last_toll_node_id: 2931501481
+    last_toll_latlon: [46.802086, 4.83077]
   1693318419:
     type: enter
+    first_toll_node_id: 2931501483
+    first_toll_latlon: [46.802212, 4.830914]
     prices:
       '05050': 46.9
       '05052': 47.6
@@ -19995,8 +21561,12 @@ toll_booths:
       '14375': 22.1
   1695359055:
     type: exit
+    last_toll_node_id: 2147324876
+    last_toll_latlon: [48.525508, 4.186077]
   1695359059:
     type: enter
+    first_toll_node_id: 2147324801
+    first_toll_latlon: [48.525652, 4.187002]
     prices:
       '07140': 17.7
       '07141': 15.1
@@ -20093,6 +21663,8 @@ toll_booths:
     price: 1.8
   1707787330:
     type: enter
+    first_toll_node_id: 2108706824
+    first_toll_latlon: [45.864719, 4.593132]
     prices:
       '04170': 16.3
       '04171': 15.4
@@ -20107,8 +21679,12 @@ toll_booths:
       04181: 3.1
   1716982137:
     type: exit
+    last_toll_node_id: 1329634529
+    last_toll_latlon: [47.774151, -0.21087]
   1732420087:
     type: enter
+    first_toll_node_id: 2484988257
+    first_toll_latlon: [46.346583, 4.848479]
     prices:
       '05050': 51.6
       '05052': 52.3
@@ -20228,8 +21804,12 @@ toll_booths:
       '14375': 26.8
   1732420093:
     type: exit
+    last_toll_node_id: 1732420151
+    last_toll_latlon: [46.342065, 4.848774]
   1739757654:
     type: enter
+    first_toll_node_id: 1729642810
+    first_toll_latlon: [46.335838, 4.845323]
     prices:
       '05050': 51.6
       '05052': 52.3
@@ -20349,10 +21929,16 @@ toll_booths:
       '14375': 26.8
   1742991342:
     type: exit
+    last_toll_node_id: 36868396
+    last_toll_latlon: [42.521618, 2.816899]
   1767279376:
     type: exit
+    last_toll_node_id: 1767279380
+    last_toll_latlon: [45.944262, -0.849154]
   1767279383:
     type: enter
+    first_toll_node_id: 881411923
+    first_toll_latlon: [45.953478, -0.856957]
     prices:
       '04537': 4.6
       04538: 7.4
@@ -20367,6 +21953,8 @@ toll_booths:
     price: 1.4
   1796885587:
     type: enter
+    first_toll_node_id: 1788450141
+    first_toll_latlon: [43.637806, 4.835514]
     prices:
       '04201': 30.6
       '04203': 22.3
@@ -20388,6 +21976,8 @@ toll_booths:
       '04267': 2.2
   1810705536:
     type: enter
+    first_toll_node_id: 280275453
+    first_toll_latlon: [48.037456, 3.025734]
     prices:
       '05010': 31.6
       '05011': 33.4
@@ -20496,8 +22086,12 @@ toll_booths:
       '14380': 0.0
   1820927791:
     type: exit
+    last_toll_node_id: 1263106472
+    last_toll_latlon: [48.057392, 3.089878]
   1820927832:
     type: enter
+    first_toll_node_id: 1263106505
+    first_toll_latlon: [48.057309, 3.089264]
     prices:
       '05010': 32.2
       '05011': 34.0
@@ -20531,6 +22125,8 @@ toll_booths:
       '14375': 0.0
   1820928798:
     type: enter
+    first_toll_node_id: 246780802
+    first_toll_latlon: [48.061087, 3.094307]
     prices:
       07185: 12.1
       09101: 6.4
@@ -20612,6 +22208,8 @@ toll_booths:
       '10159': 46.2
   1824875347:
     type: enter
+    first_toll_node_id: 6315618316
+    first_toll_latlon: [49.390412, 2.103571]
     prices:
       '07416': 0.5
       '07417': 2.2
@@ -20634,8 +22232,12 @@ toll_booths:
       '07446': 6.3
   1825203802:
     type: exit
+    last_toll_node_id: 33650561
+    last_toll_latlon: [43.638199, 4.838634]
   1825795624:
     type: enter
+    first_toll_node_id: 260010978
+    first_toll_latlon: [47.938216, 3.242508]
     prices:
       09107: 2.6
       09108: 3.3
@@ -20691,6 +22293,8 @@ toll_booths:
     price: 55.5
   1830159108:
     type: enter
+    first_toll_node_id: 4942564143
+    first_toll_latlon: [49.147434, 3.714248]
     prices:
       '07140': 7.2
       '07141': 4.6
@@ -20779,11 +22383,15 @@ toll_booths:
       '10159': 61.6
   1830159112:
     type: exit
+    last_toll_node_id: 4942563879
+    last_toll_latlon: [49.148269, 3.714282]
   1831379876:
     type: gantry
     price: 2.6
   1859988322:
     type: enter
+    first_toll_node_id: 10624380282
+    first_toll_latlon: [49.54788, 0.337166]
     prices:
       08341: 1.0
       08351: 2.4
@@ -20794,8 +22402,12 @@ toll_booths:
       '20001': 7.9
   1859988323:
     type: exit
+    last_toll_node_id: 10624380273
+    last_toll_latlon: [49.547966, 0.336206]
   1871925918:
     type: enter
+    first_toll_node_id: 13821306521
+    first_toll_latlon: [49.04436, 4.324858]
     prices:
       '07140': 14.1
       '07141': 11.0
@@ -20878,6 +22490,8 @@ toll_booths:
       '10159': 55.5
   1877499832:
     type: enter
+    first_toll_node_id: 13251905008
+    first_toll_latlon: [49.521585, 2.713571]
     prices:
       '07001': 6.2
       '07006': 3.1
@@ -20910,11 +22524,15 @@ toll_booths:
       '07136': 14.0
   1877499843:
     type: exit
+    last_toll_node_id: 13251888993
+    last_toll_latlon: [49.521921, 2.713386]
   1883466243:
     type: passthrough
     price: 4.4
   1883772392:
     type: enter
+    first_toll_node_id: 4600526949
+    first_toll_latlon: [48.454014, 2.523845]
     prices:
       07185: 18.1
       09102: 2.0
@@ -20993,8 +22611,12 @@ toll_booths:
       '14375': 7.6
   1902659897:
     type: exit
+    last_toll_node_id: 1599058332
+    last_toll_latlon: [47.327504, 1.761429]
   1911871879:
     type: enter
+    first_toll_node_id: 1595052188
+    first_toll_latlon: [47.302827, 0.697677]
     prices:
       '04126': 42.3
       '04127': 40.2
@@ -21023,10 +22645,16 @@ toll_booths:
       '22001': 27.2
   1911871885:
     type: exit
+    last_toll_node_id: 271718810
+    last_toll_latlon: [47.303562, 0.701016]
   1927899111:
     type: exit
+    last_toll_node_id: 4005842740
+    last_toll_latlon: [49.202633, 4.011203]
   1927899628:
     type: enter
+    first_toll_node_id: 36237908
+    first_toll_latlon: [49.203108, 4.01073]
     prices:
       '07140': 9.7
       '07141': 7.2
@@ -21118,6 +22746,8 @@ toll_booths:
     price: 7.8
   1967477056:
     type: enter
+    first_toll_node_id: 1967477591
+    first_toll_latlon: [47.46639, -0.194024]
     prices:
       04780: 8.2
       04781: 4.9
@@ -21155,8 +22785,12 @@ toll_booths:
       '12210': 26.7
   1967477187:
     type: exit
+    last_toll_node_id: 1967477580
+    last_toll_latlon: [47.466454, -0.194372]
   1967766750:
     type: enter
+    first_toll_node_id: 1967750785
+    first_toll_latlon: [47.404668, -0.112735]
     prices:
       04780: 9.2
       04781: 5.9
@@ -21193,11 +22827,15 @@ toll_booths:
       '12210': 27.7
   1967766760:
     type: exit
+    last_toll_node_id: 1967750818
+    last_toll_latlon: [47.404109, -0.112929]
   1987610456:
     type: passthrough
     price: 1.1
   1987610457:
     type: enter
+    first_toll_node_id: 36868212
+    first_toll_latlon: [42.521432, 2.817488]
     prices:
       '04201': 54.0
       '04203': 45.2
@@ -21245,6 +22883,8 @@ toll_booths:
     price: 1.1
   1997249454:
     type: enter
+    first_toll_node_id: 472483094
+    first_toll_latlon: [42.938786, 2.97505]
     prices:
       '04201': 46.1
       '04203': 38.0
@@ -21296,6 +22936,8 @@ toll_booths:
     price: 13.8
   2095595179:
     type: enter
+    first_toll_node_id: 33164161
+    first_toll_latlon: [47.045751, 2.342701]
     prices:
       '04122': 33.9
       '04123': 32.2
@@ -21371,10 +23013,16 @@ toll_booths:
       '22001': 10.5
   2105191531:
     type: exit
+    last_toll_node_id: 2105191511
+    last_toll_latlon: [47.285884, 0.989285]
   2106685427:
     type: exit
+    last_toll_node_id: 1576776916
+    last_toll_latlon: [49.856917, 2.82909]
   2106685535:
     type: enter
+    first_toll_node_id: 1576776916
+    first_toll_latlon: [49.856917, 2.82909]
     prices:
       '07001': 8.7
       '07006': 5.9
@@ -21399,8 +23047,12 @@ toll_booths:
     price: 2.2
   2144776681:
     type: exit
+    last_toll_node_id: 1683939341
+    last_toll_latlon: [43.240496, 2.101667]
   2150890046:
     type: enter
+    first_toll_node_id: 2150890004
+    first_toll_latlon: [46.115656, 5.794946]
     prices:
       '05050': 65.5
       '05052': 66.2
@@ -21521,12 +23173,20 @@ toll_booths:
       '14375': 40.7
   2150890048:
     type: exit
+    last_toll_node_id: 2150890004
+    last_toll_latlon: [46.115656, 5.794946]
   2155986155:
     type: exit
+    last_toll_node_id: 1728451787
+    last_toll_latlon: [44.901878, 1.503648]
   2166249271:
     type: exit
+    last_toll_node_id: 5383510905
+    last_toll_latlon: [45.557337, 5.466794]
   2166249288:
     type: enter
+    first_toll_node_id: 2166249280
+    first_toll_latlon: [45.557856, 5.462438]
     prices:
       '03001': 6.9
       '03002': 4.0
@@ -21545,6 +23205,8 @@ toll_booths:
       03095: 7.7
   2188188012:
     type: enter
+    first_toll_node_id: 2188188011
+    first_toll_latlon: [45.469501, 6.287375]
     prices:
       '02051': 2.5
       '02052': 3.7
@@ -21564,8 +23226,12 @@ toll_booths:
     price: 1.2
   2199932050:
     type: exit
+    last_toll_node_id: 3042219516
+    last_toll_latlon: [46.666958, 5.417901]
   2241159339:
     type: enter
+    first_toll_node_id: 384363892
+    first_toll_latlon: [46.466955, -0.876622]
     prices:
       '04533': 6.9
       '04534': 4.2
@@ -21602,6 +23268,8 @@ toll_booths:
       '05532': 11.0
   2267204259:
     type: enter
+    first_toll_node_id: 11411575384
+    first_toll_latlon: [43.39472, -0.551647]
     prices:
       '04461': 41.1
       '04462': 38.0
@@ -21637,6 +23305,8 @@ toll_booths:
       '18009': 4.8
   2267204261:
     type: exit
+    last_toll_node_id: 2441453121
+    last_toll_latlon: [43.394785, -0.551721]
   2279710264:
     type: gantry
     price: 1.5
@@ -21654,8 +23324,12 @@ toll_booths:
     price: 4.4
   2341285897:
     type: exit
+    last_toll_node_id: 1372605762
+    last_toll_latlon: [43.467541, -1.28601]
   2378835401:
     type: enter
+    first_toll_node_id: 2378835406
+    first_toll_latlon: [48.771181, 7.59939]
     prices:
       '07701': 8.4
       '07702': 6.6
@@ -21664,8 +23338,12 @@ toll_booths:
       '07705': 1.1
   2398039583:
     type: exit
+    last_toll_node_id: 542693461
+    last_toll_latlon: [42.780383, 2.898948]
   2398039585:
     type: enter
+    first_toll_node_id: 35191573
+    first_toll_latlon: [42.780255, 2.899759]
     prices:
       '04201': 50.5
       '04203': 42.2
@@ -21711,11 +23389,15 @@ toll_booths:
       04358: 20.1
   2399140585:
     type: exit
+    last_toll_node_id: 2417608314
+    last_toll_latlon: [43.564237, 3.834628]
   2406629234:
     type: passthrough
     price: 2.0
   2407621699:
     type: enter
+    first_toll_node_id: 274492475
+    first_toll_latlon: [45.322268, 5.606727]
     prices:
       '03001': 11.4
       '03002': 8.6
@@ -21741,8 +23423,12 @@ toll_booths:
       '15018': 24.0
   2407630266:
     type: exit
+    last_toll_node_id: 8180791715
+    last_toll_latlon: [50.481645, 2.684546]
   2408730593:
     type: enter
+    first_toll_node_id: 169585529
+    first_toll_latlon: [45.939706, 4.723474]
     prices:
       '05050': 59.2
       '05302': 61.8
@@ -21837,8 +23523,12 @@ toll_booths:
       '14375': 34.4
   2408730611:
     type: exit
+    last_toll_node_id: 13443114
+    last_toll_latlon: [45.940001, 4.722757]
   2441958671:
     type: enter
+    first_toll_node_id: 302024307
+    first_toll_latlon: [45.995691, 3.103733]
     prices:
       '04122': 19.7
       '04123': 18.0
@@ -21883,8 +23573,12 @@ toll_booths:
       '22001': 4.3
   2441958683:
     type: exit
+    last_toll_node_id: 302024305
+    last_toll_latlon: [45.995869, 3.103467]
   2442483773:
     type: enter
+    first_toll_node_id: 1683939455
+    first_toll_latlon: [43.240685, 2.101877]
     prices:
       '04201': 53.3
       '04203': 45.2
@@ -21936,6 +23630,8 @@ toll_booths:
     price: 5.2
   2476554633:
     type: enter
+    first_toll_node_id: 12116870862
+    first_toll_latlon: [48.311291, 0.133247]
     prices:
       04780: 5.1
       04781: 8.2
@@ -21979,6 +23675,8 @@ toll_booths:
       '12210': 12.0
   2561189904:
     type: enter
+    first_toll_node_id: 2561189875
+    first_toll_latlon: [47.183186, 5.708872]
     prices:
       '05050': 50.4
       '05052': 51.1
@@ -22108,8 +23806,12 @@ toll_booths:
       '14375': 25.6
   2561189908:
     type: exit
+    last_toll_node_id: 2561189898
+    last_toll_latlon: [47.183197, 5.708741]
   2596549075:
     type: enter
+    first_toll_node_id: 7287985094
+    first_toll_latlon: [45.881111, 4.897971]
     prices:
       '07140': 60.9
       '07141': 58.7
@@ -22182,6 +23884,8 @@ toll_booths:
       '10159': 18.5
   2609480516:
     type: enter
+    first_toll_node_id: 302906973
+    first_toll_latlon: [50.028721, 2.067718]
     prices:
       '07413': 11.9
       '07414': 9.7
@@ -22212,8 +23916,12 @@ toll_booths:
     price: 0.9
   2630513392:
     type: exit
+    last_toll_node_id: 12657400931
+    last_toll_latlon: [46.669756, 0.36004]
   2782616479:
     type: exit
+    last_toll_node_id: 338173814
+    last_toll_latlon: [48.103706, -0.83558]
   2814507717:
     type: passthrough
     price: 1.7
@@ -22222,6 +23930,8 @@ toll_booths:
     price: 1.7
   2833842348:
     type: enter
+    first_toll_node_id: 2833842143
+    first_toll_latlon: [46.440044, 5.26921]
     prices:
       '07140': 51.4
       '07141': 49.2
@@ -22300,8 +24010,12 @@ toll_booths:
       '10159': 18.9
   2847657921:
     type: exit
+    last_toll_node_id: 2847657906
+    last_toll_latlon: [50.25555, 1.746454]
   2887199669:
     type: enter
+    first_toll_node_id: 144948849
+    first_toll_latlon: [43.552887, 1.493628]
     prices:
       '04201': 59.2
       '04203': 51.3
@@ -22349,6 +24063,8 @@ toll_booths:
     price: 2.0
   2976483382:
     type: enter
+    first_toll_node_id: 2976485469
+    first_toll_latlon: [43.097149, 0.390291]
     prices:
       '04464': 38.8
       '04465': 37.2
@@ -22380,6 +24096,8 @@ toll_booths:
       '18009': 10.6
   2993275543:
     type: enter
+    first_toll_node_id: 2993283802
+    first_toll_latlon: [45.62789, 5.164748]
     prices:
       '03001': 3.0
       '03002': 0.5
@@ -22411,8 +24129,12 @@ toll_booths:
       '15018': 23.3
   2993283810:
     type: exit
+    last_toll_node_id: 267532544
+    last_toll_latlon: [45.627874, 5.164519]
   3025678480:
     type: enter
+    first_toll_node_id: 11654693345
+    first_toll_latlon: [46.670165, -1.352942]
     prices:
       '04533': 13.0
       '04534': 10.7
@@ -22449,8 +24171,12 @@ toll_booths:
       '05532': 16.0
   3025678481:
     type: exit
+    last_toll_node_id: 274194723
+    last_toll_latlon: [46.670917, -1.35116]
   3050827007:
     type: enter
+    first_toll_node_id: 759335209
+    first_toll_latlon: [48.408758, 4.144374]
     prices:
       '05010': 47.6
       '05011': 49.4
@@ -22586,6 +24312,8 @@ toll_booths:
       '14375': 13.1
   3089029407:
     type: enter
+    first_toll_node_id: 1749650891
+    first_toll_latlon: [48.22639, 4.130873]
     prices:
       '05010': 44.0
       '05011': 45.8
@@ -22723,6 +24451,8 @@ toll_booths:
       '14375': 9.5
   3089029424:
     type: exit
+    last_toll_node_id: 1749650847
+    last_toll_latlon: [48.226217, 4.131775]
   3106373488:
     type: passthrough
     price: 1.7
@@ -22731,8 +24461,12 @@ toll_booths:
     price: 1.7
   3149727734:
     type: exit
+    last_toll_node_id: 13821306521
+    last_toll_latlon: [49.04436, 4.324858]
   3149752422:
     type: enter
+    first_toll_node_id: 3238472649
+    first_toll_latlon: [49.039242, 4.322144]
     prices:
       07193: 0.8
       07194: 2.5
@@ -22743,8 +24477,12 @@ toll_booths:
       '07616': 4.0
   3177528677:
     type: exit
+    last_toll_node_id: 11761124984
+    last_toll_latlon: [45.321495, 5.600171]
   3230734317:
     type: enter
+    first_toll_node_id: 98772232
+    first_toll_latlon: [43.857217, 4.418539]
     prices:
       '04201': 26.8
       '04203': 17.9
@@ -22790,8 +24528,12 @@ toll_booths:
       04358: 30.1
   3248212729:
     type: exit
+    last_toll_node_id: 2661440405
+    last_toll_latlon: [48.77825, 0.301364]
   3250854437:
     type: enter
+    first_toll_node_id: 1042826664
+    first_toll_latlon: [48.770873, 0.313177]
     prices:
       04780: 18.1
       04781: 21.2
@@ -22833,8 +24575,12 @@ toll_booths:
       '12210': 6.9
   3296768915:
     type: exit
+    last_toll_node_id: 924379400
+    last_toll_latlon: [48.150047, 3.172814]
   3296768950:
     type: enter
+    first_toll_node_id: 924379537
+    first_toll_latlon: [48.15028, 3.172648]
     prices:
       '05010': 36.8
       '05011': 38.6
@@ -22947,6 +24693,8 @@ toll_booths:
       '14375': 2.3
   3321275857:
     type: enter
+    first_toll_node_id: 171908051
+    first_toll_latlon: [48.530086, 1.831759]
     prices:
       04780: 19.3
       04781: 22.4
@@ -22986,8 +24734,12 @@ toll_booths:
       '12210': 32.8
   3321280179:
     type: exit
+    last_toll_node_id: 393470892
+    last_toll_latlon: [48.531736, 1.831568]
   3343894806:
     type: enter
+    first_toll_node_id: 4850644945
+    first_toll_latlon: [49.525751, 0.958011]
     prices:
       08321: 9.9
       08322: 7.9
@@ -22996,8 +24748,12 @@ toll_booths:
       08361: 4.2
   3343922931:
     type: exit
+    last_toll_node_id: 3366199984
+    last_toll_latlon: [49.525798, 0.957383]
   3364175158:
     type: enter
+    first_toll_node_id: 293657727
+    first_toll_latlon: [49.21108, 2.624374]
     prices:
       '07007': 1.5
       07008: 1.9
@@ -23026,6 +24782,8 @@ toll_booths:
       '07060': 13.2
   3372819625:
     type: enter
+    first_toll_node_id: 268869117
+    first_toll_latlon: [49.755396, 1.697543]
     prices:
       '07413': 12.4
       '07414': 9.5
@@ -23049,13 +24807,19 @@ toll_booths:
       '07446': 1.7
   3376518340:
     type: exit
+    last_toll_node_id: 2050960590
+    last_toll_latlon: [50.105859, 2.867286]
   3587014323:
     type: exit
+    last_toll_node_id: 3587014285
+    last_toll_latlon: [47.082079, -0.828957]
   3618522316:
     type: passthrough
     price: 0.9
   3634658165:
     type: enter
+    first_toll_node_id: 9190711748
+    first_toll_latlon: [46.548679, 0.290196]
     prices:
       '04533': 3.2
       '04534': 5.6
@@ -23097,6 +24861,8 @@ toll_booths:
     price: 3.6
   3722209738:
     type: enter
+    first_toll_node_id: 306618132
+    first_toll_latlon: [47.617146, 1.347071]
     prices:
       '04125': 48.1
       '04126': 45.1
@@ -23210,6 +24976,8 @@ toll_booths:
       '22001': 30.0
   3736753049:
     type: enter
+    first_toll_node_id: 530427609
+    first_toll_latlon: [48.119009, 2.186382]
     prices:
       '04125': 49.6
       '04126': 46.6
@@ -23326,6 +25094,8 @@ toll_booths:
       '22001': 31.5
   3836267226:
     type: enter
+    first_toll_node_id: 1041300287
+    first_toll_latlon: [49.859348, 2.392825]
     prices:
       '07010': 4.5
       '07011': 3.6
@@ -23358,8 +25128,12 @@ toll_booths:
     price: 2.5
   3903207118:
     type: exit
+    last_toll_node_id: 3903188779
+    last_toll_latlon: [44.184439, 4.75134]
   3903235081:
     type: enter
+    first_toll_node_id: 5007009474
+    first_toll_latlon: [47.066922, -1.435439]
     prices:
       '04533': 16.8
       '04534': 14.7
@@ -23396,6 +25170,8 @@ toll_booths:
       '05532': 17.3
   3921619586:
     type: enter
+    first_toll_node_id: 8517924943
+    first_toll_latlon: [49.132461, 5.624448]
     prices:
       '07140': 22.4
       '07141': 20.4
@@ -23427,6 +25203,8 @@ toll_booths:
       09183: 18.1
   3922204754:
     type: enter
+    first_toll_node_id: 1632875718
+    first_toll_latlon: [45.318549, 1.850197]
     prices:
       '04122': 2.1
       '04123': 0.7
@@ -23449,6 +25227,8 @@ toll_booths:
       '22001': 21.9
   3922204755:
     type: exit
+    last_toll_node_id: 3922205457
+    last_toll_latlon: [45.31856, 1.850371]
   3922783426:
     type: passthrough
     price: 4.6
@@ -23463,6 +25243,8 @@ toll_booths:
     price: 4.6
   3999405516:
     type: enter
+    first_toll_node_id: 3999405510
+    first_toll_latlon: [46.354253, -0.329357]
     prices:
       '04533': 1.7
       '04535': 1.6
@@ -23499,6 +25281,8 @@ toll_booths:
       '05532': 5.6
   4001139234:
     type: enter
+    first_toll_node_id: 1574747679
+    first_toll_latlon: [46.420792, -0.396838]
     prices:
       '04533': 2.9
       '04534': 0.7
@@ -23535,6 +25319,8 @@ toll_booths:
       '05532': 6.6
   4001140435:
     type: enter
+    first_toll_node_id: 4001140439
+    first_toll_latlon: [46.387943, -0.645054]
     prices:
       '04533': 5.2
       '04534': 2.1
@@ -23571,10 +25357,16 @@ toll_booths:
       '05532': 8.9
   4001140454:
     type: exit
+    last_toll_node_id: 4001140439
+    last_toll_latlon: [46.387943, -0.645054]
   4001244321:
     type: exit
+    last_toll_node_id: 279373886
+    last_toll_latlon: [46.436712, -0.822769]
   4003122683:
     type: enter
+    first_toll_node_id: 4003122605
+    first_toll_latlon: [46.627061, -1.155828]
     prices:
       '04533': 10.2
       '04534': 8.3
@@ -23611,6 +25403,8 @@ toll_booths:
       '05532': 14.8
   4088640522:
     type: exit
+    last_toll_node_id: 3713552814
+    last_toll_latlon: [47.066587, -1.435783]
   4127435620:
     type: gantry
     price: 1.9
@@ -23619,6 +25413,8 @@ toll_booths:
     price: 55.5
   4185172631:
     type: enter
+    first_toll_node_id: 743386355
+    first_toll_latlon: [43.38709, 5.6003]
     prices:
       '06002': 2.6
       '06004': 3.9
@@ -23632,12 +25428,18 @@ toll_booths:
       06049: 13.0
   4185187889:
     type: enter
+    first_toll_node_id: 252950728
+    first_toll_latlon: [43.386825, 5.600771]
     prices:
       '06036': 1.4
   4185187890:
     type: exit
+    last_toll_node_id: 472481531
+    last_toll_latlon: [43.387185, 5.600596]
   4189960633:
     type: enter
+    first_toll_node_id: 11983496339
+    first_toll_latlon: [48.285366, 3.966674]
     prices:
       '05010': 43.5
       '05011': 45.3
@@ -23775,6 +25577,8 @@ toll_booths:
       '14375': 9.0
   4189960634:
     type: exit
+    last_toll_node_id: 11983496338
+    last_toll_latlon: [48.285145, 3.966973]
   4200516989:
     type: passthrough
     price: 2.9
@@ -23789,6 +25593,8 @@ toll_booths:
     price: 6.2
   4255789073:
     type: bidirectional
+    first_toll_node_id: 8663010482
+    first_toll_latlon: [45.836057, 2.824674]
     prices:
       '04122': 15.2
       '04123': 12.9
@@ -23833,6 +25639,8 @@ toll_booths:
       '22001': 8.5
   4330970608:
     type: enter
+    first_toll_node_id: 50032701
+    first_toll_latlon: [46.390079, 2.700286]
     prices:
       '04122': 26.3
       '04123': 24.6
@@ -23893,8 +25701,12 @@ toll_booths:
       '22001': 3.3
   4330970609:
     type: exit
+    last_toll_node_id: 974690850
+    last_toll_latlon: [46.390175, 2.700239]
   4332104483:
     type: enter
+    first_toll_node_id: 1808310241
+    first_toll_latlon: [48.064446, 2.766085]
     prices:
       '05010': 26.8
       '05011': 28.6
@@ -24003,6 +25815,8 @@ toll_booths:
       '14380': 3.3
   4357543559:
     type: enter
+    first_toll_node_id: 892728696
+    first_toll_latlon: [48.634558, 0.18507]
     prices:
       04780: 14.1
       04781: 17.2
@@ -24045,8 +25859,12 @@ toll_booths:
       '12060': 20.9
   4365283548:
     type: exit
+    last_toll_node_id: 550380863
+    last_toll_latlon: [49.399588, 2.699296]
   4365381373:
     type: enter
+    first_toll_node_id: 11745659568
+    first_toll_latlon: [49.404821, 2.11994]
     prices:
       '07413': 4.3
       '07414': 2.0
@@ -24071,10 +25889,16 @@ toll_booths:
       '07446': 6.3
   4377741638:
     type: exit
+    last_toll_node_id: 18169402
+    last_toll_latlon: [45.77032, 5.083503]
   4384995460:
     type: exit
+    last_toll_node_id: 9125025897
+    last_toll_latlon: [45.937689, 6.116989]
   4384995461:
     type: enter
+    first_toll_node_id: 8321038344
+    first_toll_latlon: [45.937912, 6.117122]
     prices:
       '03001': 18.4
       '03002': 14.8
@@ -24108,6 +25932,8 @@ toll_booths:
     price: 2.1
   4390079354:
     type: enter
+    first_toll_node_id: 1830094654
+    first_toll_latlon: [49.014388, 3.157301]
     prices:
       '07144': 2.1
       '07146': 4.6
@@ -24198,13 +26024,19 @@ toll_booths:
     price: 2.1
   4390079356:
     type: exit
+    last_toll_node_id: 1830094651
+    last_toll_latlon: [49.014195, 3.157543]
   4393680580:
     type: passthrough
     price: 3.2
   4415568288:
     type: exit
+    last_toll_node_id: 2213455786
+    last_toll_latlon: [49.741661, 2.227209]
   4415569389:
     type: enter
+    first_toll_node_id: 2213455786
+    first_toll_latlon: [49.741661, 2.227209]
     prices:
       '07413': 8.1
       '07414': 5.1
@@ -24349,8 +26181,12 @@ toll_booths:
       '14375': 27.9
   4415774336:
     type: exit
+    last_toll_node_id: 2395168844
+    last_toll_latlon: [46.54777, 5.325233]
   4415774337:
     type: enter
+    first_toll_node_id: 987042241
+    first_toll_latlon: [46.547508, 5.325208]
     prices:
       '05050': 55.0
       '05052': 55.7
@@ -24471,6 +26307,10 @@ toll_booths:
       '14375': 30.2
   4422613638:
     type: bidirectional
+    first_toll_node_id: 1005393392
+    first_toll_latlon: [47.234301, -0.724688]
+    last_toll_node_id: 1005393382
+    last_toll_latlon: [47.233964, -0.724925]
     prices:
       '04533': 16.9
       '04534': 14.6
@@ -24500,6 +26340,8 @@ toll_booths:
       '04570': 12.1
   4422912952:
     type: enter
+    first_toll_node_id: 6937730046
+    first_toll_latlon: [45.511914, 2.255421]
     prices:
       '04122': 8.5
       '04123': 5.5
@@ -24544,14 +26386,24 @@ toll_booths:
       '22001': 16.0
   4422919071:
     type: exit
+    last_toll_node_id: 560793473
+    last_toll_latlon: [45.859419, 3.505456]
   4422919911:
     type: exit
+    last_toll_node_id: 82801157
+    last_toll_latlon: [45.877902, 3.625913]
   4422924492:
     type: exit
+    last_toll_node_id: 1771729618
+    last_toll_latlon: [45.874085, 4.517426]
   4422924493:
     type: exit
+    last_toll_node_id: 6020963280
+    last_toll_latlon: [45.864565, 4.595281]
   4422924495:
     type: enter
+    first_toll_node_id: 1771729618
+    first_toll_latlon: [45.874085, 4.517426]
     prices:
       '04170': 14.1
       '04171': 11.7
@@ -24566,8 +26418,12 @@ toll_booths:
       04181: 0.9
   4422927258:
     type: exit
+    last_toll_node_id: 1850025468
+    last_toll_latlon: [45.738989, 4.187603]
   4422927259:
     type: enter
+    first_toll_node_id: 1850025473
+    first_toll_latlon: [45.739126, 4.187457]
     prices:
       '04170': 10.3
       '04171': 7.7
@@ -24583,6 +26439,8 @@ toll_booths:
       04183: 5.4
   4423457000:
     type: enter
+    first_toll_node_id: 2231612853
+    first_toll_latlon: [46.13162, 5.541844]
     prices:
       '05050': 60.3
       '05052': 61.0
@@ -24709,6 +26567,8 @@ toll_booths:
     price: 1.0
   4423736545:
     type: enter
+    first_toll_node_id: 30904090
+    first_toll_latlon: [45.717536, 5.92233]
     prices:
       '03001': 14.4
       '03002': 10.9
@@ -24745,10 +26605,16 @@ toll_booths:
     price: 1.0
   4434463567:
     type: exit
+    last_toll_node_id: 699567075
+    last_toll_latlon: [47.999023, 2.677417]
   4434463568:
     type: exit
+    last_toll_node_id: 242800362
+    last_toll_latlon: [48.168742, 2.765353]
   4434463569:
     type: enter
+    first_toll_node_id: 242800270
+    first_toll_latlon: [48.172714, 2.766674]
     prices:
       '05010': 26.5
       '05011': 28.3
@@ -24855,6 +26721,8 @@ toll_booths:
       '14380': 4.2
   4434463570:
     type: enter
+    first_toll_node_id: 699568731
+    first_toll_latlon: [47.997967, 2.677206]
     prices:
       '05010': 31.0
       '05011': 32.8
@@ -24967,6 +26835,8 @@ toll_booths:
     price: 1.7
   4681594641:
     type: enter
+    first_toll_node_id: 1529356060
+    first_toll_latlon: [49.807452, 1.967103]
     prices:
       '07413': 10.7
       '07414': 8.0
@@ -24991,6 +26861,8 @@ toll_booths:
       '07444': 1.7
   4690430236:
     type: enter
+    first_toll_node_id: 860699018
+    first_toll_latlon: [48.055482, -0.489834]
     prices:
       04780: 7.6
       04781: 10.7
@@ -25026,8 +26898,12 @@ toll_booths:
       '12210': 21.5
   4690430237:
     type: exit
+    last_toll_node_id: 860699024
+    last_toll_latlon: [48.055741, -0.489964]
   4690491293:
     type: enter
+    first_toll_node_id: 4690490483
+    first_toll_latlon: [43.566681, -0.291079]
     prices:
       04459: 35.9
       '04460': 33.4
@@ -25074,8 +26950,12 @@ toll_booths:
     price: 1.4
   4850810028:
     type: exit
+    last_toll_node_id: 4850809745
+    last_toll_latlon: [48.296788, 1.269086]
   4850810029:
     type: enter
+    first_toll_node_id: 4850809759
+    first_toll_latlon: [48.296629, 1.268926]
     prices:
       04780: 12.6
       04781: 15.7
@@ -25123,6 +27003,8 @@ toll_booths:
     price: 1.2
   5203028269:
     type: enter
+    first_toll_node_id: 1400972276
+    first_toll_latlon: [45.891817, 4.402175]
     prices:
       '04170': 13.0
       '04171': 10.9
@@ -25138,10 +27020,16 @@ toll_booths:
       04183: 0.9
   5242792767:
     type: exit
+    last_toll_node_id: 1598155373
+    last_toll_latlon: [46.244062, -0.462115]
   5522482829:
     type: exit
+    last_toll_node_id: 11745659562
+    last_toll_latlon: [49.405267, 2.120595]
   5617171486:
     type: enter
+    first_toll_node_id: 28025813
+    first_toll_latlon: [48.452862, 0.122851]
     prices:
       04780: 6.6
       04781: 9.7
@@ -25185,6 +27073,8 @@ toll_booths:
       '12210': 10.5
   5636803321:
     type: enter
+    first_toll_node_id: 1625503907
+    first_toll_latlon: [49.093126, 5.28271]
     prices:
       '07140': 20.3
       '07141': 17.6
@@ -25215,8 +27105,12 @@ toll_booths:
       09183: 15.3
   5897323503:
     type: exit
+    last_toll_node_id: 5897323521
+    last_toll_latlon: [45.815764, 6.006446]
   5897323504:
     type: enter
+    first_toll_node_id: 7099352590
+    first_toll_latlon: [45.815647, 6.006576]
     prices:
       '03001': 15.3
       '03002': 12.1
@@ -25250,6 +27144,8 @@ toll_booths:
     price: 2.0
   6017249052:
     type: enter
+    first_toll_node_id: 3572692214
+    first_toll_latlon: [47.536719, 5.192569]
     prices:
       '05010': 55.6
       '05011': 57.4
@@ -25385,6 +27281,8 @@ toll_booths:
     price: 10.4
   6283553420:
     type: enter
+    first_toll_node_id: 6283553414
+    first_toll_latlon: [48.54117, 5.909034]
     prices:
       '05010': 60.6
       '05011': 62.4
@@ -25494,8 +27392,12 @@ toll_booths:
       '14375': 26.1
   6283553421:
     type: exit
+    last_toll_node_id: 6283553413
+    last_toll_latlon: [48.541235, 5.909217]
   6306677688:
     type: enter
+    first_toll_node_id: 844475971
+    first_toll_latlon: [45.895594, 3.146469]
     prices:
       '04122': 20.4
       '04123': 18.7
@@ -25540,8 +27442,12 @@ toll_booths:
       '22001': 5.5
   6306677694:
     type: exit
+    last_toll_node_id: 844475971
+    last_toll_latlon: [45.895594, 3.146469]
   6343457269:
     type: exit
+    last_toll_node_id: 6343457266
+    last_toll_latlon: [43.172812, 2.740933]
   6367151903:
     type: passthrough
     price: 1.3
@@ -25550,8 +27456,12 @@ toll_booths:
     price: 1.3
   6367206763:
     type: exit
+    last_toll_node_id: 4339646586
+    last_toll_latlon: [45.653818, 5.921203]
   6367206766:
     type: enter
+    first_toll_node_id: 5651750963
+    first_toll_latlon: [45.653743, 5.921108]
     prices:
       '03001': 14.1
       '03002': 10.5
@@ -25588,8 +27498,12 @@ toll_booths:
     price: 2.3
   6484553454:
     type: exit
+    last_toll_node_id: 289581506
+    last_toll_latlon: [45.897937, 6.094384]
   6484553462:
     type: enter
+    first_toll_node_id: 8308962006
+    first_toll_latlon: [45.897931, 6.093809]
     prices:
       '03001': 17.7
       '03002': 14.1
@@ -25635,8 +27549,12 @@ toll_booths:
     price: 4.1
   7120103697:
     type: exit
+    last_toll_node_id: 7120103689
+    last_toll_latlon: [44.043203, -0.346131]
   7171485717:
     type: enter
+    first_toll_node_id: 7171485765
+    first_toll_latlon: [47.567161, -0.327775]
     prices:
       04780: 6.3
       04781: 2.5
@@ -25674,8 +27592,12 @@ toll_booths:
       '12210': 25.0
   7181036266:
     type: exit
+    last_toll_node_id: 7181047940
+    last_toll_latlon: [47.972955, 0.05801]
   7258015900:
     type: exit
+    last_toll_node_id: 7258015907
+    last_toll_latlon: [43.294091, 6.200481]
   7346104910:
     type: gantry
     prices:
@@ -25683,6 +27605,8 @@ toll_booths:
       '15018': 15.2
   7368385795:
     type: enter
+    first_toll_node_id: 8180791677
+    first_toll_latlon: [50.481265, 2.684768]
     prices:
       '07001': 17.2
       '07006': 13.2
@@ -25720,13 +27644,19 @@ toll_booths:
     price: 1.4
   7565269942:
     type: exit
+    last_toll_node_id: 268592753
+    last_toll_latlon: [48.768619, 7.597679]
   7623043929:
     type: passthrough
     price: 2.8
   7623043930:
     type: exit
+    last_toll_node_id: 12463829744
+    last_toll_latlon: [45.978914, 4.734994]
   7623043933:
     type: enter
+    first_toll_node_id: 3792070143
+    first_toll_latlon: [45.976795, 4.736844]
     prices:
       '05050': 55.6
       '05302': 58.2
@@ -25824,6 +27754,8 @@ toll_booths:
     price: 2.8
   8349621741:
     type: enter
+    first_toll_node_id: 4426719627
+    first_toll_latlon: [44.111504, 4.847517]
     prices:
       '04201': 22.3
       '04203': 13.6
@@ -25850,8 +27782,12 @@ toll_booths:
     price: 3.3
   8631627001:
     type: exit
+    last_toll_node_id: 7987664638
+    last_toll_latlon: [48.074994, 0.48313]
   8631733684:
     type: enter
+    first_toll_node_id: 8261402808
+    first_toll_latlon: [48.075364, 0.482991]
     prices:
       04780: 4.9
       04781: 8.0
@@ -25898,6 +27834,8 @@ toll_booths:
     price: 1.2
   8951761695:
     type: enter
+    first_toll_node_id: 3079853321
+    first_toll_latlon: [50.667178, 2.257161]
     prices:
       '07001': 20.7
       '07006': 16.9
@@ -25932,12 +27870,20 @@ toll_booths:
       '07451': 13.6
   8951761706:
     type: exit
+    last_toll_node_id: 12389744383
+    last_toll_latlon: [50.553289, 2.463017]
   9063255096:
     type: exit
+    last_toll_node_id: 54775984
+    last_toll_latlon: [49.895212, 2.246683]
   9131185464:
     type: exit
+    last_toll_node_id: 4043272658
+    last_toll_latlon: [50.705905, 1.634906]
   9241234240:
     type: enter
+    first_toll_node_id: 9241234235
+    first_toll_latlon: [49.09517, 5.102072]
     prices:
       '07140': 18.3
       '07141': 15.2
@@ -26021,6 +27967,8 @@ toll_booths:
       '10159': 58.8
   9291141569:
     type: exit
+    last_toll_node_id: 389079983
+    last_toll_latlon: [45.952464, 2.980004]
   9317660273:
     type: passthrough
     price: 0.7
@@ -26029,11 +27977,15 @@ toll_booths:
     price: 0.7
   9425016399:
     type: exit
+    last_toll_node_id: 10718693064
+    last_toll_latlon: [43.414977, 5.576208]
   9462556154:
     type: passthrough
     price: 1.0
   9975149049:
     type: enter
+    first_toll_node_id: 9975149032
+    first_toll_latlon: [46.620923, 0.342917]
     prices:
       '04533': 4.3
       '04534': 6.7
@@ -26067,6 +28019,8 @@ toll_booths:
       '05532': 1.1
   10016778714:
     type: enter
+    first_toll_node_id: 10016778716
+    first_toll_latlon: [47.796439, 3.653751]
     prices:
       '05010': 40.2
       '05011': 42.0
@@ -26161,6 +28115,8 @@ toll_booths:
       '14375': 5.7
   10029321800:
     type: enter
+    first_toll_node_id: 11866052548
+    first_toll_latlon: [44.187055, 0.549139]
     prices:
       '04455': 10.8
       '04456': 13.4
@@ -26193,8 +28149,12 @@ toll_booths:
       '18009': 33.0
   10202403261:
     type: exit
+    last_toll_node_id: 11866095673
+    last_toll_latlon: [44.186677, 0.549178]
   10601205061:
     type: enter
+    first_toll_node_id: 10838044003
+    first_toll_latlon: [46.373826, 3.028585]
     prices:
       '04122': 24.3
       '04123': 22.6
@@ -26240,8 +28200,12 @@ toll_booths:
       '14355': 36.0
   10601205062:
     type: exit
+    last_toll_node_id: 8235942123
+    last_toll_latlon: [46.373844, 3.028724]
   10718693103:
     type: enter
+    first_toll_node_id: 10718693026
+    first_toll_latlon: [43.415056, 5.576524]
     prices:
       '06002': 2.5
       '06004': 3.8
@@ -26255,6 +28219,8 @@ toll_booths:
       06049: 12.7
   10977936133:
     type: enter
+    first_toll_node_id: 3480820811
+    first_toll_latlon: [43.664447, -0.275017]
     prices:
       04459: 35.8
       '04460': 33.3
@@ -26292,6 +28258,8 @@ toll_booths:
       '18009': 4.8
   11004965800:
     type: enter
+    first_toll_node_id: 3719453310
+    first_toll_latlon: [47.542376, 0.98412]
     prices:
       '05050': 9.0
       '05052': 10.1
@@ -26369,6 +28337,8 @@ toll_booths:
       '14380': 30.8
   11380222931:
     type: enter
+    first_toll_node_id: 4804575313
+    first_toll_latlon: [47.966575, 1.848767]
     prices:
       '04125': 42.8
       '04126': 39.8
@@ -26485,6 +28455,8 @@ toll_booths:
       '22001': 24.7
   11380222932:
     type: exit
+    last_toll_node_id: 4804575286
+    last_toll_latlon: [47.966919, 1.848716]
   11578487416:
     type: gantry
   11578487417:
@@ -26525,6 +28497,8 @@ toll_booths:
     type: gantry
   11881347547:
     type: enter
+    first_toll_node_id: 9311112761
+    first_toll_latlon: [46.826707, 4.838061]
     prices:
       '05050': 46.9
       '05052': 47.6
@@ -26627,6 +28601,8 @@ toll_booths:
     price: 10.8
   12171437315:
     type: exit
+    last_toll_node_id: 9666951931
+    last_toll_latlon: [46.830826, 4.82947]
   12288199204:
     type: passthrough
     price: 1.9
@@ -26719,6 +28695,8 @@ toll_booths:
     price: 1.5
   13939153852:
     type: enter
+    first_toll_node_id: 12691519610
+    first_toll_latlon: [43.657846, 5.102737]
     prices:
       04219: 0.8
       '04220': 2.7
@@ -26727,6 +28705,8 @@ toll_booths:
       '04267': 1.0
   13939153853:
     type: exit
+    last_toll_node_id: 1457840992
+    last_toll_latlon: [43.673918, 5.092455]
   14061571392:
     type: exit
 routes:

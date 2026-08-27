@@ -196,6 +196,28 @@ def main() -> int:
     ignored, forced = ov.ignored, ov.forced
     print(f"    {ov.summary()}")
 
+    # A booth the extract does not tag. Its position comes from the carved
+    # neighbourhoods rather than from the filtered extract: the filter keeps
+    # only nodes that already carry a booth or place tag, which is exactly the
+    # set this entry exists to add to. Everything after this point sees the node
+    # as though `barrier=toll_booth` had been on it all along.
+    if ov.missing_toll_booth:
+        found = booth_groups.locate(args.plazas, ov.missing_toll_booth)
+        absent = sorted(set(ov.missing_toll_booth) - set(found))
+        if absent:
+            print(f"ERROR: missing_toll_booth: {len(absent)} node(s) are not on"
+                  f" a road in the carved plaza neighbourhoods: {absent[:5]}.\n"
+                  f"       The entry states a lane of a plaza, so the node has"
+                  f" to lie beside a booth the extract does tag.",
+                  file=sys.stderr)
+            return 1
+        for node_id, loc in sorted(found.items()):
+            collector.booths[node_id] = loc
+            located[node_id] = loc
+        booth_ids = sorted(collector.booths)
+        print(f"    {len(found)} booth(s) added from missing_toll_booth:"
+              f" {sorted(found)}")
+
     kept, dropped, _ = booth_groups.classify(booth_ids, args.plazas)
     # An ignored booth is treated as absent from the network, so it leaves before
     # grouping. It is still recorded as excluded: the inventory and the exclusion
@@ -213,7 +235,8 @@ def main() -> int:
         fh.write("\n")
 
     try:
-        groups, aliases, bidirectional, sides, passage = booth_groups.group_booths(
+        (groups, aliases, bidirectional, sides, passage,
+         onward) = booth_groups.group_booths(
             kept, args.plazas, forced=forced, isolated=ov.isolated,
             one_way=ov.one_way)
     except ValueError as exc:
@@ -282,6 +305,17 @@ def main() -> int:
     # the two positions with the booth's own between them and asks the operator
     # what gare it is. The booth's position is not repeated here: the entry
     # already carries it as `latlon`, and two copies could disagree.
+    #
+    # `onward_nodes` gives what lies ahead: the node a vehicle reaches after
+    # passing this one, for each direction it can leave by, mapped to that
+    # node's position. Every entry carries it, whatever the booth's type --
+    # this step reads no price file, so it has no basis for writing it for some
+    # booths and not others. It is not `adjacent_nodes` with the sides removed:
+    # that field names both sides of a two-way booth and says how each is
+    # reached, over through classes only, and it exists to be resolved into an
+    # entrance and an exit. This one names only what is ahead, over every class
+    # a car can drive, for every booth. The position is carried because a
+    # consumer routing across the arc has nowhere to look a node id up.
     def entry(node_id):
         lat, lon = located[node_id]
         out = {"latlon": LatLon([round(lat, 7), round(lon, 7)])}
@@ -293,6 +327,9 @@ def main() -> int:
         if node_id in passage:
             out["passage"] = [LatLon([round(a, 7), round(b, 7)])
                               for a, b in passage[node_id]]
+        out["onward_nodes"] = {
+            head: LatLon([round(a, 7), round(b, 7)])
+            for head, (a, b) in onward[node_id].items()}
         return out
 
     booths_out = {i: entry(i) for i in representatives}

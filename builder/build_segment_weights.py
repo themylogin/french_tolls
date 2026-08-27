@@ -24,6 +24,24 @@ only the rate:
 costing a tolled segment the driver's own time to pay for it. Turn weights are
 untouched, so a route's weight rises by exactly the sum of its tolls.
 
+A `passthrough` booth charges a flat fee for passing one point. It sells no
+ticket, so it is in no priced pair and the sampling above never reaches it. Such
+a booth is charged on the arcs leaving it instead:
+
+    for every booth that charges at a point
+        for every arc whose tail is one of its lane nodes
+            measure that arc on the graph
+            the booth's whole tariff       -> that arc's own row
+
+The tail is what makes it exact. A row is an oriented pair, so the two senses of
+a two-way barrier are two rows that never interfere, and a vehicle can drive an
+arc out of the booth only by standing on the booth node. Every lane is charged,
+aliases included: a plaza with one lane charged and another free is worse than
+one with neither, because the router finds the free lane every time.
+
+The two sources add. A segment that is both sampled and leaves a barrier is
+charged both, though measured against the current inputs none is.
+
 The original speed, weight and length come from the router's own annotations on
 those same routes rather than from a second reading of the extract: they are the
 numbers the graph was built with, and anything derived elsewhere could disagree
@@ -58,6 +76,7 @@ table = bp.table
 
 ENTER, EXIT = bp.ENTER, bp.EXIT
 BIDIRECTIONAL, GANTRY = bp.BIDIRECTIONAL, bp.GANTRY
+PASSTHROUGH = bp.PASSTHROUGH
 
 # A booth's role decides which end of a ticket it can be. A `gantry` is both: it
 # opens a section when another gantry follows and closes one when it is the one
@@ -125,6 +144,27 @@ CHECK_SOURCE = 36967365          # LE PERTHUS
 CHECK_TARGET = 1676618837        # BEZIERS-OUEST
 CHECK_TARIFF_EUR = 14.50
 
+# The arithmetic of a flat charge is exact -- the whole tariff goes onto one arc
+# rather than being reconstructed from means -- so the arc check is held far
+# tighter than the pair check above. Anything outside this is a fault in the
+# file or in the graph, not in the pricing.
+ARC_TOLERANCE = 0.01
+
+# How a booth's own arc is measured. Both ends of the arc are real OSM nodes
+# with exact positions, so a route between them with the snapping radius held to
+# a couple of metres can land on nothing else, and one call settles the arc.
+# Where that fails the arc is measured again from a route that drives past it,
+# with the two ends placed by dead reckoning along the arc's own bearing.
+# Measured over 288 arcs: the first returns 287, the second 257, and over the
+# 256 both return they agree to 0.000 m, 0.000 s and 0.000 weight.
+ARC_RADII = (2.0, 6.0, 15.0)
+ARC_STANDOFFS = (150.0, 400.0, 60.0, 1000.0)
+
+# A measured arc whose routed length disagrees with the distance between its own
+# two nodes by more than this did not measure the arc. Measured, the
+# disagreement is 0.05 m at the median and 0.27 m at the worst.
+ARC_LENGTH_TOLERANCE_M = 1.0
+
 
 def stop(kind, message):
     """An Abort the survey can file under a heading."""
@@ -145,6 +185,71 @@ def load_gares(path):
     for group, entry in (doc.get("toll_booths") or {}).items():
         out[int(group)] = (str((entry or {}).get("id") or ""),
                            str((entry or {}).get("name") or ""))
+    return out
+
+
+def flat_charges(priced):
+    """group -> tariff in euros, for the booths that charge at a point.
+
+    A `passthrough` booth sells no ticket, so it appears in no priced pair and
+    the sampling that prices the ticket network never reaches it.
+
+    `price` is not exclusive to that type -- a `gantry` and a `bidirectional`
+    booth may carry one too -- and those are deliberately left out. Both are
+    also ends of priced pairs, and one gantry carries `price` and `prices`
+    together, so a flat charge for either would price the same passage twice.
+    """
+    return {group: record["price"] / 100.0
+            for group, record in priced.items()
+            if record["type"] == PASSTHROUGH and record.get("price")}
+
+
+def load_arcs(path, groups):
+    """group -> [(tail, head, tail position, head position)], from the inventory.
+
+    The arcs come from `onward_nodes`, which names the node a vehicle reaches
+    after passing each lane node in each direction it can leave by. Which arc
+    leaves a booth is a fact about the road network, and the inventory is where
+    this pipeline records those; working it out again here would mean a second
+    pass over the plaza neighbourhoods for a question step 3 has answered.
+
+    Every lane of the plaza is taken, aliases included. A plaza where one lane
+    carries the charge and another does not is worse than one where neither
+    does: the router finds the free lane and takes it every time.
+    """
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    booths = doc.get("toll_booths") or {}
+    aliases = doc.get("aliases") or {}
+    lanes = collections.defaultdict(list)
+    for node, entry in booths.items():
+        lanes[int(node)].append((int(node), entry or {}))
+    for node, entry in aliases.items():
+        lanes[int((entry or {})["parent_id"])].append((int(node), entry or {}))
+
+    out, missing = {}, []
+    for group in sorted(groups):
+        arcs = []
+        for node, entry in sorted(lanes.get(group, ()), key=lambda x: x[0]):
+            onward = entry.get("onward_nodes")
+            if not onward:
+                missing.append(node)
+                continue
+            tail_at = tuple(entry["latlon"])
+            for head, latlon in sorted(onward.items()):
+                arcs.append((node, int(head), tail_at, tuple(latlon)))
+        if not arcs:
+            missing.append(group)
+        out[group] = arcs
+    if missing:
+        missing = sorted(set(missing))
+        raise stop("inventory", (
+            f"{len(missing)} booth(s) that charge at a point carry no"
+            f" `onward_nodes` in {path}: {missing[:5]}\n"
+            f"       Without it this step cannot say which segment the booth"
+            f" charges for, and the file it wrote would price every barrier at"
+            f" nothing -- which reads exactly like a file with no barriers in"
+            f" it. Regenerate the inventory with step 3."))
     return out
 
 
@@ -185,15 +290,24 @@ class Router(bd.Router):
     readiness wait and its message stay in one place.
     """
 
-    def route(self, a, b):
-        """(nodes, distance, duration, weight, metres) or None when there is no route."""
+    def route(self, a, b, radius=None):
+        """(nodes, distance, duration, weight, metres) or None when there is no route.
+
+        `radius` bounds how far each end may snap. Held to a couple of metres it
+        is what lets a route between two node positions land on the arc between
+        them and on nothing else -- the lanes of a plaza are a median 15 m
+        apart, which is near enough for an unbounded snap to pick the wrong one.
+        """
         (a_lat, a_lon), (b_lat, b_lon) = a, b
+        params = {"annotations": ANNOTATIONS, "overview": "false",
+                  "steps": "false"}
+        if radius is not None:
+            params["radiuses"] = f"{radius};{radius}"
         try:
             resp = self._session().get(
                 f"{self.base_url}/route/v1/driving/"
                 f"{a_lon},{a_lat};{b_lon},{b_lat}",
-                params={"annotations": ANNOTATIONS, "overview": "false",
-                        "steps": "false"},
+                params=params,
                 timeout=120,
             )
         except requests.RequestException:
@@ -333,9 +447,9 @@ class WayIndex(osmium.SimpleHandler):
                     self.hit[key] = (w.id, highway)
 
 
-def index_ways(path, segments):
+def index_ways(path, segments, extra=()):
     """{(from, to): (way id, highway)} for every observed segment the extract carries."""
-    wanted = set(segments.index)
+    wanted = set(segments.index) | set(extra)
     wanted |= {(b, a) for a, b in wanted}
     handler = WayIndex(wanted)
     handler.apply_file(path)
@@ -384,6 +498,112 @@ def sample_route(segments, answer, price_eur, pair):
 
 
 # --------------------------------------------------------------------------
+# The arc a booth charges for
+# --------------------------------------------------------------------------
+
+def arc_in(answer, tail, head, interior=False):
+    """(metres, seconds, weight) for one arc of a route, or None.
+
+    `interior` demands the arc be neither the first nor the last segment. Those
+    two carry whatever fraction of the segment the endpoint snapped into, so on
+    a route that merely drives past the arc they are not a measurement of it.
+    On a route snapped to the arc's own two nodes they are the whole arc, which
+    is why the tight measurement does not ask for it.
+    """
+    nodes, dist, dur, weight, _metres = answer
+    lo = 1 if interior else 0
+    hi = len(dist) - 1 if interior else len(dist)
+    for i in range(lo, hi):
+        if nodes[i] == tail and nodes[i + 1] == head:
+            return dist[i], dur[i], weight[i]
+    return None
+
+
+def measure_arc(router, tail, head, tail_at, head_at):
+    """(metres, seconds, weight, how) for one arc, or (None, reason, None, None).
+
+    Two ways of asking, tried in that order. The first routes between the arc's
+    own two node positions with the snapping radius held tight, so the router
+    has nowhere to go but along the arc. The second drives past the arc from a
+    standoff placed by dead reckoning either side and takes the arc out of the
+    interior of the annotation.
+
+    Both are checked against the distance between the two nodes. A route that
+    came back with some other stretch of road would otherwise be taken for the
+    arc, and the whole tariff would land on it.
+    """
+    want_m = crow_km(tail_at, head_at) * 1000.0
+    reason = "no route"
+    for radius in ARC_RADII:
+        answer = router.route(tail_at, head_at, radius=radius)
+        if answer is None:
+            continue
+        found = arc_in(answer, tail, head)
+        if found is None:
+            reason = "the arc is not on the route between its own ends"
+            continue
+        if abs(found[0] - want_m) > ARC_LENGTH_TOLERANCE_M:
+            reason = (f"routed {found[0]:.1f} m against {want_m:.1f} m"
+                      f" between the two nodes")
+            continue
+        return (*found, f"radius {radius:g} m")
+
+    brg = bearing(tail_at, head_at)
+    for standoff in ARC_STANDOFFS:
+        answer = router.route(along(tail_at, brg + math.pi, standoff),
+                              along(head_at, brg, standoff))
+        if answer is None:
+            continue
+        found = arc_in(answer, tail, head, interior=True)
+        if found is None:
+            reason = "the arc is not inside a route driving past it"
+            continue
+        if abs(found[0] - want_m) > ARC_LENGTH_TOLERANCE_M:
+            reason = (f"routed {found[0]:.1f} m against {want_m:.1f} m"
+                      f" between the two nodes")
+            continue
+        return (*found, f"standoff {standoff:g} m")
+    return None, reason, None, None
+
+
+def measure_flat(router, arcs_by_group, charges, gares, workers):
+    """{(tail, head): (metres, seconds, weight, eur, group, how)}.
+
+    Every arc of every group, or the step stops. A group with one lane measured
+    and another not is a plaza with a free lane, and the router takes a free
+    lane every time -- so a partial answer here is worse than none.
+    """
+    jobs = [(group, arc) for group, arcs in sorted(arcs_by_group.items())
+            for arc in arcs]
+    out, failed = {}, []
+    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+        futures = {
+            pool.submit(measure_arc, router, tail, head, tail_at, head_at):
+                (group, tail, head)
+            for group, (tail, head, tail_at, head_at) in jobs}
+        for future in concurrent.futures.as_completed(futures):
+            group, tail, head = futures[future]
+            metres, dur, weight, how = future.result()
+            if metres is None:
+                failed.append((group, tail, head, dur))
+                continue
+            out[(tail, head)] = (metres, dur, weight,
+                                 charges[group], group, how)
+    if failed:
+        lines = [f"{len(failed)} arc(s) leaving a booth that charges at a point"
+                 f" could not be measured:"]
+        for group, tail, head, why in sorted(failed)[:10]:
+            name = gares.get(group, ("", ""))[1]
+            lines.append(f"         {group} ({name}), {charges[group]:.2f} EUR:"
+                         f" {tail} -> {head}: {why}")
+        lines.append("       A plaza with one lane charged and another free is"
+                     " worse than one with neither: the router finds the free"
+                     " lane and takes it every time.")
+        raise stop("flat", "\n       ".join(lines))
+    return out
+
+
+# --------------------------------------------------------------------------
 # Judging one source's batch
 # --------------------------------------------------------------------------
 
@@ -393,6 +613,27 @@ def crow_km(a, b):
     h = (math.sin((lat2 - lat1) / 2) ** 2
          + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2)
     return 2 * EARTH_KM * math.asin(math.sqrt(h))
+
+
+def bearing(a, b):
+    """Initial bearing from a to b, in radians."""
+    lat1, lat2 = math.radians(a[0]), math.radians(b[0])
+    dlon = math.radians(b[1] - a[1])
+    y = math.sin(dlon) * math.cos(lat2)
+    x = (math.cos(lat1) * math.sin(lat2)
+         - math.sin(lat1) * math.cos(lat2) * math.cos(dlon))
+    return math.atan2(y, x)
+
+
+def along(point, brg, metres):
+    """The point `metres` from `point` on bearing `brg`."""
+    lat1, lon1 = math.radians(point[0]), math.radians(point[1])
+    d = metres / (EARTH_KM * 1000.0)
+    lat2 = math.asin(math.sin(lat1) * math.cos(d)
+                     + math.cos(lat1) * math.sin(d) * math.cos(brg))
+    lon2 = lon1 + math.atan2(math.sin(brg) * math.sin(d) * math.cos(lat1),
+                             math.cos(d) - math.sin(lat1) * math.sin(lat2))
+    return (math.degrees(lat2), math.degrees(lon2))
 
 
 def detour_of(answer, src, tgt, resolve, position):
@@ -776,6 +1017,56 @@ def unusable_table(unusable, gares, limit=TABLE_ROWS):
     return lines
 
 
+def flat_report(flat, segments, gares, wage, ways, limit=TABLE_ROWS):
+    """Every booth that charges at a point, dearest first, with its arcs.
+
+    A flat row is the whole tariff on one short arc, so it is the row most worth
+    reading back. Nothing else in the report would show that these rates are
+    three orders of magnitude below the fitted ones.
+    """
+    lines = ["", f"  booths that charge at a point ({len(flat)} arc(s))"]
+    by_group = collections.defaultdict(list)
+    for key, value in flat.items():
+        by_group[value[4]].append((key, value))
+    lines.append(f"    {len(by_group)} group(s),"
+                 f" {sum(len(v) for v in by_group.values())} arc(s)")
+
+    rows = []
+    order = sorted(by_group, key=lambda g: (-flat[by_group[g][0][0]][3], g))
+    for group in order[:limit]:
+        code, name = gares.get(group, ("", ""))
+        for key, (metres, dur, weight, eur, _g, how) in sorted(by_group[group]):
+            klass = ways.get(key, ("", ""))[1]
+            target = weight + eur / wage * 3600.0
+            shared = "yes" if key in segments.index else ""
+            rows.append([
+                str(group), code, name,
+                f"{key[0]}->{key[1]}", klass,
+                f"{metres:.1f}", f"{weight:.2f}",
+                f"{eur:.2f}", f"{target:.1f}",
+                f"{metres / target:.9f}", how, shared,
+            ])
+    lines += table(
+        ["group", "gare", "name", "arc", "class", "m", "weight", "EUR",
+         "target", "rate", "measured by", "sampled too"],
+        rows, right={5, 6, 7, 8, 9})
+    if len(by_group) > limit:
+        lines.append(f"    ... and {len(by_group) - limit} more group(s),"
+                     f" all in the report file")
+
+    shared = sum(1 for key in flat if key in segments.index)
+    lines.append(f"    arcs that also carry samples from priced pairs: {shared}")
+    rates = sorted(m / (w + e / wage * 3600.0)
+                   for m, _d, w, e, _g, _h in flat.values())
+    if rates:
+        lines.append(f"    rate written  min {rates[0]:.9f}"
+                     f"   max {rates[-1]:.9f}")
+    how = collections.Counter(v[5].split()[0] for v in flat.values())
+    lines.append("    measured by   "
+                 + "   ".join(f"{k}: {n}" for k, n in sorted(how.items())))
+    return lines
+
+
 def journey_report(records, position, gares, limit=5):
     """What the rates cost a driver on each priced journey, and where worst.
 
@@ -914,7 +1205,8 @@ def summary(segments, records, unusable, over, single, ways,
     return lines
 
 
-def write_report(path, segments, records, unusable, mean, ways):
+def write_report(path, segments, records, unusable, mean, ways, flat=None,
+                 wage=20.0):
     """Every segment and every pair, whatever the tables had room for."""
     doc = {
         # `lo_pair` and `hi_pair` index into `pairs` below. Without them a
@@ -942,6 +1234,22 @@ def write_report(path, segments, records, unusable, mean, ways):
             {"src": s, "code": c, "tgt": t, "reason": rn,
              "blocker": b, "m": m}
             for s, c, t, rn, b, m in unusable],
+        # One record per arc leaving a booth that charges at a point. `shared`
+        # says the arc also carries samples from priced pairs, which is what
+        # makes its row the sum of the two rather than the flat charge alone.
+        # Kept to more places than the sampled segments above. An arc can be
+        # 1.9 m long, and at three decimals the record no longer reproduces the
+        # rate its own row carries -- which is the one thing this record is for.
+        "flat": [
+            {"group": group, "f": key[0], "t": key[1],
+             "eur": round(eur, 2), "m": round(metres, 6),
+             "s": round(dur, 6), "w": round(weight, 6),
+             "rate": round(metres / (weight + eur / wage * 3600.0), 9),
+             "how": how, "shared": key in segments.index,
+             "way": ways.get(key, (None, None))[0],
+             "class": ways.get(key, (None, None))[1]}
+            for key, (metres, dur, weight, eur, group, how)
+            in sorted((flat or {}).items())],
     }
     tmp = path + ".part"
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -953,27 +1261,56 @@ def write_report(path, segments, records, unusable, mean, ways):
 # Output
 # --------------------------------------------------------------------------
 
-def write_csv(path, segments, mean, wage):
+def merge_rows(segments, mean, flat):
+    """{(from, to): (metres, seconds, weight, toll in euros)} for every row.
+
+    The two sources add rather than replace. A segment sampled by priced pairs
+    is charged what those pairs say its own length is worth; a segment leaving a
+    booth that charges at a point is charged that booth's whole tariff; a
+    segment that is both is charged both. Measured against the current price
+    file and inventory no segment is both, and the rule is stated because the
+    two sources are independent and a later inventory can make them meet.
+    """
+    rows = {}
+    for i in range(len(segments)):
+        key = (segments.frm[i], segments.to[i])
+        rows[key] = (segments.dist[i], segments.dur[i], segments.weight[i],
+                     mean[i] * segments.dist[i] / 1000.0)
+    for key, (metres, dur, weight, eur, _group, _how) in (flat or {}).items():
+        if key in rows:
+            # The graph's own numbers for a segment both sources measured are
+            # one segment's numbers, so the sampled reading stands and only the
+            # money is added to.
+            had = rows[key]
+            rows[key] = (had[0], had[1], had[2], had[3] + eur)
+        else:
+            rows[key] = (metres, dur, weight, eur)
+    return rows
+
+
+def write_csv(path, rows, wage):
     """The segment speed file: keep the speed, move the rate.
 
     Sorted by node pair so a rerun from the same inputs is byte-identical, and
     with no blank line anywhere -- OSRM rejects the whole file for one.
+
+    The rate is written to nine decimal places rather than six. A whole tariff
+    on one short arc asks for a rate near 0.0014, where the sixth decimal is a
+    coarse grid; the fitted rows never ask for less than 1.09, so six was never
+    tested below that. Nine keeps the weight OSRM derives inside 0.0001% of the
+    weight the row asked for at either end of the range.
     """
-    order = sorted(range(len(segments)),
-                   key=lambda i: (segments.frm[i], segments.to[i]))
     tmp = path + ".part"
     written = 0
     with open(tmp, "w", encoding="utf-8") as fh:
-        for i in order:
-            metres, dur, weight = segments.dist[i], segments.dur[i], segments.weight[i]
+        for (frm, to) in sorted(rows):
+            metres, dur, weight, toll_eur = rows[(frm, to)]
             if metres <= 0 or dur <= 0 or weight <= 0:
                 continue
             speed_kmh = metres / dur * 3.6
-            toll_eur = mean[i] * metres / 1000.0
             target = weight + toll_eur / wage * 3600.0
             rate = metres / target
-            fh.write(f"{segments.frm[i]},{segments.to[i]},"
-                     f"{speed_kmh:.6f},{rate:.6f}\n")
+            fh.write(f"{frm},{to},{speed_kmh:.6f},{rate:.9f}\n")
             written += 1
     os.replace(tmp, path)
     return written
@@ -982,6 +1319,84 @@ def write_csv(path, segments, mean, wage):
 # --------------------------------------------------------------------------
 # Acceptance check
 # --------------------------------------------------------------------------
+
+def check_arcs(toll, optimal, arcs_by_group, charges, gares, wage, workers):
+    """Every booth that charges at a point costs its tariff and no more.
+
+    Tight where the pair check is loose, and deliberately so. A flat charge is
+    not reconstructed from means -- it is written whole onto one arc -- so the
+    arithmetic is exact and any disagreement is a fault in the file or in the
+    graph rather than in the pricing.
+
+    It is also the only check that catches the three ways a flat row fails
+    silently: a rate the customization clamps, a rate the written precision
+    rounds away, and a row whose segment `osrm-customize` never matched. All
+    three leave the barrier free, and a route across it looks entirely normal.
+    """
+    jobs = [(group, arc) for group, arcs in sorted(arcs_by_group.items())
+            for arc in arcs]
+
+    def both(group, tail, head, tail_at, head_at):
+        before = measure_arc(toll, tail, head, tail_at, head_at)
+        after = measure_arc(optimal, tail, head, tail_at, head_at)
+        return before, after
+
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+        futures = {pool.submit(both, group, *arc): (group, arc[0], arc[1])
+                   for group, arc in jobs}
+        for future in concurrent.futures.as_completed(futures):
+            results[futures[future]] = future.result()
+
+    bad, errors = [], []
+    for (group, tail, head), (before, after) in sorted(results.items()):
+        expected = charges[group] / wage * 3600.0
+        if before[0] is None or after[0] is None:
+            which = "untouched" if before[0] is None else "toll-weighted"
+            why = before[1] if before[0] is None else after[1]
+            errors.append((group, tail, head, f"{which} graph: {why}"))
+            continue
+        got = after[2] - before[2]
+        if abs(got - expected) > tolerance_of(expected):
+            bad.append((group, tail, head, got, expected))
+
+    out = ["", f"  booths that charge at a point:"
+               f" {len(jobs)} arc(s) over {len(arcs_by_group)} group(s)"]
+    if not bad and not errors:
+        worst = max(
+            (abs((after[2] - before[2]) - charges[g] / wage * 3600.0)
+             for (g, _t, _h), (before, after) in results.items()),
+            default=0.0)
+        out.append(f"    every arc costs its tariff, worst disagreement"
+                   f" {worst:.2f} weight units")
+        return out
+
+    for group, tail, head, why in errors[:10]:
+        out.append(f"    {group} ({gares.get(group, ('', ''))[1]}):"
+                   f" {tail} -> {head}: {why}")
+    for group, tail, head, got, expected in bad[:10]:
+        name = gares.get(group, ("", ""))[1]
+        out.append(f"    {group} ({name}), {charges[group]:.2f} EUR:"
+                   f" {tail} -> {head} costs {got:+.1f} against"
+                   f" {expected:+.1f} expected")
+    out.append("")
+    raise Abort("\n".join(out) + "\n"
+                f"       {len(bad)} arc(s) outside the"
+                f" {100 * ARC_TOLERANCE:.0f}% tolerance and {len(errors)}"
+                f" unmeasurable. A barrier that costs nothing on the"
+                f" toll-weighted graph is a barrier the router drives through"
+                f" for free.")
+
+
+def tolerance_of(expected):
+    """The absolute slack allowed on one arc's weight difference.
+
+    Proportional, with a floor of one weight unit: the cheapest barrier is
+    0.40 EUR, which is 72 weight units, and a proportional bound alone would
+    make the check turn on the last decimal place of the smallest tariff.
+    """
+    return max(ARC_TOLERANCE * expected, 1.0)
+
 
 def check_graphs(toll_url, optimal_url, position, wage, tolerance):
     """The two graphs must differ by the toll on the fixed pair and nothing else.
@@ -1047,6 +1462,13 @@ def run(args):
     if unresolved:
         print(f"    {len(unresolved)} row(s) name a gare no target booth carries:"
               f" {unresolved[:5]}")
+
+    charges = flat_charges(priced)
+    arcs_by_group = load_arcs(args.booths, charges)
+    arc_count = sum(len(a) for a in arcs_by_group.values())
+    lane_count = len({a[0] for arcs in arcs_by_group.values() for a in arcs})
+    print(f"    {len(charges)} booth(s) charging at a point,"
+          f" {lane_count} lane node(s), {arc_count} arc(s) to charge")
     if args.dry_run:
         return 0
 
@@ -1069,10 +1491,15 @@ def run(args):
     if not records:
         raise Abort("no priced pair produced a single segment; nothing to write")
 
+    started = time.monotonic()
+    flat = measure_flat(router, arcs_by_group, charges, gares, args.workers)
+    print(f"    {len(flat)} arc(s) leaving a booth that charges at a point,"
+          f" measured in {time.monotonic() - started:.0f}s")
+
     ways = {}
     if args.ways:
         started = time.monotonic()
-        ways = index_ways(args.ways, segments)
+        ways = index_ways(args.ways, segments, flat)
         # `ways` is keyed both ways round, because a way carries its nodes in one
         # order and a route may drive either. Count the forward keys only.
         matched = sum(1 for i in range(len(segments))
@@ -1100,28 +1527,46 @@ def run(args):
         print(line)
     for line in journey_report(records, position, gares):
         print(line)
+    for line in flat_report(flat, segments, gares, args.wage, ways):
+        print(line)
     for line in summary(segments, records, unusable, over, single,
                         ways, fell_back,
                         rate if args.fit_iterations else None):
         print(line)
 
-    write_report(args.report, segments, records, unusable, mean, ways)
+    write_report(args.report, segments, records, unusable, mean, ways,
+                 flat, args.wage)
     print(f"\n    report written to {args.report}")
 
     if args.survey:
         print(f"    --survey: nothing written to {args.out}")
         return 0
 
-    written = write_csv(args.out, segments, mean, args.wage)
-    print(f"    {written} row(s) written to {args.out}")
+    rows = merge_rows(segments, mean, flat)
+    written = write_csv(args.out, rows, args.wage)
+    print(f"    {written} row(s) written to {args.out}"
+          f" ({len(segments)} sampled, {len(flat)} flat,"
+          f" {sum(1 for k in flat if k in segments.index)} both)")
     return 0
 
 
 def verify(args):
     """The acceptance check alone, run once both graphs exist."""
     _traversable, _resolve, position = bd.load_inventory(args.booths)
+    priced, _done = bp.load_state(args.prices)
+    gares = load_gares(args.gares)
+    charges = flat_charges(priced)
+    arcs_by_group = load_arcs(args.booths, charges)
+
     for line in check_graphs(args.osrm, args.osrm_optimal, position,
                              args.wage, args.tolerance):
+        print(line)
+
+    toll = Router(args.osrm, workers=args.workers)
+    optimal = Router(args.osrm_optimal, workers=args.workers)
+    optimal.wait_ready()
+    for line in check_arcs(toll, optimal, arcs_by_group, charges, gares,
+                           args.wage, args.workers):
         print(line)
     print("\n    acceptance check passed")
     return 0

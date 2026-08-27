@@ -67,6 +67,17 @@ THROUGH_CLASSES = {
     "secondary", "secondary_link", "tertiary", "tertiary_link",
 }
 
+# Every class the car profile gives a speed to. Used for one question only:
+# what lies immediately beyond a booth. The through-road filter above is there
+# to keep a car park barrier out of the inventory and to stop a plaza forecourt
+# manufacturing a shared predecessor, and neither reason bears on a vehicle
+# that has already reached the barrier and is about to leave it. Measured, the
+# wider set names three more arcs over the whole inventory, all `service`.
+DRIVE_CLASSES = THROUGH_CLASSES | {
+    "unclassified", "residential", "living_street", "service",
+    "winter_road", "ice_road",
+}
+
 # Values that are one-way by default even without an explicit oneway tag.
 IMPLICIT_ONEWAY = {"motorway", "motorway_link", "trunk_link"}
 
@@ -197,10 +208,15 @@ class GraphBuilder(osmium.SimpleHandler):
         # Kept only for the neighbours, since the whole node set of the carved
         # extract is millions of entries to answer a question about hundreds.
         self.side_coords = {}
+        # booth node -> {node reached after passing it: its position}. One entry
+        # per direction the booth can be left by, over DRIVE_CLASSES rather than
+        # the through classes, and with the position because a consumer that has
+        # to route across the arc cannot look a node id up anywhere.
+        self.onward = collections.defaultdict(dict)
 
     def way(self, w):
         hv = w.tags.get("highway")
-        if hv not in THROUGH_CLASSES:
+        if hv not in DRIVE_CLASSES:
             return
         oneway = w.tags.get("oneway")
         if oneway in ("-1", "reverse"):
@@ -212,14 +228,36 @@ class GraphBuilder(osmium.SimpleHandler):
             # plaza lane looks bidirectional and P/S stop meaning anything.
             fwd_ok, rev_ok = True, False
 
-        if fwd_ok and rev_ok:
-            for n in w.nodes:
-                if n.ref in self.booths:
-                    self.two_way.add(n.ref)
-
         refs = [n.ref for n in w.nodes]
         located = {n.ref: (n.location.lat, n.location.lon)
                    for n in w.nodes if n.location.valid()}
+
+        # What lies ahead of a booth. Collected before the through-road filter
+        # below, and direction is taken from the tags as they stand: an override
+        # that calls a two-way-tagged booth one-way corrects this step's
+        # grouping, not the road, and the routing graph is built from the same
+        # tags, so a vehicle can still leave by either side.
+        for i, ref in enumerate(refs):
+            if ref not in self.booths:
+                continue
+            for head in ((refs[i + 1] if fwd_ok and i + 1 < len(refs) else None),
+                         (refs[i - 1] if rev_ok and i else None)):
+                if head is None or head == ref:
+                    continue
+                # A node the first way to name it left unlocated must still take
+                # a position from the next way that carries one.
+                position = located.get(head)
+                if position is not None or head not in self.onward[ref]:
+                    self.onward[ref][head] = position
+
+        if hv not in THROUGH_CLASSES:
+            return
+
+        if fwd_ok and rev_ok:
+            for ref in refs:
+                if ref in self.booths:
+                    self.two_way.add(ref)
+
         for i, ref in enumerate(refs):
             if ref not in self.booths:
                 continue
@@ -287,6 +325,71 @@ def passages(graph, booths):
     return out
 
 
+class Locate(osmium.SimpleHandler):
+    """Positions of named nodes, taken from the drivable ways carrying them."""
+
+    def __init__(self, wanted):
+        super().__init__()
+        self.wanted = wanted
+        self.found = {}
+
+    def way(self, w):
+        if w.tags.get("highway") not in DRIVE_CLASSES:
+            return
+        for n in w.nodes:
+            if n.ref in self.wanted and n.ref not in self.found:
+                if n.location.valid():
+                    self.found[n.ref] = (n.location.lat, n.location.lon)
+
+
+def locate(plaza_pbf, node_ids):
+    """{node: (lat, lon)} for the named nodes the carved extract carries.
+
+    A node is looked for on drivable ways only. A node the extract holds but no
+    car can reach is not a lane of a plaza, and reporting a position for it
+    would let a booth be stated somewhere no vehicle passes.
+    """
+    handler = Locate(set(node_ids))
+    handler.apply_file(plaza_pbf, locations=True, idx="flex_mem")
+    return handler.found
+
+
+def onward_nodes(graph, booth_ids):
+    """{booth: {node reached after passing it: its position}}, in key order.
+
+    Written for every booth, whatever its type and whatever it charges. This
+    step reads no price file, so it has no basis for answering the question for
+    some booths and not others.
+
+    A booth with nothing leading on from it is refused rather than written with
+    an empty field. A booth is in the inventory because it lies on a through
+    road, so a booth no vehicle can leave contradicts the rule that admitted it.
+
+    A neighbour without a position is refused for the same reason the field
+    carries positions at all: a consumer routing across the arc has nowhere to
+    look a node id up.
+    """
+    out = {b: {n: p for n, p in sorted(graph.onward.get(b, {}).items())}
+           for b in sorted(booth_ids)}
+    blank = [b for b, heads in out.items() if not heads]
+    if blank:
+        raise ValueError(
+            f"{len(blank)} booth(s) have no node a vehicle can reach from them:"
+            f" {blank[:5]}.\n"
+            f"       A booth is in the inventory because it lies on a through"
+            f" road, so a booth with nothing leading on from it contradicts the"
+            f" rule that admitted it.")
+    unlocated = sorted((b, n) for b, heads in out.items()
+                       for n, p in heads.items() if p is None)
+    if unlocated:
+        raise ValueError(
+            f"{len(unlocated)} node(s) beyond a booth have no position in the"
+            f" carved extract: {unlocated[:5]}.\n"
+            f"       The field carries positions because a consumer routing"
+            f" across the arc cannot look a node id up anywhere.")
+    return out
+
+
 def significant_nodes(graph, booths):
     """Booths plus true junctions. Degree-2 geometry nodes are contracted away.
 
@@ -350,7 +453,8 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None,
                  isolated=None, one_way=None):
     """Return ({representative: [members]}, {member: representative}, {two-way},
     {two-way booth: {neighbour: is it reached by a one-way way}},
-    {one-way-stated booth: (position before, position after)}).
+    {one-way-stated booth: (position before, position after)},
+    {booth: {node reached after passing it: its position}}).
 
     Topological, with two exceptions.
 
@@ -492,4 +596,9 @@ def group_booths(booth_ids, plaza_pbf, max_m=MAX_REACH_M, forced=None,
     # Only a two-way booth has sides to tell apart, so only it carries them.
     sides = {b: {n: not tw for n, tw in sorted(g.adjacent[b].items())}
              for b in sorted(two_way_booths)}
-    return groups, assigned, two_way_booths, sides, passage
+
+    onward = onward_nodes(g, booth_ids)
+    print(f"    {sum(len(h) for h in onward.values())} arc(s) leaving"
+          f" {len(onward)} booth(s)")
+
+    return groups, assigned, two_way_booths, sides, passage, onward

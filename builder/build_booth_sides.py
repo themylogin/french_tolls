@@ -164,7 +164,7 @@ class Router:
                         f"ERROR: the routing service at {self.base_url} did not"
                         f" become available within {timeout_s}s"
                         f" (last error: {exc}).\n"
-                        f"       Is the 'osrm-optimal' service running? Every"
+                        f"       Is the 'osrm-toll' service running? Every"
                         f" side of every two-way booth is settled by routing.")
                 time.sleep(1.0)
 

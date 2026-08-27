@@ -77,12 +77,14 @@ TYPES = (IGNORE, *ABSENT, *BORDER)
 # journey whose charge depends on where the other half was.
 PRICED_TYPES = ("absent_passthrough",)
 
-KEYS = ("type", "parent_id", "vinci", "price")
+KEYS = ("type", "parent_id", "vinci", "price",
+        "first_toll_node_id", "last_toll_node_id")
 
 # Top-level sections. Enumerated for the same reason the type values are: a
 # mistyped section name would otherwise be read as an empty one and every entry
 # under it would vanish without a word.
-SECTIONS = ("toll_booths", "duplicate_gares", "prohibited_gare_pairs")
+SECTIONS = ("toll_booths", "duplicate_gares", "prohibited_gare_pairs",
+            "missing_toll_booth")
 
 
 class OverrideError(Exception):
@@ -94,7 +96,9 @@ class Overrides:
 
     def __init__(self, ignored=None, forced=None, vinci=None, absent=None,
                  price=None, isolated=None, duplicate_gares=None,
-                 prohibited_gare_pairs=None, one_way=None):
+                 prohibited_gare_pairs=None, one_way=None,
+                 first_toll_node=None, last_toll_node=None,
+                 missing_toll_booth=None):
         self.ignored = ignored or set()
         self.forced = forced or {}
         self.vinci = vinci or {}
@@ -115,11 +119,27 @@ class Overrides:
         # `bidirectional` typing a two-way tag would otherwise produce, and by
         # the gare mapping, which submits a leg along that passage.
         self.one_way = one_way or {}
+        # Where the tolled road begins and ends at a booth, stated by hand. The
+        # extent step derives these by routing; a booth named here is not routed
+        # at all, so a correction is not overwritten on the next run. A booth may
+        # be named with neither, which states only that it is not to be derived.
+        self.first_toll_node = first_toll_node or {}
+        self.last_toll_node = last_toll_node or {}
+        # Nodes the extract does not tag `barrier=toll_booth` and should. A toll
+        # plaza is several parallel lanes, and where OSM tags the booth on one
+        # lane and not on the next, the untagged lane is a way past the barrier
+        # that costs nothing -- the router finds it and takes it every time.
+        # A node named here is collected as a booth wherever booths are
+        # collected, so the grouping joins it to the lane beside it and every
+        # step after treats the two alike.
+        self.missing_toll_booth = missing_toll_booth or set()
 
     def __bool__(self):
         return bool(self.ignored or self.forced or self.vinci or self.absent
                     or self.isolated or self.duplicate_gares
-                    or self.prohibited_gare_pairs or self.one_way)
+                    or self.prohibited_gare_pairs or self.one_way
+                    or self.first_toll_node or self.last_toll_node
+                    or self.missing_toll_booth)
 
     def summary(self):
         return (f"{len(self.ignored)} ignored, {len(self.absent)} absent from the"
@@ -128,7 +148,11 @@ class Overrides:
                 f" {len(self.vinci)} gare(s) stated by hand,"
                 f" {len(self.duplicate_gares)} gare(s) payable twice,"
                 f" {len(self.prohibited_gare_pairs)} gare pair(s) prohibited,"
-                f" {len(self.one_way)} stated one-way")
+                f" {len(self.one_way)} stated one-way,"
+                f" {len(self.first_toll_node) + len(self.last_toll_node)}"
+                f" toll extent(s) stated,"
+                f" {len(self.missing_toll_booth)} booth(s) the extract does"
+                f" not tag")
 
 
 def load(path):
@@ -185,8 +209,25 @@ def load(path):
             prohibited_gare_pairs.add((a, b))
 
 
+    # Nodes stated to be booths the extract does not tag. A plain list of ids:
+    # what the entry says is exactly what `barrier=toll_booth` would have said,
+    # and there is nothing further to state about it.
+    missing_toll_booth = set()
+    listed = doc.get("missing_toll_booth")
+    if listed is not None:
+        if not isinstance(listed, list):
+            raise OverrideError(
+                f"missing_toll_booth must be a list, got"
+                f" {type(listed).__name__}")
+        for value in listed:
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise OverrideError(
+                    f"missing_toll_booth: {value!r} is not an OSM node id")
+            missing_toll_booth.add(value)
+
     ignored, forced, vinci, absent, price, isolated = set(), {}, {}, {}, {}, set()
     one_way = {}
+    first_toll_node, last_toll_node = {}, {}
     for node_id, entry in sorted(entries.items()):
         entry = entry or {}
         where = f"override for booth {node_id}"
@@ -234,6 +275,23 @@ def load(path):
                     f"{where}: price must be a number, got {value!r}")
             price[node_id] = float(value)
 
+        # An OSM node id, so an integer. A bool passes isinstance(int) and is
+        # never a node, which is why it is excluded explicitly here as it is for
+        # price above.
+        for key, into in (("first_toll_node_id", first_toll_node),
+                          ("last_toll_node_id", last_toll_node)):
+            if key not in entry:
+                continue
+            value = entry[key]
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise OverrideError(
+                    f"{where}: {key} must be an integer OSM node id,"
+                    f" got {value!r}")
+            if value <= 0:
+                raise OverrideError(
+                    f"{where}: {key} must be a positive node id, got {value!r}")
+            into[node_id] = value
+
         if "parent_id" in entry:
             # A null parent is the opposite of a forced one: it says the booth
             # belongs in no group but its own. The topological rule is right
@@ -269,14 +327,29 @@ def load(path):
                 f"override for booth {child}: parent_id names {target}, which"
                 f" states parent_id: null and so has no group to join")
     return Overrides(ignored, forced, vinci, absent, price, isolated,
-                     duplicate_gares, prohibited_gare_pairs, one_way)
+                     duplicate_gares, prohibited_gare_pairs, one_way,
+                     first_toll_node, last_toll_node, missing_toll_booth)
 
 
 def check_against_extract(ov, booths):
-    """Every overridden node must be a toll booth in the source extract."""
+    """Every overridden node must be a toll booth in the source extract.
+
+    `missing_toll_booth` is the mirror of that rule and is checked the same way.
+    A node named there is claimed to be a booth the extract does not tag, so a
+    node the extract does tag makes the entry a statement about nothing -- and,
+    worse, one that reads as though the lane beside it were covered.
+    """
     for node_id in sorted(set(ov.ignored) | set(ov.forced) | set(ov.vinci)
                           | set(ov.absent) | set(ov.isolated) | set(ov.one_way)):
         if node_id not in booths:
             raise OverrideError(
                 f"override for booth {node_id}: the extract does not carry that"
                 f" node as a toll booth")
+    for node_id in sorted(ov.missing_toll_booth):
+        if node_id in booths:
+            raise OverrideError(
+                f"missing_toll_booth: {node_id} is already tagged"
+                f" barrier=toll_booth in the extract, so stating it here says"
+                f" nothing.\n"
+                f"       This entry is for the *untagged* lane of a plaza --"
+                f" name the node OSM leaves untagged, not the one it tags.")

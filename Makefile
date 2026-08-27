@@ -3,7 +3,8 @@
 #   make all   -> download_pbf -> setup_osrm -> build_osm_toll_booths
 #                 -> build_route_set -> build_vinci_toll_booths
 #                 -> build_vinci_prices -> build_booth_sides
-#                 -> build_vinci_direct_prices
+#                 -> build_vinci_direct_prices -> build_toll_extent
+#                 -> build_segment_weights -> apply_segment_weights
 #
 # The first four steps are skipped when their output is already in place.
 # Skipping is existence-based, not timestamp-based: prerequisites are declared
@@ -16,7 +17,12 @@
 # worth keeping, and a whole run is two minutes.
 #
 # The sixth needs no OSRM graph at all. The seventh needs the graph and no key;
-# the eighth needs both.
+# the eighth needs both. The ninth and tenth need the graph and no key; the
+# eleventh needs neither -- it copies files and runs one preprocessing container.
+#
+# There are two graphs. $(OSRM_TOLL_PATH) holds the untouched one, served as
+# `osrm-toll`, and every step above queries it. $(OSRM_OPTIMAL_PATH) holds the
+# toll-weighted copy the tenth step assembles, served as `osrm-optimal`.
 #
 # All work runs in containers. The host needs only Docker, Compose, and coreutils.
 
@@ -45,10 +51,19 @@ VINCI        := $(DATA_DIR)/vinci_toll_booth.yaml
 PRICES       := $(DATA_DIR)/vinci_price.yaml
 SIDES        := $(DATA_DIR)/bidirectional_booth_sides.yaml
 REJECTED     := $(DATA_DIR)/vinci_routes_rejected.sqlite3
+SEGMENTS     := $(DATA_DIR)/segment_weights.csv
+SEG_REPORT   := $(DATA_DIR)/segment_weights_report.json
 
-OSRM_DIR   := $(strip $(OSRM_OPTIMAL_PATH))
+# Two graphs. $(OSRM_DIR) is the untouched one -- the road network as OSM
+# describes it -- and it is what `setup_osrm` builds and what every step that
+# reasons about the road network queries. $(OPT_DIR) is the toll-weighted copy
+# that `apply_segment_weights` assembles; nothing in the pipeline queries it.
+OSRM_DIR   := $(strip $(OSRM_TOLL_PATH))
 OSRM_BASE  := $(OSRM_DIR)/france-latest
 OSRM_STAMP := $(OSRM_DIR)/.setup.stamp
+
+OPT_DIR    := $(strip $(OSRM_OPTIMAL_PATH))
+OPT_STAMP  := $(OPT_DIR)/.applied.stamp
 
 # The routing profile, copied out of the image and patched so that the nodes in
 # $(BLACKLIST) are impassable, and so that a gate keeps its penalty only where an
@@ -62,9 +77,13 @@ PROFILE_ORIG := $(PROFILE_DIR)/car.lua.orig
 # removed by `make clean` along with everything else the pipeline produces.
 BUILDER_STAMP := $(DATA_DIR)/.builder-image.stamp
 
-# Peak preprocessing footprint is ~30 GB (transient 4.7 GB extract copy plus the
-# ~25 GB graph); the margin guards against finding out 40 minutes into extract.
-MIN_FREE_GB := 40
+# Peak preprocessing footprint is the ~10 GB graph plus a transient 4.7 GB copy
+# of the extract, and the toll-weighted graph is a second full copy of the first.
+# So the two graphs and the peak together want about 25 GB, and the margin guards
+# against finding out 40 minutes into extract. Both numbers are checked where
+# they apply: the whole figure before preprocessing, the copy alone before it.
+MIN_FREE_GB     := 25
+MIN_FREE_OPT_GB := 12
 
 # Overridable so a host whose docker socket is not group-accessible can run
 #   make DOCKER="sudo -n docker"
@@ -82,31 +101,68 @@ RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-tools
 
 .PHONY: all download_pbf setup_osrm build_osm_toll_booths build_route_set \
         build_vinci_toll_booths build_vinci_prices build_booth_sides \
-        build_vinci_direct_prices \
-        guard-osrm-path guard-ulys-key guard-ulys-passage-date \
+        build_vinci_direct_prices build_toll_extent \
+        build_segment_weights apply_segment_weights \
+        guard-osrm-path guard-osrm-optimal-path guard-osrm-paths-differ \
+        guard-ulys-key guard-ulys-passage-date \
         update_route_set clean clean-osrm
 
 all: download_pbf setup_osrm build_osm_toll_booths build_route_set \
      build_vinci_toll_booths build_vinci_prices build_booth_sides \
-     build_vinci_direct_prices
+     build_vinci_direct_prices build_toll_extent \
+     build_segment_weights apply_segment_weights
 
 # --------------------------------------------------------------------------
 # Configuration guard
 # --------------------------------------------------------------------------
-# Without this an unset OSRM_OPTIMAL_PATH silently resolves $(OSRM_STAMP) to
-# "/.setup.stamp" and the pipeline starts writing a 25 GB graph into /.
+# Without this an unset OSRM_TOLL_PATH silently resolves $(OSRM_STAMP) to
+# "/.setup.stamp" and the pipeline starts writing a 10 GB graph into /.
 guard-osrm-path:
 	@if [ -z "$(OSRM_DIR)" ]; then \
-	    echo "ERROR: OSRM_OPTIMAL_PATH is unset or empty."; \
-	    echo "       Copy .env.example to .env and point OSRM_OPTIMAL_PATH at an"; \
+	    echo "ERROR: OSRM_TOLL_PATH is unset or empty."; \
+	    echo "       Copy .env.example to .env and point OSRM_TOLL_PATH at an"; \
 	    echo "       absolute path outside this repository with ~$(MIN_FREE_GB) GB free."; \
+	    echo "       A tree set up before the toll weighting existed has this graph"; \
+	    echo "       under OSRM_OPTIMAL_PATH; move it aside and name it here."; \
 	    exit 1; \
 	fi
 	@case "$(OSRM_DIR)" in \
 	    /*) ;; \
-	    *)  echo "ERROR: OSRM_OPTIMAL_PATH must be an absolute path (got '$(OSRM_DIR)')."; \
+	    *)  echo "ERROR: OSRM_TOLL_PATH must be an absolute path (got '$(OSRM_DIR)')."; \
 	        exit 1;; \
 	esac
+
+# The toll-weighted graph's path, checked by the two steps that write or serve it.
+# Kept separate from guard-osrm-path so that a tree which has not yet configured
+# the second graph can still run steps 1 to 8.
+guard-osrm-optimal-path:
+	@if [ -z "$(OPT_DIR)" ]; then \
+	    echo "ERROR: OSRM_OPTIMAL_PATH is unset or empty."; \
+	    echo "       Copy .env.example to .env and point OSRM_OPTIMAL_PATH at an"; \
+	    echo "       absolute path with ~$(MIN_FREE_OPT_GB) GB free. It must not be"; \
+	    echo "       the same directory as OSRM_TOLL_PATH."; \
+	    exit 1; \
+	fi
+	@case "$(OPT_DIR)" in \
+	    /*) ;; \
+	    *)  echo "ERROR: OSRM_OPTIMAL_PATH must be an absolute path (got '$(OPT_DIR)')."; \
+	        exit 1;; \
+	esac
+
+# The toll-weighted graph is built by copying the untouched one. Pointing both
+# variables at one directory would therefore overwrite the untouched graph with a
+# weighted copy of itself -- and every step from 4 to 9 would go on querying it,
+# with answers that look entirely normal. Refused before anything is copied.
+guard-osrm-paths-differ: guard-osrm-path guard-osrm-optimal-path
+	@toll=$$(cd "$(OSRM_DIR)" 2>/dev/null && pwd -P || echo "$(OSRM_DIR)"); \
+	opt=$$(cd "$(OPT_DIR)" 2>/dev/null && pwd -P || echo "$(OPT_DIR)"); \
+	if [ "$$toll" = "$$opt" ]; then \
+	    echo "ERROR: OSRM_TOLL_PATH and OSRM_OPTIMAL_PATH name the same directory:"; \
+	    echo "         $$toll"; \
+	    echo "       The toll-weighted graph is a copy of the untouched one, so this"; \
+	    echo "       would overwrite the graph every other step queries."; \
+	    exit 1; \
+	fi
 
 # Checked before step 5 does any work: the route search that precedes the first
 # request takes minutes, and finding out afterwards that the key is missing
@@ -134,7 +190,7 @@ guard-ulys-passage-date:
 # Step 1 -- download_pbf
 # --------------------------------------------------------------------------
 # The guard is a prerequisite of every step, not just the OSRM ones: the builder
-# service also bind-mounts ${OSRM_OPTIMAL_PATH}, so an unset variable otherwise
+# service also bind-mounts ${OSRM_TOLL_PATH}, so an unset variable otherwise
 # surfaces as Compose's "invalid spec: :/osrm: empty section between colons".
 download_pbf: guard-osrm-path $(PBF)
 	@echo "==> download_pbf: $(PBF)"
@@ -212,13 +268,13 @@ $(OSRM_STAMP): $(BLACKLIST) $(PATCH) | $(PBF)
 	$(RUN_OSRM) osrm-customize /osrm/france-latest.osrm
 	@echo "==> setup_osrm: releasing extract copy"
 	@rm -f "$(OSRM_BASE).osm.pbf"
-	@echo "==> setup_osrm: restarting osrm-optimal onto the new graph"
+	@echo "==> setup_osrm: restarting osrm-toll onto the new graph"
 	@# osrm-routed maps the graph at startup, and `compose up -d` leaves a
 	@# running container alone. Replacing the files under a live server leaves
 	@# it serving the old graph, and every answer looks perfectly normal --
 	@# which is exactly how a blacklisted node kept appearing in routes after
 	@# it had been compiled out.
-	$(COMPOSE) restart osrm-optimal 2>/dev/null || true
+	$(COMPOSE) restart osrm-toll 2>/dev/null || true
 	@touch $@
 
 # --------------------------------------------------------------------------
@@ -253,8 +309,8 @@ build_route_set: guard-osrm-path $(ROUTE_SET)
 	@echo "==> build_route_set: $(ROUTE_SET)"
 
 $(ROUTE_SET): | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
-	@echo "==> build_route_set: starting osrm-optimal"
-	$(COMPOSE) up -d osrm-optimal
+	@echo "==> build_route_set: starting osrm-toll"
+	$(COMPOSE) up -d osrm-toll
 	$(RUN_BUILDER) python3 build_route_set.py \
 	    --filtered /data/filtered.osm.pbf \
 	    --booths /data/osm_toll_booths.yaml \
@@ -264,14 +320,14 @@ $(ROUTE_SET): | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
 	    --out /data/route_set.yaml \
 	    --uncovered /data/uncovered_booths.json \
 	    --overrides /data/osm_toll_booths_overrides.yaml \
-	    --osrm http://osrm-optimal:5000
+	    --osrm http://osrm-toll:5000
 
 # Extend an existing route set after the inventory changes. Unlike the four
 # steps this always runs: build_route_set.py loads data/route_set.yaml, keeps
 # the routes already there, and searches only for the groups they miss.
 update_route_set: guard-osrm-path | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
 	@echo "==> update_route_set: extending $(ROUTE_SET)"
-	$(COMPOSE) up -d osrm-optimal
+	$(COMPOSE) up -d osrm-toll
 	$(RUN_BUILDER) python3 build_route_set.py \
 	    --filtered /data/filtered.osm.pbf \
 	    --booths /data/osm_toll_booths.yaml \
@@ -281,7 +337,7 @@ update_route_set: guard-osrm-path | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
 	    --out /data/route_set.yaml \
 	    --uncovered /data/uncovered_booths.json \
 	    --overrides /data/osm_toll_booths_overrides.yaml \
-	    --osrm http://osrm-optimal:5000
+	    --osrm http://osrm-toll:5000
 
 # --------------------------------------------------------------------------
 # Step 5 -- build_vinci_toll_booths
@@ -294,7 +350,7 @@ update_route_set: guard-osrm-path | $(BOOTHS) $(OSRM_STAMP) $(BUILDER_STAMP)
 # skips on existence rather than on content.
 build_vinci_toll_booths: guard-osrm-path guard-ulys-key | $(ROUTE_SET) $(BUILDER_STAMP)
 	@echo "==> build_vinci_toll_booths: $(VINCI)"
-	$(COMPOSE) up -d osrm-optimal
+	$(COMPOSE) up -d osrm-toll
 	$(RUN_BUILDER) python3 build_vinci_toll_booths.py \
 	    --filtered /data/filtered.osm.pbf \
 	    --booths /data/osm_toll_booths.yaml \
@@ -302,7 +358,7 @@ build_vinci_toll_booths: guard-osrm-path guard-ulys-key | $(ROUTE_SET) $(BUILDER
 	    --route-set /data/route_set.yaml \
 	    --overrides /data/osm_toll_booths_overrides.yaml \
 	    --out /data/vinci_toll_booth.yaml \
-	    --osrm http://osrm-optimal:5000 \
+	    --osrm http://osrm-toll:5000 \
 	    $(VINCI_ARGS)
 
 # --------------------------------------------------------------------------
@@ -312,7 +368,7 @@ build_vinci_toll_booths: guard-osrm-path guard-ulys-key | $(ROUTE_SET) $(BUILDER
 #
 # The only step that needs neither the OSRM graph nor the extract: it builds
 # every request from data/route_set.yaml and data/vinci_toll_booth.yaml, both
-# committed. So it never starts osrm-optimal. guard-osrm-path stays all the
+# committed. So it never starts osrm-toll. guard-osrm-path stays all the
 # same -- the builder service bind-mounts $(OSRM_DIR), so an unset path breaks
 # the mount before the script gets a chance to run.
 build_vinci_prices: guard-osrm-path guard-ulys-key guard-ulys-passage-date \
@@ -341,15 +397,15 @@ build_booth_sides: guard-osrm-path $(SIDES)
 	@echo "==> build_booth_sides: $(SIDES)"
 
 $(SIDES): | $(PRICES) $(VINCI) $(BOOTHS) $(ROUTE_SET) $(BUILDER_STAMP)
-	@echo "==> build_booth_sides: starting osrm-optimal"
-	$(COMPOSE) up -d osrm-optimal
+	@echo "==> build_booth_sides: starting osrm-toll"
+	$(COMPOSE) up -d osrm-toll
 	$(RUN_BUILDER) python3 build_booth_sides.py \
 	    --booths /data/osm_toll_booths.yaml \
 	    --prices /data/vinci_price.yaml \
 	    --gares /data/vinci_toll_booth.yaml \
 	    --route-set /data/route_set.yaml \
 	    --out /data/bidirectional_booth_sides.yaml \
-	    --osrm http://osrm-optimal:5000
+	    --osrm http://osrm-toll:5000
 
 # --------------------------------------------------------------------------
 # Step 8 -- build_vinci_direct_prices
@@ -368,7 +424,7 @@ build_vinci_direct_prices: guard-osrm-path guard-ulys-key \
                            guard-ulys-passage-date \
                            | $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) $(BUILDER_STAMP)
 	@echo "==> build_vinci_direct_prices: $(PRICES), $(REJECTED)"
-	$(COMPOSE) up -d osrm-optimal
+	$(COMPOSE) up -d osrm-toll
 	$(RUN_BUILDER) python3 build_vinci_direct_prices.py \
 	    --booths /data/osm_toll_booths.yaml \
 	    --gares /data/vinci_toll_booth.yaml \
@@ -376,8 +432,125 @@ build_vinci_direct_prices: guard-osrm-path guard-ulys-key \
 	    --out /data/vinci_price.yaml \
 	    --sides /data/bidirectional_booth_sides.yaml \
 	    --rejected /data/vinci_routes_rejected.sqlite3 \
-	    --osrm http://osrm-optimal:5000 \
+	    --osrm http://osrm-toll:5000 \
 	    $(DIRECT_ARGS)
+
+# --------------------------------------------------------------------------
+# Step 9 -- build_toll_extent
+# --------------------------------------------------------------------------
+# Where the tolled road begins and ends at each priced booth.
+#
+# Resumable rather than checkpointed, and always executes: it reads
+# data/vinci_price.yaml for the booths it has already measured and does only the
+# rest, writing after each one. So an interrupted run repeats at most one booth,
+# and a run against a complete file issues no request at all.
+#
+# Its position is forced. It reads the enter/exit roles the eighth step settles
+# and writes into the same file, so it cannot run earlier; the ninth divides each
+# tariff by the distance between what it records, so it cannot run later.
+#
+# It asks only the router -- no key, no date, no network.
+build_toll_extent: guard-osrm-path | $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) \
+                   $(ROUTE_SET) $(BUILDER_STAMP)
+	@echo "==> build_toll_extent: $(PRICES)"
+	$(COMPOSE) up -d osrm-toll
+	$(RUN_BUILDER) python3 build_toll_extent.py \
+	    --out /data/vinci_price.yaml \
+	    --booths /data/osm_toll_booths.yaml \
+	    --gares /data/vinci_toll_booth.yaml \
+	    --sides /data/bidirectional_booth_sides.yaml \
+	    --route-set /data/route_set.yaml \
+	    --overrides /data/osm_toll_booths_overrides.yaml \
+	    --osrm http://osrm-toll:5000 \
+	    $(EXTENT_ARGS)
+
+# --------------------------------------------------------------------------
+# Step 10 -- build_segment_weights
+# --------------------------------------------------------------------------
+# Spread every tariff over the road segments it pays for, and write the OSRM
+# segment speed file.
+#
+# Checkpointed on the file itself. Its work divides into no resumable unit: the
+# aggregation is over all pairs at once, so a partial file is a wrong file
+# rather than an incomplete one, and a whole run is under two minutes of local
+# routing.
+#
+# It needs the untouched graph and nothing else -- no key, no date, no network.
+build_segment_weights: guard-osrm-path build_toll_extent $(SEGMENTS)
+	@echo "==> build_segment_weights: $(SEGMENTS)"
+
+$(SEGMENTS): $(OSRM_STAMP) | $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) $(PBF) $(BUILDER_STAMP)
+	@echo "==> build_segment_weights: starting osrm-toll"
+	$(COMPOSE) up -d osrm-toll
+	$(RUN_BUILDER) python3 build_segment_weights.py \
+	    --prices /data/vinci_price.yaml \
+	    --booths /data/osm_toll_booths.yaml \
+	    --gares /data/vinci_toll_booth.yaml \
+	    --sides /data/bidirectional_booth_sides.yaml \
+	    --out /data/segment_weights.csv \
+	    --report /data/segment_weights_report.json \
+	    --ways /data/france-latest.osm.pbf \
+	    --osrm http://osrm-toll:5000 \
+	    $(SEGMENT_ARGS)
+
+# --------------------------------------------------------------------------
+# Step 11 -- apply_segment_weights
+# --------------------------------------------------------------------------
+# Assemble the toll-weighted graph: copy the untouched one, then customize the
+# copy with the segment speed file.
+#
+# The copy is not an optimisation to skip. `osrm-customize` rewrites the
+# customized layer in place, so customizing an already-customized graph layers
+# one update under another; only a fresh copy differs from the untouched graph
+# in exactly the rows of the file.
+#
+# Hardlinking the files osrm-customize does not write was considered and
+# rejected: which files those are is not documented, and a wrong guess corrupts
+# the untouched graph through the link.
+apply_segment_weights: guard-osrm-paths-differ $(OPT_STAMP)
+	@echo "==> apply_segment_weights: $(OPT_STAMP)"
+
+$(OPT_STAMP): $(SEGMENTS) $(OSRM_STAMP) | $(BUILDER_STAMP)
+	@if [ ! -f "$(SEGMENTS)" ]; then \
+	    echo "ERROR: $(SEGMENTS) is missing."; \
+	    echo "       Run build_segment_weights first. Without it this step would"; \
+	    echo "       produce a copy indistinguishable from the untouched graph."; \
+	    exit 1; \
+	fi
+	@mkdir -p "$(OPT_DIR)"
+	@free_gb=$$(df -Pk "$(OPT_DIR)" | awk 'NR==2 {print int($$4/1024/1024)}'); \
+	if [ "$$free_gb" -lt $(MIN_FREE_OPT_GB) ]; then \
+	    echo "ERROR: only $${free_gb} GB free at $(OPT_DIR); need ~$(MIN_FREE_OPT_GB) GB."; \
+	    echo "       The toll-weighted graph is a full copy of the untouched one,"; \
+	    echo "       and a copy that cannot finish would fill the disk instead."; \
+	    exit 1; \
+	fi; \
+	echo "==> apply_segment_weights: $${free_gb} GB free at $(OPT_DIR)"
+	@echo "==> apply_segment_weights: stopping osrm-optimal"
+	@# osrm-routed maps the graph at startup, so the files must not move under
+	@# a live server. The same trap the setup step documents.
+	$(COMPOSE) stop osrm-optimal 2>/dev/null || true
+	@echo "==> apply_segment_weights: clearing the previous toll-weighted graph"
+	@rm -f "$(OPT_DIR)"/france-latest.osrm* "$(OPT_STAMP)"
+	@echo "==> apply_segment_weights: copying the untouched graph"
+	@cp -a "$(OSRM_DIR)"/france-latest.osrm* "$(OPT_DIR)"/
+	@echo "==> apply_segment_weights: osrm-customize --segment-speed-file"
+	$(COMPOSE) run --rm --user $(HOST_USER) osrm-optimal-tools \
+	    osrm-customize /osrm/france-latest.osrm \
+	    --segment-speed-file /data/segment_weights.csv
+	@echo "==> apply_segment_weights: starting osrm-optimal"
+	$(COMPOSE) up -d osrm-optimal
+	@echo "==> apply_segment_weights: acceptance check"
+	$(RUN_BUILDER) python3 build_segment_weights.py --verify \
+	    --prices /data/vinci_price.yaml \
+	    --booths /data/osm_toll_booths.yaml \
+	    --gares /data/vinci_toll_booth.yaml \
+	    --sides /data/bidirectional_booth_sides.yaml \
+	    --out /data/segment_weights.csv \
+	    --report /data/segment_weights_report.json \
+	    --osrm http://osrm-toll:5000 \
+	    --osrm-optimal http://osrm-optimal:5000
+	@touch $@
 
 # Step 5 is phony and resumable, so it has no file target for step 6 to depend
 # on. This rule supplies one. It fires only when the mapping is absent, so a
@@ -398,7 +571,7 @@ $(PRICES):
 # --------------------------------------------------------------------------
 # Builder image (internal prerequisite -- not one of the six steps)
 # --------------------------------------------------------------------------
-$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py builder/build_vinci_prices.py builder/build_booth_sides.py builder/build_vinci_direct_prices.py builder/patch_car_profile.py builder/overrides.py
+$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py builder/build_vinci_prices.py builder/build_booth_sides.py builder/build_vinci_direct_prices.py builder/build_toll_extent.py builder/build_segment_weights.py builder/patch_car_profile.py builder/overrides.py builder/osmurl.py
 	@mkdir -p $(DATA_DIR)
 	$(COMPOSE) build builder
 	@touch $@
@@ -410,8 +583,11 @@ clean:
 	rm -f $(BOOTHS) $(ROUTE_SET) $(UNCOVERED) $(EXCLUDED) $(VINCI) $(PRICES) $(SIDES) \
 	      $(FILTERED_PBF) $(PLAZAS) $(NO_ACCESS) $(SNAP) $(BUILDER_STAMP)
 
-# Drops the ~25 GB graph. The extract in data/ is kept.
-clean-osrm: guard-osrm-path
+# Drops both graphs, about 9 GB each. The extract in data/ is kept, and so is
+# $(SEGMENTS): it is a deliverable rather than part of a graph, and reclaiming
+# disk must not cost a committed artefact.
+clean-osrm: guard-osrm-path guard-osrm-optimal-path
 	$(COMPOSE) down --remove-orphans || true
 	rm -rf "$(OSRM_DIR)"/france-latest.osrm* "$(OSRM_STAMP)" \
 	       "$(OSRM_DIR)"/*.osm.pbf "$(PROFILE_DIR)"
+	rm -rf "$(OPT_DIR)"/france-latest.osrm* "$(OPT_STAMP)"

@@ -290,7 +290,7 @@ class Osrm:
                     raise SystemExit(
                         f"ERROR: {self.base_url} did not become available within "
                         f"{timeout_s}s (last error: {exc}).\n"
-                        f"       Is the 'osrm-optimal' service running?"
+                        f"       Is the 'osrm-toll' service running?"
                     )
                 time.sleep(1.0)
 

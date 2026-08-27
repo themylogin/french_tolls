@@ -266,7 +266,7 @@ class Router:
                         f"ERROR: the routing service at {self.base_url} did not"
                         f" become available within {timeout_s}s"
                         f" (last error: {exc}).\n"
-                        f"       Is the 'osrm-optimal' service running? This step"
+                        f"       Is the 'osrm-toll' service running? This step"
                         f" cannot decide which pairs are askable without it.")
                 time.sleep(1.0)
 

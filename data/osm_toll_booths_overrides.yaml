@@ -109,6 +109,15 @@ toll_booths:
   1581498325:
     type: enter
 
+# Nodes the extract does not tag barrier=toll_booth and should. A plaza is
+# several parallel lanes; where OSM tags the booth on one lane and not on the
+# next, the untagged lane is a way past the barrier that costs nothing.
+missing_toll_booth:
+  # Tonnay-Charente, A 837, gare 04545. Ways 826223989 and 1419952091 run
+  # 354 m from node 1404370113 to node 7714272796, 22.5 m beside the lane
+  # carrying booth 1116803670 and the same length, with no booth node on them.
+  - 13048100170
+
 # It is allowed to go through these gares twice
 duplicate_gares:
   # Way: 294125300 is under construction

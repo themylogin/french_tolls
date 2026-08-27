@@ -1,15 +1,18 @@
 # Services for the toll booth route set pipeline. Driven by the Makefile;
-# `docker compose up` on its own starts only the query server.
+# `docker compose up` on its own starts only the query servers.
 #
-# OSRM_OPTIMAL_PATH comes from .env (see .env.example) and must be an absolute
-# path outside this repository -- the graph is ~25 GB.
+# OSRM_TOLL_PATH and OSRM_OPTIMAL_PATH come from .env (see .env.example) and must
+# be two different absolute paths outside this repository. Together the graphs are
+# about 30 GB.
 
 services:
-  # Long-running query server for the "optimal" (no traffic) graph.
-  # Service name and container name are deliberately identical so the Docker
-  # name and the URL the builder calls are the same string.
-  osrm-optimal:
-    container_name: osrm-optimal
+  # Long-running query server for the untouched graph -- the road network as OSM
+  # describes it, with no tariff in it. Every pipeline step queries this one.
+  #
+  # Service name and container name are deliberately identical so the Docker name
+  # and the URL the builder calls are the same string.
+  osrm-toll:
+    container_name: osrm-toll
     image: ghcr.io/project-osrm/osrm-backend:26.8-debian
     # MLD must match the partition/customize preprocessing in `make setup_osrm`.
     # No -t: osrm-routed already defaults to hardware concurrency.
@@ -18,33 +21,69 @@ services:
     # booth. The default of 100 locations is too small for that.
     command: osrm-routed --algorithm mld --max-table-size 2000 /osrm/france-latest.osrm
     volumes:
-      - "${OSRM_OPTIMAL_PATH}:/osrm"
+      - "${OSRM_TOLL_PATH}:/osrm"
     ports:
       # Localhost only. Consuming scripts that are not on this Compose network
-      # reach the same instance here.
+      # reach the same instance here. Port 5000 stays with this graph because it
+      # is the one everything already addressed before the toll weighting existed.
       - "127.0.0.1:5000:5000"
     # No restart policy on purpose: osrm-routed exits immediately when the graph
     # is missing, and a restart policy turns that into a silent crash loop.
     # The Makefile starts this service explicitly when it is needed.
 
-  # One-shot osrm-extract / osrm-partition / osrm-customize.
-  # Named generically: a future traffic instance is a second *server* service,
-  # not a second tools container.
+  # Long-running query server for the toll-weighted graph -- the same network with
+  # data/segment_weights.csv applied, so a tolled segment costs what its tariff
+  # costs a driver. `apply_segment_weights` assembles the graph it serves.
+  #
+  # Nothing in the pipeline queries this one. It exists to be queried from
+  # outside, and a route it returns is the cheapest in money-and-time rather than
+  # the fastest.
+  osrm-optimal:
+    container_name: osrm-optimal
+    image: ghcr.io/project-osrm/osrm-backend:26.8-debian
+    command: osrm-routed --algorithm mld --max-table-size 2000 /osrm/france-latest.osrm
+    volumes:
+      - "${OSRM_OPTIMAL_PATH}:/osrm"
+    ports:
+      # The container port is 5000 in both servers; it is the published host port
+      # that tells them apart.
+      - "127.0.0.1:5001:5000"
+
+  # One-shot osrm-extract / osrm-partition / osrm-customize against the untouched
+  # graph. `./data` is mounted because the profile patch reads the extract there.
   osrm-tools:
     image: ghcr.io/project-osrm/osrm-backend:26.8-debian
     volumes:
-      - "${OSRM_OPTIMAL_PATH}:/osrm"
+      - "${OSRM_TOLL_PATH}:/osrm"
+      - "./data:/data"
     profiles: ["tools"]
 
-  # Our own image: the download, the PBF extraction, and the route search.
+  # One-shot osrm-customize against the toll-weighted graph. A second tools
+  # container rather than an argument to the first: the two mount different
+  # graphs, and mounting both into one would make it possible to customize the
+  # untouched graph by naming the wrong path.
+  #
+  # `./data` carries data/segment_weights.csv to --segment-speed-file.
+  osrm-optimal-tools:
+    image: ghcr.io/project-osrm/osrm-backend:26.8-debian
+    volumes:
+      - "${OSRM_OPTIMAL_PATH}:/osrm"
+      - "./data:/data"
+    profiles: ["tools"]
+
+  # Our own image: the download, the PBF extraction, the route search, and the
+  # segment weight derivation.
   # Deliberately no depends_on: steps 1 and 3 run the builder long before the
-  # graph exists, and starting osrm-optimal then would only crash it. Step 4
+  # graph exists, and starting osrm-toll then would only crash it. Step 4
   # brings the server up explicitly and the script waits for it.
+  #
+  # It mounts the untouched graph, not the toll-weighted one: the profile patch
+  # writes there, and every script that routes queries osrm-toll.
   builder:
     build: ./builder
     volumes:
       - "./data:/data"
-      - "${OSRM_OPTIMAL_PATH}:/osrm"
+      - "${OSRM_TOLL_PATH}:/osrm"
     # Exporting a variable on the host is not enough: a container sees only what
     # Compose declares for it. build_vinci_toll_booths needs the Ulys key and
     # build_vinci_prices needs the key and the tariff date, and this is the one

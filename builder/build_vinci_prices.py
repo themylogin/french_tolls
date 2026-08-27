@@ -51,6 +51,21 @@ import time
 import requests
 import yaml
 
+
+class LatLon(list):
+    """A [lat, lon] pair, dumped inline rather than as two block items.
+
+    The same representer the inventory uses, so a coordinate reads the same
+    wherever it appears in the pipeline's outputs.
+    """
+
+
+yaml.SafeDumper.add_representer(
+    LatLon,
+    lambda dumper, data: dumper.represent_sequence(
+        "tag:yaml.org,2002:seq", data, flow_style=True),
+)
+
 import overrides
 
 RATE_URL = "https://api-ulys.azure-api.net/tollstation/v1/rate"
@@ -192,6 +207,40 @@ def load_routes(path):
     return doc.get("routes") or []
 
 
+# The two fields build_toll_extent writes into this file. Named here because
+# this step's loader and writer are what every other step reads and writes the
+# file through, and a field they do not know about is a field the next write
+# deletes. Order matters: it is the order the entry is written in.
+# Each node is written with its coordinates: a node id alone cannot be routed
+# to, so an extent without them is one no consumer can measure between. The
+# tuple order is the order the entry is written in.
+TOLL_EXTENT_KEYS = ("first_toll_node_id", "first_toll_latlon",
+                    "last_toll_node_id", "last_toll_latlon")
+TOLL_EXTENT_PAIRS = (("first_toll_node_id", "first_toll_latlon"),
+                     ("last_toll_node_id", "last_toll_latlon"))
+
+
+def to_node_id(value, where):
+    """An OSM node id out of the file. A bool is an int and is never a node."""
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise Abort(f"{where}: expected a positive integer OSM node id,"
+                    f" got {value!r}")
+    return value
+
+
+def to_latlon(value, where):
+    """A [lat, lon] pair out of the file."""
+    if (not isinstance(value, list) or len(value) != 2
+            or any(not isinstance(v, (int, float)) or isinstance(v, bool)
+                   for v in value)):
+        raise Abort(f"{where}: expected a [latitude, longitude] pair,"
+                    f" got {value!r}")
+    lat, lon = float(value[0]), float(value[1])
+    if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        raise Abort(f"{where}: {value!r} is not a point on Earth")
+    return LatLon([lat, lon])
+
+
 def load_state(path):
     """Resume state: booth -> record, processed pairs."""
     if not os.path.exists(path):
@@ -207,6 +256,24 @@ def load_state(path):
         record = {"type": entry["type"]}
         if "price" in entry:
             record["price"] = to_cents(entry["price"], where)
+        # Where the tolled road begins and ends at this booth. Produced by
+        # build_toll_extent, not by this step, and carried through untouched --
+        # this step and the direct pricing step both rewrite the whole file, so
+        # a field either loader dropped would be lost on the next write.
+        for node_key, latlon_key in TOLL_EXTENT_PAIRS:
+            has_node, has_latlon = node_key in entry, latlon_key in entry
+            if has_node != has_latlon:
+                missing = latlon_key if has_node else node_key
+                raise Abort(
+                    f"{where}: carries {node_key if has_node else latlon_key}"
+                    f" without {missing}.\n"
+                    f"       An extent is a node and its coordinates together:"
+                    f" the id names it and the point is what can be routed to.")
+            if has_node:
+                record[node_key] = to_node_id(entry[node_key],
+                                              f"{where}: {node_key}")
+                record[latlon_key] = to_latlon(entry[latlon_key],
+                                               f"{where}: {latlon_key}")
         if "prices" in entry:
             record["prices"] = {
                 check_code(code, where): to_cents(amount, f"{where} -> {code}")
@@ -224,17 +291,30 @@ def write_state(path, booths, done):
         entry = {"type": record["type"]}
         if "price" in record:
             entry["price"] = to_euros(record["price"])
+        for key in TOLL_EXTENT_KEYS:
+            if key in record:
+                entry[key] = record[key]
         if "prices" in record:
             entry["prices"] = {code: to_euros(record["prices"][code])
                                for code in sorted(record["prices"])}
         out[group] = entry
     doc = {"toll_booths": out,
            "routes": [{"from": a, "to": b} for a, b in sorted(done)]}
-    tmp = path + ".part"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        yaml.safe_dump(doc, fh, default_flow_style=False, sort_keys=False,
-                       width=100, allow_unicode=True)
-    os.replace(tmp, path)
+    # The temporary name carries the pid. Two runs of a resumable step against
+    # one file is an operator error rather than a supported mode, but with a
+    # fixed name it fails by *losing* the file: both write `.part`, one renames
+    # it, and the other's rename finds nothing there. A per-process name makes
+    # the loser overwrite the winner instead, which is recoverable.
+    tmp = f"{path}.{os.getpid()}.part"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            yaml.safe_dump(doc, fh, default_flow_style=False, sort_keys=False,
+                           width=100, allow_unicode=True)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 # --------------------------------------------------------------------------
