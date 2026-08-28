@@ -1,0 +1,73 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>French toll roads</title>
+
+    <link rel="stylesheet" type="text/css" href="./style.css?2" />
+    <script type="module" src="./index.js?3"></script>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+    <meta http-equiv="cache-control" content="max-age=0" />
+    <meta http-equiv="cache-control" content="no-cache" />
+    <meta http-equiv="expires" content="0" />
+    <meta http-equiv="expires" content="Tue, 01 Jan 1980 1:00:00 GMT" />
+    <meta http-equiv="pragma" content="no-cache" />
+</head>
+<body>
+    <div class="controls">
+        <div id="collapse-control">
+            <i class="bi bi-chevron-bar-right myuncollapse"></i>
+            <i class="bi bi-chevron-bar-left mycollapse"></i>
+        </div>
+        <div class="content">
+            <div class="mb-3">
+                <input type="text" class="form-control" id="from" placeholder="From">
+            </div>
+            <div class="mb-3">
+                <input type="text" class="form-control" id="to" placeholder="To">
+            </div>
+            <div class="mb-3">
+                <button type="button" class="btn btn-primary" id="calculate">Calculate</button>
+            </div>
+            <div class="spinner-border" role="status" id="calculating">
+                <span class="visually-hidden">Calculating...</span>
+            </div>
+            <div id="routes"></div>
+            <div class="alert alert-danger" id="error">
+                Error calculating this route. I am very sorry for that 😞
+            </div>
+            <div style="margin-top: 20px; font-size: 0.9rem;">
+                <a href="https://t.me/french_toll_roads_bot">💬 Telegram Bot</a><br>
+                <a href="https://paypal.me/themyloginspain" target="_blank">👍 Send me a tip</a>
+            </div>
+        </div>
+    </div>
+    <div id="map"></div>
+
+    <!-- prettier-ignore -->
+    <script>(g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})
+    ({key: "AIzaSyCgQUA7ZGWlIXFWnQX9jkcBt6WVXL9-lDM", v: "beta"});</script>
+
+<script src="https://swetrix.org/swetrix.js" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  swetrix.init('XkpmSCL1RHvb', {
+    apiURL: 'https://swetrix.undiscoveredlatitudes.com/backend/v1/log',
+  })
+  swetrix.trackViews()
+})
+</script>
+
+<noscript>
+<img
+  src="https://swetrix.undiscoveredlatitudes.com/backend/log/noscript?pid=XkpmSCL1RHvb"
+  alt=""
+  referrerpolicy="no-referrer-when-downgrade"
+/>
+</noscript>
+</body>
+</html>

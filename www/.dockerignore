@@ -1,0 +1,10 @@
+# The Dockerfile names the page's files one by one, so nothing reaches the
+# served root by being in the build context. This is only about keeping the
+# context small and free of droppings.
+#
+# nginx.conf is deliberately NOT excluded: the Dockerfile has to copy it, and it
+# is installed under /etc/nginx rather than under the served root.
+.dockerignore
+*.swp
+*~
+.DS_Store

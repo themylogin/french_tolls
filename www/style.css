@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Monomaniac+One&family=Open+Sans:wght@400;700&family=PT+Serif&display=swap');
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+.controls {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+
+    width: 360px;
+    padding: 40px;
+}
+.collapsed .controls {
+    wodth: 40px;
+    padding: 40px; 0;
+}
+
+#error {
+    display: none;
+}
+
+#map {
+    margin-left: 360px;
+    height: calc(100vh);
+}
+
+.collapsed #map {
+    margin-left: 80px;
+}
+
+#collapse-control { font-size: 36px; margin-bottom: 20px; color: #70757a; cursor: pointer; }
+.myuncollapse { display: none; }
+.collapsed .myuncollapse { display: block; }
+.collapsed .mycollapse { display: none; }
+
+.collapsed .content { display: none; }
+
+.links { margin-top: 20px; font-size: 0.9rem; }
+.route { margin-top: 20px; }
+.route .title { font-weight: bold; }
+.route table { margin-top: 5px; width: 100%; font-size: 0.8rem; color: #70757a; }
+.route table td:first-child { width: 100%; }
+.route table td:first-child div { margin-right: 20px; }
+.route table td:last-child { text-align: right; vertical-align: top; white-space: nowrap; }
+.route .info { float: right; text-align: right; }
+.route .info .time { font-weight: bold; }
+.route .info .price { font-weight: bold; font-size: 0.9rem; color: #70757a; }
+.route .info .distance { font-size: 0.8rem; color: #70757a; }
+
+#calculating { display: none; }

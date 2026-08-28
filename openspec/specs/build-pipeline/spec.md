@@ -20,6 +20,12 @@ The repository root SHALL hold only the pipeline's entry points — `Makefile` a
 
 The container image definition and all pipeline scripts SHALL live under `builder/`. Generated artifacts SHALL live under `data/`.
 
+The application that consumes those artifacts SHALL live under `french_tolls/`, together with its own container image definition and its tests. It is not part of the pipeline: it reads what the pipeline publishes and it is never invoked by a build step. Keeping it out of `builder/` keeps that boundary legible, and keeps a change to the web application from rebuilding the pipeline image.
+
+The browser page SHALL live under `www/`, together with its own container image definition and the configuration of the server that fronts it. It is a third thing again: it holds no Python, it reads no artefact, and it reaches the application only over HTTP. A stylesheet has no business rebuilding a Python image.
+
+The application SHALL be tracked. It SHALL NOT carry a booth inventory or a tariff table of its own: those live under `data/`, are committed there already, and a second copy goes stale without saying so.
+
 The artifacts the pipeline is asked to produce — the booth inventory, the route set, the gare mapping, and the segment weight file — SHALL be committed, so a consumer can read them without running the pipeline. Regenerable intermediates, OSM extracts, and the per-run diagnostic reports SHALL NOT be committed.
 
 The segment weight file is carried for the reason the booth sides are: it is derived from the routing graph, which is not in the repository, so a consumer who has only the checkout cannot rebuild it however cheap the step is.
@@ -30,6 +36,21 @@ The exclusion report, the uncovered report, and the segment weight report SHALL 
 
 - **WHEN** the repository is inspected
 - **THEN** the Dockerfile and the pipeline scripts are under `builder/`, and no pipeline script sits at the repository root
+
+#### Scenario: The page is located together
+
+- **WHEN** the repository is inspected
+- **THEN** the page, its Dockerfile, and its server configuration are under `www/`, and none of them sits under `french_tolls/` or `builder/`
+
+#### Scenario: The application is located together
+
+- **WHEN** the repository is inspected
+- **THEN** the application, its Dockerfile, and its tests are under `french_tolls/`, and none of them sits under `builder/`
+
+#### Scenario: The application carries no data of its own
+
+- **WHEN** the files under `french_tolls/` are listed
+- **THEN** none of them is a booth inventory or a tariff table
 
 #### Scenario: Root holds only entry points and configuration
 
@@ -103,22 +124,36 @@ The pipeline SHALL define two long-running OSRM query services, each addressable
 
 `osrm-toll` SHALL serve the graph from `OSRM_TOLL_PATH` and SHALL be the service every step that reasons about the road network queries. `osrm-optimal` SHALL serve the graph from `OSRM_OPTIMAL_PATH`.
 
-The two SHALL be published on different host ports, so that a consumer outside the Compose network can reach either. One-shot preprocessing containers SHALL NOT be started by a plain `docker compose up`.
+The two SHALL be published on different host ports, so that a consumer outside the Compose network can reach either where the host permits it. A published port is a convenience for inspection and SHALL NOT be the path any service of this project takes: measured on the development host, both published ports refuse connections while the same query over the Compose network is answered. Every consumer in the repository — the build steps, the web application, and the bot — SHALL therefore address the routers by service name.
+
+The test runner is not among them. Its suite answers its own routing questions from a graph written in the test, so it queries neither router and is given neither address.
+
+Services that are not part of the pipeline SHALL sit behind a Compose profile, so that a plain `docker compose up` starts the two query services and nothing else. One-shot preprocessing containers SHALL NOT be started by a plain `docker compose up` either.
 
 #### Scenario: Service is addressable by name
 
 - **WHEN** the route set step issues routing requests
 - **THEN** it reaches the query service at the host name `osrm-toll`
 
+#### Scenario: Consumers do not use the published ports
+
+- **WHEN** the web application or the bot queries a router
+- **THEN** it addresses `osrm-toll` or `osrm-optimal` over the Compose network, not a host port
+
+#### Scenario: The test runner queries no router
+
+- **WHEN** the test runner runs
+- **THEN** it issues no routing request, and its configuration carries neither router's address
+
 #### Scenario: Both services are reachable from the host
 
-- **WHEN** both services are running
+- **WHEN** both services are running on a host that permits the published ports
 - **THEN** each answers on its own host port, and a route requested from one is answered from its own graph
 
 #### Scenario: Plain compose up
 
 - **WHEN** `docker compose up` is run
-- **THEN** the query services start and the one-shot preprocessing containers do not
+- **THEN** the query services start, and the one-shot preprocessing containers, the web application, the bot, and the test runner do not
 
 #### Scenario: The toll-weighted service without its graph
 

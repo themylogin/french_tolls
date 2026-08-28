@@ -1,0 +1,10 @@
+# The two snapshots the rewrite replaces. They are 191 MB together, and sending
+# them to the daemon on every build costs more than the rest of the context by
+# three orders of magnitude. They are removed from the tree by this change; this
+# entry keeps a build cheap while they are still beside it.
+toll_booths.json
+pairs.json
+
+__pycache__/
+*.pyc
+.pytest_cache/
