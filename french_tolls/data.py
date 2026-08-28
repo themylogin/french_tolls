@@ -68,17 +68,32 @@ class Booth:
     price: float | None = None
     # From vinci_toll_booth.yaml. None for the 12 booths that map to no gare.
     gare: str | None = None
-    name: str | None = None
+    operator_name: str | None = None
+    # From osm_toll_booths.yaml: the OSM `name` tag. 1 499 of the 1 557 booths
+    # carry one, including every booth the operator does not name.
+    osm_name: str | None = None
     # From bidirectional_booth_sides.yaml, and only for a bidirectional booth.
     inside_nodes: frozenset[int] = frozenset()
     outside_nodes: frozenset[int] = frozenset()
 
     @property
+    def name(self) -> str | None:
+        """The best name this booth has, or None if it has none."""
+        return self.operator_name or self.osm_name
+
+    @property
     def label(self) -> str:
         """What a passage through this booth is called.
 
-        The operator's name where there is one. Otherwise the OSM node id, which
-        a reader can look up -- not a placeholder that identifies nothing.
+        The operator's name first: it is what is painted on the barrier a driver
+        stops at, so where OSM disagrees the operator wins.
+
+        Then the OSM name. `Péage de Vienne` tells a reader where they are;
+        `OSM node 12288199204` tells them a fact about a database.
+
+        The node id last, so a booth named nowhere is still identifiable. No
+        booth needs it today -- every one of the 1 295 has a name from one source
+        or the other -- and that is what a last resort is for.
         """
         return self.name or f"OSM node {self.node_id}"
 
@@ -169,7 +184,8 @@ def load() -> BoothData:
             prices={str(k): float(v) for k, v in (priced.get("prices") or {}).items()},
             price=None if priced.get("price") is None else float(priced["price"]),
             gare=None if gare.get("id") is None else str(gare["id"]),
-            name=gare.get("name"),
+            operator_name=gare.get("name"),
+            osm_name=booth.get("name"),
             inside_nodes=frozenset(int(n) for n in (side.get("inside_nodes") or [])),
             outside_nodes=frozenset(int(n) for n in (side.get("outside_nodes") or [])),
         )

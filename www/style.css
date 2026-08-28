@@ -53,3 +53,10 @@ body {
 .route .info .distance { font-size: 0.8rem; color: #70757a; }
 
 #calculating { display: none; }
+
+/* The control beside each directions link. It asks Google what it would
+   actually drive, which costs money, so it is a button a visitor presses
+   rather than something the page does on its own. */
+.show-google {
+    cursor: pointer;
+}

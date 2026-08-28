@@ -131,6 +131,13 @@ class Collector(osmium.SimpleHandler):
         super().__init__()
         self.booths = {}  # node id -> (lat, lon)
         self.gantry = set()  # node ids tagged highway=toll_gantry
+        # node id -> the OSM `name` tag, for the booths that carry one.
+        #
+        # Kept because it is the only name some booths have. Twelve booths map
+        # to no operator gare and so have no operator name; every one of them is
+        # named here -- Chanas, Bernay, Hochfelden, Péage de Vienne -- and
+        # discarding the tag left a consumer with nothing to print but a node id.
+        self.names = {}
         self.places = {}  # node id -> (lat, lon, name or None)
 
     def node(self, n):
@@ -147,6 +154,13 @@ class Collector(osmium.SimpleHandler):
             self.booths[n.id] = loc
             if tags.get("highway") == "toll_gantry":
                 self.gantry.add(n.id)
+            name = tags.get("name")
+            if name:
+                # As the extract states it. What OSM calls a place is a fact
+                # about OSM; deciding it should be called something else is a
+                # different job, and doing it here would put an opinion in an
+                # inventory.
+                self.names[n.id] = name
         if is_place and loc is not None:
             self.places[n.id] = (loc[0], loc[1], tags.get("name"))
 
@@ -319,6 +333,10 @@ def main() -> int:
     def entry(node_id):
         lat, lon = located[node_id]
         out = {"latlon": LatLon([round(lat, 7), round(lon, 7)])}
+        # Written only when the node carries the tag. Recording its absence as an
+        # empty string would make every reader test two things.
+        if node_id in collector.names:
+            out["name"] = collector.names[node_id]
         if node_id in collector.gantry:
             out["type"] = "gantry"
         elif node_id in bidirectional:

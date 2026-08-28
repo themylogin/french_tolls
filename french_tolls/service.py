@@ -13,7 +13,7 @@ import logging
 import os
 import urllib.parse
 
-from . import osrm
+from . import db, osrm, refine as refine_module
 from .data import load_or_exit
 from .osrm import NoRoute, RouterUnavailable, Routers, TooFarFromNetwork
 from .search import MAX_WAYPOINTS, plan_waypoints
@@ -29,6 +29,20 @@ __all__ = ["RouteError", "get_route"]
 BOOTHS = load_or_exit()
 
 CACHE_DIR = os.environ.get("CACHE_DIR", "/cache")
+PUBLIC_SITE_URL = os.environ.get("PUBLIC_SITE_URL", "").rstrip("/")
+
+
+def _generation():
+    """What a cached answer is only valid for.
+
+    The data fingerprint says the tariffs and the graph are the ones the answer
+    was computed from. It says nothing about configuration, and the answer also
+    carries three links whose shape depends on `PUBLIC_SITE_URL` -- so changing
+    that would otherwise serve links built for the old address forever, which is
+    the very failure the fingerprint exists to prevent.
+    """
+    return BOOTHS.fingerprint + ":" + hashlib.sha256(
+        PUBLIC_SITE_URL.encode()).hexdigest()[:8]
 MAX_WAYPOINTS_SETTING = int(os.environ.get("MAX_WAYPOINTS", str(MAX_WAYPOINTS)))
 
 
@@ -44,50 +58,6 @@ class RouteError(Exception):
     def __init__(self, cause: str, message: str):
         self.cause = cause
         super().__init__(message)
-
-
-def _cache_path(from_, to) -> str | None:
-    if not CACHE_DIR:
-        return None
-
-    # The fingerprint is a directory rather than part of the file name so that a
-    # superseded generation can be dropped with one `rm -r`.
-    key = f"{from_[0]},{from_[1]};{to[0]},{to[1]}"
-    # A coordinate pair is short, but not bounded: hashing keeps the file name
-    # legal whatever precision a caller sends.
-    name = hashlib.sha256(key.encode()).hexdigest()[:32]
-    return os.path.join(CACHE_DIR, BOOTHS.fingerprint, f"{name}.json")
-
-
-def _read_cache(path):
-    if path is None:
-        return None
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        # A missing file is the ordinary case; a truncated one is a crash during
-        # a write, and recomputing is the right answer to both.
-        return None
-
-
-def _write_cache(path, result):
-    if path is None:
-        return
-
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        # Written under a unique temporary name and moved into place, so a reader
-        # never sees a half-written file. `os.replace` overwrites; the `os.rename`
-        # this replaces was wrapped in an `except FileExistsError` that POSIX
-        # never raises, so that branch had never once run.
-        tmp = f"{path}.{os.getpid()}.tmp"
-        with open(tmp, "w") as f:
-            json.dump(result, f)
-        os.replace(tmp, path)
-    except OSError as e:
-        # A cache that cannot be written is not a failed journey.
-        logger.warning("could not cache %s: %s", path, e)
 
 
 def _record_failure(from_, to, cause, message):
@@ -128,11 +98,44 @@ def _as_latlon(coordinate) -> str:
     return f"{coordinate[1]:.6f},{coordinate[0]:.6f}"
 
 
-def _describe(route: osrm.Route, plan, journey) -> dict:
+def _go_url(form, from_, to):
+    """A link to this service, which refines and then redirects to Google.
+
+    A redirect rather than a Google address built now, because the bot writes a
+    link long before anyone follows it: refining at send time would pay for every
+    link nobody opens. Following one costs milliseconds for a cached journey and
+    about two seconds for one that also asks Google.
+    """
+    query = urllib.parse.urlencode({
+        "from": f"{from_[0]:.6f},{from_[1]:.6f}",
+        "to": f"{to[0]:.6f},{to[1]:.6f}",
+    })
+    return f"{PUBLIC_SITE_URL}/go/{form}?{query}"
+
+
+def _describe(route: osrm.Route, plan, journey, *, endpoints=None) -> dict:
     """One route, in the shape every consumer already reads."""
     points = [_as_latlon(route.coordinates[0])]
     points += [_as_latlon(c) for c in (plan.locations if plan else ())]
     points.append(_as_latlon(route.coordinates[-1]))
+
+    from_, to = endpoints if endpoints else (None, None)
+    ours = (
+        {
+            "url": _go_url("start", from_, to),
+            "url_from_current_location": _go_url("here", from_, to),
+            "url_from_current_location_through_start": _go_url("here-via-start", from_, to),
+        }
+        if endpoints and PUBLIC_SITE_URL
+        # With no public address configured there is nothing to redirect through,
+        # so the links stay what they have always been.
+        else {
+            "url": google_maps_link(points),
+            "url_from_current_location": google_maps_link(["Current Location"] + points[1:]),
+            "url_from_current_location_through_start": google_maps_link(
+                ["Current Location"] + points),
+        }
+    )
 
     return {
         # Keys every existing consumer reads. Same names, same meanings.
@@ -141,11 +144,11 @@ def _describe(route: osrm.Route, plan, journey) -> dict:
         "nodes": [list(c) for c in route.coordinates],
         "peages": [p.as_dict() for p in journey.passages],
         "cost": journey.cost,
-        "url": google_maps_link(points),
-        "url_from_current_location": google_maps_link(["Current Location"] + points[1:]),
-        "url_from_current_location_through_start": google_maps_link(
-            ["Current Location"] + points
-        ),
+        **ours,
+
+        # The unrefined Google address, for a consumer that would rather not
+        # depend on this service being reachable.
+        "google_url": google_maps_link(points),
 
         # Added by this work. How faithful the link is, and what could not be
         # priced. A consumer that does not know them is unaffected.
@@ -163,8 +166,7 @@ async def get_route(from_, to):
     Returns `{"fast": ..., "optimal": ...}`, the shape `api.py` serves and
     `bot.py` formats.
     """
-    path = _cache_path(from_, to)
-    cached = _read_cache(path)
+    cached = db.read_answer(_generation(), from_, to)
     if cached is not None:
         return cached
 
@@ -185,8 +187,10 @@ async def get_route(from_, to):
             result = {
                 # The fast route needs no waypoints: it is by definition what a
                 # fastest-path router computes from the two endpoints alone.
-                "fast": _describe(fast, None, account(BOOTHS, fast.node_ids)),
-                "optimal": _describe(optimal, plan, account(BOOTHS, optimal.node_ids)),
+                "fast": _describe(fast, None, account(BOOTHS, fast.node_ids),
+                                  endpoints=(from_, to)),
+                "optimal": _describe(optimal, plan, account(BOOTHS, optimal.node_ids),
+                                     endpoints=(from_, to)),
             }
     except TooFarFromNetwork as e:
         _record_failure(from_, to, "out_of_reach", str(e))
@@ -209,5 +213,47 @@ async def get_route(from_, to):
         routers.requests,
     )
 
-    _write_cache(path, result)
+    db.write_answer(_generation(), from_, to, result)
     return result
+
+
+def maps_link_with(points_latlon):
+    """A Google Maps link from a list of `lat,lon` strings, origin first."""
+    return google_maps_link(points_latlon)
+
+
+async def refined_link(from_, to, form="start", *, with_geometry=False):
+    """The answer, its refinement, and the Google link the refinement earns.
+
+    This is what both the API endpoint and the redirect are built on, so the two
+    can never disagree about what a journey refines to.
+    """
+    answer = await get_route(from_, to)
+    optimal = answer["optimal"]
+
+    # `with_geometry` is what the page's button passes: it wants a route to
+    # draw, and that costs a second request. A redirect needs only the
+    # waypoints, so it never buys one.
+    refinement = await refine_module.refine(
+        BOOTHS.fingerprint, from_, to, optimal, with_geometry=with_geometry)
+
+    origin = _as_latlon(optimal["nodes"][0])
+    destination = _as_latlon(optimal["nodes"][-1])
+    waypoints = [_as_latlon(w) for w in refinement.waypoints]
+
+    if form == "here":
+        points = ["Current Location"] + waypoints + [destination]
+    elif form == "here-via-start":
+        # This form spends one of the nine intermediate slots on the route's own
+        # origin, so only eight are left for the rest. The refinement is computed
+        # once for all three forms and fills all nine, so the surplus is dropped
+        # here rather than the whole set being recomputed for one form.
+        #
+        # The earliest are kept: a driver follows a link from the start, and a
+        # waypoint they would reach only after the link has already misled them
+        # is worth nothing.
+        points = ["Current Location", origin] + waypoints[:refine_module.MAX_WAYPOINTS - 1] + [destination]
+    else:
+        points = [origin] + waypoints + [destination]
+
+    return answer, refinement, google_maps_link(points)

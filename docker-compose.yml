@@ -92,3 +92,150 @@ services:
       ULYS_SUBSCRIPTION_KEY: "${ULYS_SUBSCRIPTION_KEY:-}"
       ULYS_PASSAGE_DATE: "${ULYS_PASSAGE_DATE:-}"
     profiles: ["tools"]
+
+  # The application that consumes what the pipeline publishes. It is not a
+  # pipeline step: no build target invokes it, and it only ever reads what the
+  # steps have already written.
+  #
+  # `./data` is mounted read-only. The four artefacts and the segment weight file
+  # are inputs here, and a service that only reads them has no business being
+  # able to write them. The cache goes to its own volume for the same reason:
+  # `data/` holds the pipeline's tracked deliverables, not runtime state.
+  #
+  # Both routers are addressed by service name. The published host ports are for
+  # inspection — on some hosts they refuse connections while the Compose network
+  # answers — so nothing in this project routes through them.
+  web:
+    build: ./french_tolls
+    container_name: french-tolls-web
+    command: python3 -m french_tolls.web
+    volumes:
+      - "./data:/data:ro"
+      - "cache:/cache"
+    # No published port. The page and the API have to answer on one origin --
+    # index.js fetches /api/ relative to wherever the page came from -- and that
+    # origin is `nginx`, which proxies here over the Compose network. A second
+    # public port would serve the API without the page, which is a URL that 404s
+    # for anything a visitor wants.
+    expose:
+      - "8080"
+    environment:
+      OSRM_TOLL_URL: "${OSRM_TOLL_URL:-http://osrm-toll:5000}"
+      OSRM_OPTIMAL_URL: "${OSRM_OPTIMAL_URL:-http://osrm-optimal:5000}"
+      DATA_DIR: "/data"
+      CACHE_DIR: "/cache"
+      # autocomplete.py defaults this under /data, which is read-only here.
+      AUTOCOMPLETE_CACHE: "/cache/autocomplete.sqlite"
+      LOCATIONIQ_API_KEY: "${LOCATIONIQ_API_KEY:-}"
+      # Refinement: the web service asks Google what it would actually drive and
+      # spends the remaining waypoint budget correcting it. Both are optional --
+      # without them every journey is answered unrefined.
+      GOOGLE_DIRECTIONS_API_KEY: "${GOOGLE_DIRECTIONS_API_KEY:-}"
+      GOOGLE_DIRECTIONS_MAX_REQUEST_PER_MONTH: "${GOOGLE_DIRECTIONS_MAX_REQUEST_PER_MONTH:-0}"
+      # Where the three directions links point, so a link in a Telegram message
+      # comes back here to be refined before it goes on to Google.
+      PUBLIC_SITE_URL: "${PUBLIC_SITE_URL:-}"
+      MAX_WAYPOINTS: "${MAX_WAYPOINTS:-9}"
+      QUERY_BUDGET: "${QUERY_BUDGET:-500}"
+      SNAP_REACH_M: "${SNAP_REACH_M:-1000}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    restart: unless-stopped
+    # Behind a profile so that a plain `docker compose up` still starts the two
+    # query services and nothing else, as the pipeline expects.
+    profiles: ["app"]
+
+  # The Telegram bot. Same image and same environment as the web service, minus
+  # the published port: it polls Telegram and serves nothing.
+  #
+  # It is behind the same profile because it cannot run without a token, and a
+  # pipeline-only checkout has no reason to hold one. Started by `up` it would
+  # crash-loop and make the pipeline's own `up` useless.
+  bot:
+    build: ./french_tolls
+    container_name: french-tolls-bot
+    command: python3 -m french_tolls.bot
+    volumes:
+      - "./data:/data:ro"
+      - "cache:/cache"
+    environment:
+      OSRM_TOLL_URL: "${OSRM_TOLL_URL:-http://osrm-toll:5000}"
+      OSRM_OPTIMAL_URL: "${OSRM_OPTIMAL_URL:-http://osrm-optimal:5000}"
+      DATA_DIR: "/data"
+      CACHE_DIR: "/cache"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      MAX_WAYPOINTS: "${MAX_WAYPOINTS:-9}"
+      QUERY_BUDGET: "${QUERY_BUDGET:-500}"
+      SNAP_REACH_M: "${SNAP_REACH_M:-1000}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    restart: unless-stopped
+    profiles: ["app"]
+
+  # The front end: the page, and the one public entry point of this project.
+  #
+  # Built from its own image under `www/` rather than from the application's. A
+  # stylesheet has no business rebuilding a Python image, and serving three
+  # static files has no business installing aiohttp.
+  #
+  # It reaches the application at its service name over the Compose network, as
+  # every other consumer in this project does.
+  nginx:
+    build: ./www
+    container_name: french-tolls-nginx
+    ports:
+      - "127.0.0.1:${FRENCH_TOLLS_PORT:-8080}:80"
+    # The page is served whether or not the API is up: a visitor then gets the
+    # page and an error from Calculate, which is more use than a refused
+    # connection. So this waits for `web` to start, not to be healthy.
+    depends_on:
+      - web
+    restart: unless-stopped
+    profiles: ["app"]
+
+  # One-shot run of the unit test suite. Its own profile rather than `app`: it
+  # is a run that ends, not a service, and `--profile app up` must not start it.
+  #
+  # It mounts nothing and is given nothing. The suite answers its own routing
+  # questions from a graph written in the test and builds its own booth table,
+  # so it reaches neither router and reads no artefact. A test runner carrying
+  # a dependency its tests do not use only makes the suite unrunnable on a
+  # checkout that has no graphs.
+  #
+  # It still runs from the application's own image, so what is tested is the
+  # code as it ships rather than a copy assembled by a test harness.
+  tests:
+    build: ./french_tolls
+    command: python3 -m pytest -q -p no:cacheprovider /app/french_tolls/tests
+    profiles: ["test"]
+
+  # The paid evaluation: it asks this project for a route, asks Google to drive
+  # it through the waypoints this project emitted, and reports how faithfully
+  # Google followed.
+  #
+  # Its own profile, so neither `docker compose up` nor `--profile app up`
+  # starts it. This is the one service in the project that spends money, and it
+  # runs when it is named and at no other time.
+  #
+  # ./data is writable because what it buys is kept there. It reaches the
+  # application and the routers by service name, as everything else does.
+  evaluation:
+    build: ./evaluation
+    volumes:
+      - "./data:/data"
+      # The application's package, read-only, for the corridor measure the
+      # refinement and this report have to agree on. Mounted rather than copied
+      # so there is exactly one implementation of it.
+      - "./french_tolls:/app/french_tolls:ro"
+    environment:
+      GOOGLE_DIRECTIONS_API_KEY: "${GOOGLE_DIRECTIONS_API_KEY:-}"
+      FRENCH_TOLLS_URL: "${FRENCH_TOLLS_URL:-http://web:8080}"
+      OSRM_TOLL_URL: "${OSRM_TOLL_URL:-http://osrm-toll:5000}"
+      OSRM_OPTIMAL_URL: "${OSRM_OPTIMAL_URL:-http://osrm-optimal:5000}"
+      DATA_DIR: "/data"
+      PUBLIC_SITE_URL: "${PUBLIC_SITE_URL:-https://french-tolls.undiscoveredlatitudes.com}"
+    profiles: ["evaluation"]
+
+# Cached answers and the autocomplete database. A named volume rather than a
+# path under `data/`: the cache is runtime state that grows, and `data/` holds
+# tracked deliverables the application mounts read-only.
+volumes:
+  cache:

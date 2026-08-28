@@ -53,6 +53,8 @@ SIDES        := $(DATA_DIR)/bidirectional_booth_sides.yaml
 REJECTED     := $(DATA_DIR)/vinci_routes_rejected.sqlite3
 SEGMENTS     := $(DATA_DIR)/segment_weights.csv
 SEG_REPORT   := $(DATA_DIR)/segment_weights_report.json
+TEST_CITIES  := $(DATA_DIR)/test_cities.yaml
+GOOGLE_DIR   := $(DATA_DIR)/google_routes
 
 # Two graphs. $(OSRM_DIR) is the untouched one -- the road network as OSM
 # describes it -- and it is what `setup_osrm` builds and what every step that
@@ -105,7 +107,9 @@ RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-tools
         build_segment_weights apply_segment_weights \
         guard-osrm-path guard-osrm-optimal-path guard-osrm-paths-differ \
         guard-ulys-key guard-ulys-passage-date \
-        update_route_set clean clean-osrm
+        update_route_set clean clean-osrm \
+        web bot app app-down test clean-cache \
+        test_cities test_google_routes test_google
 
 all: download_pbf setup_osrm build_osm_toll_booths build_route_set \
      build_vinci_toll_booths build_vinci_prices build_booth_sides \
@@ -591,3 +595,95 @@ clean-osrm: guard-osrm-path guard-osrm-optimal-path
 	rm -rf "$(OSRM_DIR)"/france-latest.osrm* "$(OSRM_STAMP)" \
 	       "$(OSRM_DIR)"/*.osm.pbf "$(PROFILE_DIR)"
 	rm -rf "$(OPT_DIR)"/france-latest.osrm* "$(OPT_STAMP)"
+
+# --------------------------------------------------------------------------
+# The application (not one of the eleven steps)
+# --------------------------------------------------------------------------
+# The web service, the bot, and the test suite read what the pipeline publishes
+# and are never invoked by it. They sit behind Compose profiles, so a plain
+# `docker compose up` still starts the two query services and nothing else.
+#
+# Every one of them needs the routers running: `web` and `bot` answer from them,
+# and the suite measures them. The recipes bring the routers up first rather
+# than failing on a connection refused.
+# Brings up the application and the front end together. The page is the point
+# of the web service, and `web` publishes no port of its own, so starting one
+# without the other leaves nothing a browser can reach.
+web: guard-osrm-paths-differ
+	$(COMPOSE) up -d osrm-toll osrm-optimal
+	$(COMPOSE) --profile app up -d --build web nginx
+
+bot: guard-osrm-paths-differ
+	@if [ -z "$(TELEGRAM_BOT_TOKEN)" ]; then \
+	    echo "ERROR: TELEGRAM_BOT_TOKEN is unset or empty."; \
+	    echo "       Copy .env.example to .env and set it to the token BotFather"; \
+	    echo "       issued. The bot polls Telegram and cannot start without one."; \
+	    exit 1; \
+	fi
+	$(COMPOSE) up -d osrm-toll osrm-optimal
+	$(COMPOSE) --profile app up -d --build bot
+
+app: web bot
+
+app-down:
+	$(COMPOSE) --profile app down
+
+# The unit test suite. A one-shot run, so it gets its own profile: `--profile
+# app up` must not start it as a service.
+#
+# No prerequisites on purpose. The suite reaches no routing service and reads
+# nothing under data/, so it needs neither the graphs nor a configured .env: a
+# fresh checkout can run it before the pipeline has ever been run.
+#
+# --no-TTY keeps the output readable when make is not on a terminal, and the
+# exit status is pytest's, so a failing suite fails the target.
+test:
+	$(COMPOSE) --profile test run --rm --no-TTY tests
+
+# Drops every cached answer and the autocomplete database.
+#
+# The cache is keyed by the data fingerprint, so a pipeline rebuild already
+# invalidates it and this is not needed to pick up new prices. It is here to
+# reclaim the disk of superseded fingerprints.
+clean-cache:
+	$(COMPOSE) --profile app down
+	docker volume rm $$(basename $$(pwd))_cache || true
+
+# --------------------------------------------------------------------------
+# The paid evaluation (not one of the eleven steps, and not part of `test`)
+# --------------------------------------------------------------------------
+# Measures whether Google actually drives the route this project computes when
+# it is given the waypoints this project emits.
+#
+# Deliberately reachable only by name. None of these is a prerequisite of `all`
+# or of `test`: `test` runs the unit suite and costs nothing, and every request
+# made here is billed. A measurement that can be triggered by habit is a
+# measurement that will be paid for by habit.
+RUN_EVAL := $(COMPOSE) --profile evaluation run --rm --no-TTY --user $(HOST_USER) evaluation
+
+# Fifty cities spread over mainland France, chosen from the extract and written
+# to data/test_cities.yaml. Free, incremental, and reproducible.
+test_cities: guard-osrm-path
+	$(COMPOSE) up -d osrm-toll osrm-optimal
+	$(RUN_EVAL) python3 build_test_cities.py $(ARGS)
+
+# Buys the Google routes. COSTS MONEY. It counts what is outstanding, says what
+# that costs, and refuses to spend anything without --yes:
+#
+#   make test_google_routes                      # says what it would cost
+#   make test_google_routes ARGS="--limit 10 --yes"   # buys ten
+#   make test_google_routes ARGS="--yes"              # buys the rest
+#
+# Incremental at the granularity of one journey: a pair already on disk is never
+# requested again, and a request that fails writes nothing, so it is simply
+# outstanding next time.
+test_google_routes: guard-osrm-paths-differ | $(TEST_CITIES)
+	$(COMPOSE) up -d osrm-toll osrm-optimal
+	$(COMPOSE) --profile app up -d web
+	$(RUN_EVAL) python3 fetch_google_routes.py $(ARGS)
+
+# The report. Free, and makes no request to Google: it reads what was bought.
+test_google: guard-osrm-paths-differ
+	$(COMPOSE) up -d osrm-toll osrm-optimal
+	$(COMPOSE) --profile app up -d web
+	$(RUN_EVAL) python3 report.py $(ARGS)

@@ -1,12 +1,12 @@
 import json
 import os
-import sqlite3
 
 import aiohttp
 from aiohttp import web
 
+from . import db
+
 API_KEY = os.environ["LOCATIONIQ_API_KEY"]
-CACHE = os.environ.get("AUTOCOMPLETE_CACHE", "/data/autocomplete.sqlite")
 
 
 async def autocomplete(request):
@@ -14,12 +14,10 @@ async def autocomplete(request):
     if len(query) < 3:
         return web.json_response([])
 
-    db = sqlite3.connect(CACHE)
-    db.execute("CREATE TABLE IF NOT EXISTS cache (q TEXT PRIMARY KEY, response TEXT)")
-
-    row = db.execute("SELECT response FROM cache WHERE q = ?", (query,)).fetchone()
+    with db.connect() as connection:
+        row = connection.execute(
+            "SELECT response FROM autocomplete WHERE q = ?", (query,)).fetchone()
     if row:
-        db.close()
         return web.Response(text=row[0], content_type="application/json")
 
     async with aiohttp.ClientSession() as session:
@@ -34,7 +32,6 @@ async def autocomplete(request):
         }) as response:
             # 404 = nothing found, worth caching as an empty result.
             if response.status not in (200, 404):
-                db.close()
                 return web.json_response({"error": "locationiq http %d" % response.status}, status=502)
 
             places = await response.json() if response.status == 200 else []
@@ -50,8 +47,9 @@ async def autocomplete(request):
     ]
 
     text = json.dumps(results, ensure_ascii=False)
-    db.execute("INSERT OR REPLACE INTO cache VALUES (?, ?)", (query, text))
-    db.commit()
-    db.close()
+    with db.connect() as connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO autocomplete VALUES (?, ?)", (query, text))
+        connection.commit()
 
     return web.Response(text=text, content_type="application/json")

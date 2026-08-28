@@ -56,9 +56,19 @@ class Passage:
 
 @dataclass
 class Journey:
-    """Every passage a route makes, and what they come to."""
+    """Every passage a route makes, and what they come to.
+
+    `passages` is what is worth telling a driver, which is not quite everything
+    that was crossed: a flat-charge booth carrying no tariff is counted and not
+    listed. See `unpriced`.
+    """
 
     passages: list[Passage] = field(default_factory=list)
+    # Crossings that could not be priced and are not worth a line of their own:
+    # a passthrough or gantry with no tariff has no amount, and its name adds
+    # nothing to a road the driver is already looking at. Counted so the journey
+    # never stops admitting that something was crossed and not charged.
+    silent_unpriced: int = 0
 
     @property
     def cost(self) -> float:
@@ -67,7 +77,8 @@ class Journey:
 
     @property
     def unpriced(self) -> int:
-        return sum(1 for p in self.passages if not p.priced)
+        """Every crossing that could not be priced, listed or not."""
+        return sum(1 for p in self.passages if not p.priced) + self.silent_unpriced
 
 
 def _crossings(data: BoothData, node_ids) -> list[tuple[int, Booth, int | None, int | None]]:
@@ -192,9 +203,13 @@ def account(data: BoothData, node_ids) -> Journey:
             # gantry charges for a section travelled, and a passthrough barrier
             # is paid where it stands.
             if booth.price is None:
-                journey.passages.append(Passage(
-                    name=booth.label, index=index, reason=BOOTH_NOT_PRICED
-                ))
+                # Counted, not listed. There is nothing to tell a driver: no
+                # amount, and a name that adds nothing to a road already on the
+                # screen. Every other unpriceable passage stays in the list --
+                # a ticketed section has two named ends and a charge of real
+                # size the driver will pay, and hiding that would hide money
+                # rather than hide noise.
+                journey.silent_unpriced += 1
             else:
                 journey.passages.append(Passage(name=booth.label, cost=booth.price, index=index))
 

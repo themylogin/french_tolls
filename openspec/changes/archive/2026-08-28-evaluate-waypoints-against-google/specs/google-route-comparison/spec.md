@@ -1,0 +1,286 @@
+## Purpose
+
+Measures whether the waypoints this project emits actually make Google drive the optimal route — a set of test cities, a bought-once corpus of Google routes through those waypoints, and a report saying how faithfully Google followed and how far its travel times sit from OSRM's.
+
+## ADDED Requirements
+
+### Requirement: The measurement is never part of a routine run
+
+No target of this capability SHALL be a prerequisite of `all`, of `test`, or of any other target that a person runs without meaning to run this one.
+
+Every request it makes to Google is paid for. A measurement that can be triggered by habit is a measurement that will be paid for by habit.
+
+`make test` SHALL continue to run the unit suite, and only the unit suite. The two are different questions — whether the algorithm is correct, and whether Google agrees with it — and only one of them costs money.
+
+#### Scenario: The pipeline does not run it
+
+- **WHEN** `make all` is run
+- **THEN** no city set is generated, no Google request is made, and no report is printed
+
+#### Scenario: The unit suite does not run it
+
+- **WHEN** `make test` is run
+- **THEN** the 47 unit tests run and nothing contacts Google
+
+#### Scenario: It runs when it is named
+
+- **WHEN** `make test_google` is run
+- **THEN** the measurement proceeds
+
+### Requirement: Fifty cities, spread over mainland France
+
+`data/test_cities.yaml` SHALL hold a list under the key `cities`, each entry carrying `osm_id`, `name`, and `latlon`:
+
+```yaml
+cities:
+  - osm_id: 20524
+    name: Paris
+    latlon: [48.8566, 2.3522]
+```
+
+Candidates SHALL be OSM nodes tagged `place=city`, taken from the France extract the pipeline already downloads. Where fifty such nodes cannot be spread acceptably, `place=town` SHALL be admitted as well, and the step SHALL say that it did.
+
+The fifty SHALL be chosen to cover the territory rather than to be the largest: repeatedly taking the candidate furthest from every city already chosen produces a spread that a population ranking does not, because population clusters and the road network does not. The choice SHALL be deterministic, so that two runs of the same extract produce the same file.
+
+#### Scenario: The file's shape
+
+- **WHEN** `data/test_cities.yaml` is read
+- **THEN** it parses as YAML with a `cities` list of fifty entries, each carrying `osm_id`, `name`, and `latlon`
+
+#### Scenario: The spread is not a population ranking
+
+- **WHEN** the fifty are chosen
+- **THEN** they are chosen by distance from one another, and the set is not simply the fifty largest cities
+
+#### Scenario: The choice is reproducible
+
+- **WHEN** the step is run twice against the same extract with no existing file
+- **THEN** it produces the same fifty cities in the same order
+
+### Requirement: Mainland is decided by the road network, not by a box
+
+A candidate SHALL be admitted only if this project's own routing graph can drive to it from a mainland reference point **without taking a ferry**.
+
+A latitude and longitude box has to be drawn by hand, has to be redrawn when it is found to clip somewhere real, and states as geography something the network states as fact. But the unqualified question — can the router reach it? — admits Corsica, because the car profile is content to board a ferry. Measured, Bastia is 21.3 hours from Paris by road and ferry, and unreachable when ferries are excluded, while Lyon is 5.0 hours either way.
+
+The exclusion SHALL be asked of the router rather than applied afterwards. The routing profile declares `ferry` an excludable class, so the router can answer the question actually meant instead of being asked a different one and then argued out of the answer.
+
+The overseas departments SHALL need no handling. The France extract this project downloads does not carry them: measured, it holds no city or town node outside mainland Europe and Corsica.
+
+A candidate the router cannot reach SHALL be excluded, and the step SHALL report how many were excluded for that reason.
+
+#### Scenario: Corsica is excluded
+
+- **WHEN** the city set is built
+- **THEN** no city on Corsica appears in it, because no ferry-free route reaches one
+
+#### Scenario: A ferry-free route is what is asked for
+
+- **WHEN** reachability is tested
+- **THEN** the request excludes the ferry class, and a candidate reachable only by ferry is reported unreachable
+
+#### Scenario: The mainland is unaffected by the exclusion
+
+- **WHEN** a mainland candidate is tested
+- **THEN** its reachability and duration are the same with ferries excluded as without
+
+#### Scenario: The exclusions are reported
+
+- **WHEN** the step completes
+- **THEN** it states how many candidates were unreachable
+
+### Requirement: The city set is built incrementally
+
+An existing `data/test_cities.yaml` SHALL be read, its cities kept, and only the shortfall to fifty chosen afresh. A file already holding fifty SHALL leave the step with nothing to do.
+
+A city already in the file SHALL NOT be dropped or reordered by a later run. The Google routes are stored under the ids in this file, so a city that changes place invalidates every route that named it.
+
+#### Scenario: A complete file is left alone
+
+- **WHEN** the step runs against a file of fifty cities
+- **THEN** the file is unchanged and no route is invalidated
+
+#### Scenario: A partial file is topped up
+
+- **WHEN** the step runs against a file of twenty cities
+- **THEN** those twenty are kept in place and thirty more are added
+
+### Requirement: Google is asked to drive the route this project computed
+
+For each ordered pair of cities, the system SHALL obtain this project's optimal route and its waypoints, and SHALL ask Google for a driving route from the origin to the destination through exactly those waypoints, in that order.
+
+Both directions of every pair SHALL be requested. A→B and B→A cross different barriers, are priced differently, and get different waypoints, so one direction says nothing about the other.
+
+The route and the waypoints SHALL be obtained from the running application's `/api/calculate`, not from a private copy of the algorithm. What is under measurement is what a user is given.
+
+#### Scenario: Every ordered pair
+
+- **WHEN** the sweep is complete for fifty cities
+- **THEN** 2 450 journeys have been requested, being both directions of all 1 225 pairs
+
+#### Scenario: The waypoints are the ones under test
+
+- **WHEN** a journey is submitted to Google
+- **THEN** its intermediate waypoints are exactly those `/api/calculate` returned for that journey, in the order it returned them
+
+#### Scenario: A journey needing no waypoint
+
+- **WHEN** this project emits no waypoint for a journey
+- **THEN** Google is asked for that journey with no intermediates, and the answer is stored like any other
+
+### Requirement: The request describes an empty road
+
+Requests SHALL go to the Routes API's `computeRoutes`, with `travelMode: DRIVE` and `routingPreference: TRAFFIC_UNAWARE`.
+
+`TRAFFIC_UNAWARE` is Google routing as though the road were empty. That is what OSRM computes from its profile's speeds, and it is the only setting under which the two durations are answers to the same question. A traffic-aware route would differ from ours for a reason that has nothing to do with the waypoints.
+
+The request SHALL NOT carry a departure time, SHALL NOT request a fuel-efficient or eco alternative, SHALL NOT request alternative routes, and SHALL NOT permit the waypoint order to be optimised. Reordering the waypoints would answer a question about a journey nobody asked for.
+
+Tolls SHALL NOT be avoided. The whole subject is a route that uses toll roads deliberately.
+
+Every route modifier that has a default SHALL be stated rather than left to it, so that a change to Google's defaults cannot silently change what was measured.
+
+#### Scenario: Traffic takes no part
+
+- **WHEN** a request is built
+- **THEN** it sets `routingPreference: TRAFFIC_UNAWARE` and carries no departure time
+
+#### Scenario: The waypoints are not reordered
+
+- **WHEN** a request carries intermediates
+- **THEN** waypoint order optimisation is off, and Google's answer visits them in the order given
+
+#### Scenario: Tolls are not avoided
+
+- **WHEN** a request is built
+- **THEN** it does not ask to avoid tolls, and says so explicitly rather than relying on the default
+
+### Requirement: A paid answer is stored whole and never bought twice
+
+Each journey's answer SHALL be written to `data/google_routes/{origin osm_id}-{destination osm_id}.json`.
+
+The system SHALL request every field the API will return, and SHALL store the response body unaltered. A field not stored today is a field that has to be paid for again to obtain.
+
+The file SHALL also carry the request that produced it, the waypoints that were sent, this project's own route for that journey, and when it was fetched. An answer whose question is not recorded cannot be interpreted later, and the waypoints are the subject of the measurement.
+
+A journey whose file already exists SHALL NOT be requested again. A request that fails SHALL write no file, so that it is simply outstanding on the next run.
+
+#### Scenario: Everything is kept
+
+- **WHEN** a journey is fetched
+- **THEN** its file holds the whole response body, the request sent, the waypoints, this project's route, and a timestamp
+
+#### Scenario: A second run costs nothing
+
+- **WHEN** the step is run again with every file present
+- **THEN** no request is made to Google
+
+#### Scenario: A failure stays outstanding
+
+- **WHEN** a request fails
+- **THEN** no file is written for it, the failure is reported, and the sweep continues with the rest
+
+### Requirement: Nothing is spent without saying so first
+
+Before issuing any request, the step SHALL count the journeys it would fetch, state that count and the money it implies, and stop unless it has been told to proceed.
+
+The system SHALL refuse to start when no API key is configured, naming the variable, rather than issuing requests that fail one at a time.
+
+A limit SHALL be settable, so that a first run can buy ten answers and be looked at before the remaining two thousand are bought.
+
+A limited run SHALL be able to choose *which* journeys it buys, not merely how many. Outstanding pairs are enumerated origin-major, so the first ten are ten destinations from one city: a sample of that city's surroundings rather than of the country. Selecting the longest journeys that share no city with one another SHALL be available, because a long journey crosses more of the toll network and a repeated city makes two results share whatever is peculiar about it.
+
+#### Scenario: The cost is stated before it is incurred
+
+- **WHEN** the step is run with 2 450 journeys outstanding
+- **THEN** it reports the count and the estimated cost, and makes no request until it is told to go ahead
+
+#### Scenario: No key
+
+- **WHEN** the step is run with no API key configured
+- **THEN** it stops naming the variable, and issues no request
+
+#### Scenario: A limited first run
+
+- **WHEN** the step is run with a limit of ten
+- **THEN** at most ten journeys are fetched and the rest remain outstanding
+
+#### Scenario: A limited run can be a spread rather than a prefix
+
+- **WHEN** a limited run is asked for the longest independent journeys
+- **THEN** the ten it buys share no city with one another, and it names them before spending
+
+### Requirement: Faithfulness is how much of Google's route ran along ours
+
+For each journey the system SHALL compute an **overlap**: the proportion of the length of Google's route that lies within a corridor of this project's optimal route.
+
+The corridor half-width SHALL default to 50 m and SHALL be settable. It is wide enough to absorb the two networks disagreeing about where a carriageway lies, and narrow enough that a parallel road is outside it.
+
+The measure SHALL be weighted by length rather than by number of points. Google's geometry is denser through bends than along a motorway, so counting points would let a roundabout outweigh fifty kilometres of autoroute.
+
+Comparing totals alone SHALL NOT be used as the measure of faithfulness. A detour of similar length reads as agreement, and that is the failure this exists to catch.
+
+#### Scenario: Google drove our route
+
+- **WHEN** Google's route runs along the optimal route throughout
+- **THEN** its overlap is at or near 1.0
+
+#### Scenario: Google took a different road
+
+- **WHEN** Google leaves the optimal route for a third of its length
+- **THEN** the overlap is about 0.67, however similar the totals are
+
+#### Scenario: Length, not points
+
+- **WHEN** Google's geometry is dense in one place and sparse in another
+- **THEN** each contributes to the overlap in proportion to its length
+
+### Requirement: The report answers three questions
+
+`make test_google` SHALL print, from the stored answers and freshly obtained OSRM routes for the same journeys:
+
+1. **The ten least faithful journeys**, ranked by ascending overlap. Each SHALL name its two cities, its overlap, both routes' distance and duration, and four links: this project's map and Google's map, for this project's route and for Google's.
+2. **The ten largest time deviations in minutes, and the ten largest in proportion**, as two separate lists. They disagree — the largest in minutes are long journeys, the largest in proportion are short ones — and a report giving only one of the two misreads the data.
+3. **The average multiplier from OSRM's travel time to Google's**, over every journey with a stored answer, together with the spread so that an average over disagreeing journeys is not read as agreement.
+
+The report SHALL state how many journeys it covered and how many are missing, so that a report over a partial corpus is never mistaken for a report over all of it.
+
+The report SHALL NOT contact Google. It reads what was bought.
+
+#### Scenario: A journey can be looked at
+
+- **WHEN** a journey appears among the ten least faithful
+- **THEN** the report carries links that open this project's route and Google's route on a map
+
+#### Scenario: The two time rankings are separate
+
+- **WHEN** the time deviations are reported
+- **THEN** the largest in minutes and the largest in proportion appear as two lists
+
+#### Scenario: Coverage is stated
+
+- **WHEN** the report runs with 300 of 2 450 answers stored
+- **THEN** it says so, and its averages are labelled as being over those 300
+
+#### Scenario: The report is free
+
+- **WHEN** the report is run
+- **THEN** no request is made to Google, whatever is missing
+
+### Requirement: The evaluation is a Compose service of its own
+
+`docker-compose.yml` SHALL define an `evaluation` service, built from an image under `evaluation/`, behind its own profile so that neither `docker compose up` nor the application's profile starts it.
+
+It SHALL mount `./data` writable, because what it produces is kept there, and SHALL reach the application and the routers by service name over the Compose network.
+
+It is the one service in this project permitted to make a paid outbound request, and the only one that needs the Google key.
+
+#### Scenario: It is not started by anything else
+
+- **WHEN** `docker compose up` or `docker compose --profile app up` is run
+- **THEN** the evaluation service does not start
+
+#### Scenario: It reaches the application by name
+
+- **WHEN** the sweep asks for a route
+- **THEN** it calls the web service over the Compose network, not a published host port
