@@ -41,6 +41,15 @@ toll_booths:
     price: 1.4
   1838205657:
     type: absent_exit
+  # Three free-flow points on the A13 that charge for passing them and carry no
+  # stated tariff, so `build_vinci_prices` writes them no entry and step 10 has
+  # nothing to charge for. They are free on the toll-weighted graph, and a
+  # `price` here is what would fix that -- see the change
+  # `price-booths-that-charge-at-a-point`. Each is its own charging point, not
+  # another lane of one already priced: Rosny-sur-Seine is 3.25 km from
+  # BUCHELAY FL, Cagny 255 m from CAGNY FL and Beuzeville 354 m from
+  # BEUZEVILLE FL ECH CAEN. The tariffs have to be read off the operator's own
+  # table; nothing in this pipeline can derive them.
   # Rosny-sur-Seine
   12636038010:
     type: absent_passthrough

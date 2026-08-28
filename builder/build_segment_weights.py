@@ -24,11 +24,12 @@ only the rate:
 costing a tolled segment the driver's own time to pay for it. Turn weights are
 untouched, so a route's weight rises by exactly the sum of its tolls.
 
-A `passthrough` booth charges a flat fee for passing one point. It sells no
-ticket, so it is in no priced pair and the sampling above never reaches it. Such
-a booth is charged on the arcs leaving it instead:
+Some booths charge a flat fee for passing one point rather than for a distance
+driven. They sell no ticket, so they are in no priced pair and the sampling
+above never reaches them. Such a booth carries a `price` and ends no placed
+pair, and it is charged on the arcs leaving it instead:
 
-    for every booth that charges at a point
+    for every booth carrying a `price` that ends no placed pair
         for every arc whose tail is one of its lane nodes
             measure that arc on the graph
             the booth's whole tariff       -> that arc's own row
@@ -76,7 +77,6 @@ table = bp.table
 
 ENTER, EXIT = bp.ENTER, bp.EXIT
 BIDIRECTIONAL, GANTRY = bp.BIDIRECTIONAL, bp.GANTRY
-PASSTHROUGH = bp.PASSTHROUGH
 
 # A booth's role decides which end of a ticket it can be. A `gantry` is both: it
 # opens a section when another gantry follows and closes one when it is the one
@@ -161,9 +161,21 @@ ARC_RADII = (2.0, 6.0, 15.0)
 ARC_STANDOFFS = (150.0, 400.0, 60.0, 1000.0)
 
 # A measured arc whose routed length disagrees with the distance between its own
-# two nodes by more than this did not measure the arc. Measured, the
-# disagreement is 0.05 m at the median and 0.27 m at the worst.
+# two nodes by more than this did not measure the arc. The bound is the larger
+# of the two: a metre, or a share of the arc's own length.
+#
+# The share is what a bend costs. A road curves between its nodes, so the routed
+# length exceeds the chord in proportion to the length rather than by a fixed
+# amount, and an absolute metre is a bound only a short arc can meet. A barrier
+# sits in a plaza where the next node is 18 m away at the median; a free-flow
+# point sits on open motorway where it can be half a kilometre. Measured over
+# the 44 arcs of the booths this step gained, the disagreement is 0.07 m at the
+# median and 1.53 m at the worst, which is 0.4874% of its own arc.
+#
+# The floor keeps a short arc held as tightly as it was: at the shortest arc in
+# the inventory, 1.3 m, one per cent is 13 mm.
 ARC_LENGTH_TOLERANCE_M = 1.0
+ARC_LENGTH_TOLERANCE_FRACTION = 0.01
 
 
 def stop(kind, message):
@@ -188,20 +200,46 @@ def load_gares(path):
     return out
 
 
-def flat_charges(priced):
-    """group -> tariff in euros, for the booths that charge at a point.
+def flat_charges(priced, ends_pair):
+    """(group -> tariff in euros, the tally), for the booths that charge at a point.
 
-    A `passthrough` booth sells no ticket, so it appears in no priced pair and
-    the sampling that prices the ticket network never reaches it.
+    Two clauses, and neither is a test on the entry's `type`. That field names
+    the hardware and not the charge: `gantry` comes from the OSM tag
+    `highway=toll_gantry` and covers a ticketless entrance that takes no money,
+    a point that opens and closes priced sections, and a point that charges a
+    fixed amount for passing it. `bidirectional` names a lane a vehicle can
+    drive either way, which says nothing about what it charges.
 
-    `price` is not exclusive to that type -- a `gantry` and a `bidirectional`
-    booth may carry one too -- and those are deliberately left out. Both are
-    also ends of priced pairs, and one gantry carries `price` and `prices`
-    together, so a flat charge for either would price the same passage twice.
+    Carrying a `price` says the operator charges for the passage itself: step 8
+    records one only for a passage the service returned with no exit attached.
+
+    Ending no placed pair says the passage is not already paid for. A booth that
+    is the entrance or the exit of a priced pair has its tariff spread over that
+    pair's route, and a flat row for it would charge the same passage twice.
+
+    `ends_pair` comes from the pairs that produced samples, not from every pair
+    enumerated. A pair rejected as unusable put its tariff on no segment, so its
+    booths are not paid for by it and stay eligible here.
+
+    There is deliberately no third clause refusing a group whose arc already
+    carries a sample. It could fire on nothing -- `blockers_of` rejects a pair
+    whose route crosses a third booth, so an arc leaving a booth is sampled only
+    when that booth is one of the pair's own ends, and such a booth fails the
+    second clause already. It would also contradict the rule that a flat charge
+    and a per-kilometre rate add on the same segment, by dropping the tariff
+    where that rule says to charge both.
     """
-    return {group: record["price"] / 100.0
-            for group, record in priced.items()
-            if record["type"] == PASSTHROUGH and record.get("price")}
+    charges, tally = {}, collections.Counter()
+    for group, record in priced.items():
+        if not record.get("price"):
+            tally["carry no price"] += 1
+            continue
+        if group in ends_pair:
+            tally["end a placed pair"] += 1
+            continue
+        charges[group] = record["price"] / 100.0
+        tally["charge at a point"] += 1
+    return charges, tally
 
 
 def load_arcs(path, groups):
@@ -533,7 +571,15 @@ def measure_arc(router, tail, head, tail_at, head_at):
     arc, and the whole tariff would land on it.
     """
     want_m = crow_km(tail_at, head_at) * 1000.0
+    slack = arc_length_slack(want_m)
     reason = "no route"
+
+    def wrong_length(found):
+        if abs(found[0] - want_m) <= slack:
+            return None
+        return (f"routed {found[0]:.1f} m against {want_m:.1f} m between the"
+                f" two nodes, outside the {slack:.1f} m allowed")
+
     for radius in ARC_RADII:
         answer = router.route(tail_at, head_at, radius=radius)
         if answer is None:
@@ -542,9 +588,9 @@ def measure_arc(router, tail, head, tail_at, head_at):
         if found is None:
             reason = "the arc is not on the route between its own ends"
             continue
-        if abs(found[0] - want_m) > ARC_LENGTH_TOLERANCE_M:
-            reason = (f"routed {found[0]:.1f} m against {want_m:.1f} m"
-                      f" between the two nodes")
+        off = wrong_length(found)
+        if off:
+            reason = off
             continue
         return (*found, f"radius {radius:g} m")
 
@@ -558,12 +604,17 @@ def measure_arc(router, tail, head, tail_at, head_at):
         if found is None:
             reason = "the arc is not inside a route driving past it"
             continue
-        if abs(found[0] - want_m) > ARC_LENGTH_TOLERANCE_M:
-            reason = (f"routed {found[0]:.1f} m against {want_m:.1f} m"
-                      f" between the two nodes")
+        off = wrong_length(found)
+        if off:
+            reason = off
             continue
         return (*found, f"standoff {standoff:g} m")
     return None, reason, None, None
+
+
+def arc_length_slack(want_m):
+    """How far a measured arc may differ from the line between its own nodes."""
+    return max(ARC_LENGTH_TOLERANCE_M, ARC_LENGTH_TOLERANCE_FRACTION * want_m)
 
 
 def measure_flat(router, arcs_by_group, charges, gares, workers):
@@ -1463,12 +1514,13 @@ def run(args):
         print(f"    {len(unresolved)} row(s) name a gare no target booth carries:"
               f" {unresolved[:5]}")
 
-    charges = flat_charges(priced)
-    arcs_by_group = load_arcs(args.booths, charges)
-    arc_count = sum(len(a) for a in arcs_by_group.values())
-    lane_count = len({a[0] for arcs in arcs_by_group.values() for a in arcs})
-    print(f"    {len(charges)} booth(s) charging at a point,"
-          f" {lane_count} lane node(s), {arc_count} arc(s) to charge")
+    # Which booths charge at a point is not known until the pairs are routed:
+    # the second clause asks which of them ended one. So the count printed here
+    # is the groups carrying a `price`, which is what can be known without the
+    # router, and the set itself is settled after `collect`.
+    priced_groups = sum(1 for r in priced.values() if r.get("price"))
+    print(f"    {priced_groups} booth(s) carrying a price; how many of them"
+          f" charge at a point is settled after the pairs are routed")
     if args.dry_run:
         return 0
 
@@ -1490,6 +1542,20 @@ def run(args):
 
     if not records:
         raise Abort("no priced pair produced a single segment; nothing to write")
+
+    # A booth is paid for by a pair only where that pair reached a segment, so
+    # the set is built from the placed records rather than from every pair
+    # enumerated. A pair rejected as unusable put its tariff nowhere, and its
+    # booths stay eligible for a flat row.
+    ends_pair = {r["src"] for r in records} | {r["tgt"] for r in records}
+    charges, tally = flat_charges(priced, ends_pair)
+    arcs_by_group = load_arcs(args.booths, charges)
+    arc_count = sum(len(a) for a in arcs_by_group.values())
+    lane_count = len({a[0] for arcs in arcs_by_group.values() for a in arcs})
+    print(f"    {len(charges)} booth(s) charging at a point,"
+          f" {lane_count} lane node(s), {arc_count} arc(s) to charge")
+    for reason, count in sorted(tally.items()):
+        print(f"      {reason:<24}  {count}")
 
     started = time.monotonic()
     flat = measure_flat(router, arcs_by_group, charges, gares, args.workers)
@@ -1550,13 +1616,102 @@ def run(args):
     return 0
 
 
+def flat_from_report(path, booths):
+    """(group -> tariff, group -> [arc]) as the run that wrote the file chose them.
+
+    The check routes no priced pair, so it cannot tell which booths ended one
+    and cannot apply the second clause itself. Deriving the set here by some
+    other rule would mean checking a set this file was not written from, which
+    is not a check of the file at all.
+
+    The arcs' positions still come from the inventory: the report carries the
+    node ids and the tariff, and `measure_arc` needs the two coordinates.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except OSError as exc:
+        raise Abort(
+            f"the acceptance check reads the flat charges from {path},"
+            f" and it could not be opened: {exc}\n"
+            f"       Run the step that writes it before verifying. A check with"
+            f" no subjects passes on a graph with every barrier free.")
+    records = doc.get("flat")
+    if not records:
+        raise Abort(
+            f"{path} carries no `flat` records, so the acceptance check has no"
+            f" barrier to check.\n"
+            f"       Either the file predates the flat charges or the run wrote"
+            f" none. A check with no subjects passes on a graph with every"
+            f" barrier free, which is the failure it exists to catch.")
+
+    position = {}
+    with open(booths, encoding="utf-8") as fh:
+        inv = yaml.safe_load(fh) or {}
+    for section in ("toll_booths", "aliases"):
+        for node, entry in (inv.get(section) or {}).items():
+            position[int(node)] = tuple((entry or {})["latlon"])
+            for head, latlon in ((entry or {}).get("onward_nodes") or {}).items():
+                position.setdefault(int(head), tuple(latlon))
+
+    charges, arcs = {}, collections.defaultdict(list)
+    missing = []
+    for rec in records:
+        group, tail, head = rec["group"], rec["f"], rec["t"]
+        if tail not in position or head not in position:
+            missing.append((group, tail, head))
+            continue
+        charges[group] = rec["eur"]
+        arcs[group].append((tail, head, position[tail], position[head]))
+    if missing:
+        raise Abort(
+            f"{path} names {len(missing)} arc(s) the inventory no longer"
+            f" places: {missing[:5]}\n"
+            f"       The report and {booths} disagree about the road. Rerun the"
+            f" step against this inventory rather than checking an arc whose"
+            f" ends are unknown.")
+    return charges, dict(arcs)
+
+
+def check_rows_present(out_path, arcs_by_group, gares, charges):
+    """Every arc the report names must be a row of the file being checked."""
+    want = {(tail, head) for arcs in arcs_by_group.values()
+            for tail, head, _t, _h in arcs}
+    have = set()
+    try:
+        with open(out_path, encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.split(",")
+                if len(parts) == 4:
+                    have.add((int(parts[0]), int(parts[1])))
+    except OSError as exc:
+        raise Abort(f"could not read {out_path} to check it carries every arc"
+                    f" the report names: {exc}")
+    absent = sorted(want - have)
+    if absent:
+        by_arc = {(t, h): g for g, arcs in arcs_by_group.items()
+                  for t, h, _a, _b in arcs}
+        lines = [f"{len(absent)} arc(s) named in the report are not rows of"
+                 f" {out_path}:"]
+        for tail, head in absent[:10]:
+            group = by_arc[(tail, head)]
+            lines.append(f"         {group} ({gares.get(group, ('', ''))[1]}),"
+                         f" {charges[group]:.2f} EUR: {tail} -> {head}")
+        lines.append("       The report and the file were written by different"
+                     " runs. A barrier with no row is a barrier the router"
+                     " drives through for free.")
+        raise stop("flat", "\n       ".join(lines))
+
+
 def verify(args):
     """The acceptance check alone, run once both graphs exist."""
     _traversable, _resolve, position = bd.load_inventory(args.booths)
-    priced, _done = bp.load_state(args.prices)
     gares = load_gares(args.gares)
-    charges = flat_charges(priced)
-    arcs_by_group = load_arcs(args.booths, charges)
+    charges, arcs_by_group = flat_from_report(args.report, args.booths)
+    check_rows_present(args.out, arcs_by_group, gares, charges)
+    print(f"    {len(charges)} booth(s) charging at a point,"
+          f" {sum(len(a) for a in arcs_by_group.values())} arc(s)"
+          f" from {args.report}")
 
     for line in check_graphs(args.osrm, args.osrm_optimal, position,
                              args.wage, args.tolerance):

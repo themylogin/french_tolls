@@ -150,7 +150,15 @@ The step SHALL report how many segments rest on a single sample, since those car
 
 ### Requirement: A booth that charges at a point contributes one row per arc leaving it
 
-A **flat-charge booth** is a booth group whose entry in `data/vinci_price.yaml` carries `type: passthrough` and a single `price`. It sells no ticket, so it appears in no priced pair, and the sampling that prices the ticket network never reaches it. There are 239 of them, tariffed from 0.40 EUR to 55.50 EUR with a median of 2.00 EUR.
+A **flat-charge booth** is a booth group whose entry in `data/vinci_price.yaml` carries a `price` and that is **not an end of any placed pair**. It charges for passing one point rather than over a distance, so the sampling that prices the ticket network never reaches it. There are 280 of them, tariffed from 0.40 EUR to 55.50 EUR with a median of 2.00 EUR.
+
+The definition SHALL NOT be a test on the entry's `type`. That field names the hardware, not the charge. `gantry` comes from the OSM tag `highway=toll_gantry` and covers three unrelated behaviours: a ticketless entrance that takes no money and leaves the collecting to an exit barrier, a point that opens and closes priced sections on a free-flow motorway, and a point that charges a fixed amount for passing it. `bidirectional` names a lane a vehicle can drive either way, which says nothing about what it charges. Selecting on the type both misses 41 booths that charge at a point and would admit booths that do not.
+
+Carrying a `price` is what says the operator charges for the passage itself: the price file records one only for a passage the operator returned with no exit attached to it.
+
+Ending no placed pair is what says the passage is not already paid for. A booth that is the entrance or the exit of a priced pair has its tariff spread over the segments of that pair's route, and a flat row for it would charge the same passage twice. Two booths are rejected on this ground, both gantries at Montbeugny Est on the A79: one is the target of a pair priced at 1.90 EUR over 3.55 km, and one carries `price` and `prices` together.
+
+A group SHALL NOT be rejected because an arc leaving it already carries a sample. That cannot happen to a group ending no placed pair — a pair whose route crosses a third booth is rejected before it samples anything — and where the two sources do meet the rule is that they add, not that the charge is dropped.
 
 For every flat-charge booth, the step SHALL write one row for each **directed arc whose tail is one of that group's lane nodes**, and each such row SHALL carry the group's whole tariff. A lane node is the group's representative or any node the inventory records as an alias of it.
 
@@ -160,9 +168,9 @@ The tail is what makes this exact. A row is an oriented `from,to` pair, so the t
 
 Every lane SHALL be charged, aliases included. A plaza where one lane carries the charge and another does not is worse than a plaza where neither does: the router finds the free lane and takes it every time, and the journey then costs less than it did before the barrier was priced at all.
 
-Measured over the 239 groups: 286 lane nodes, 288 arcs, 284 lane nodes with one arc out and 2 with two. No arc's head is itself a booth lane node, of that group or any other, so no route can pay two rows for one barrier.
+Because the second clause reads the placed pairs, the flat set SHALL be chosen after the priced pairs have been routed, not before. A run that enumerates without routing SHALL report the groups carrying a `price` rather than a number of arcs it cannot yet know.
 
-Booths that charge over a distance SHALL NOT be given a flat row. A `gantry` and a `bidirectional` booth may carry a `price` as well — 41 and 2 of them do — but both are also ends of priced pairs, and one gantry carries `price` and `prices` together. A flat row for those would charge the same passage twice.
+Measured over the 280 groups: 333 arcs, no arc's head is itself a booth lane node of that group or any other, so no route can pay two rows for one point. Of those, 239 groups and 289 arcs are the barriers already written; the other 41 groups and 44 arcs are new, over 22 gares, tariffed from 0.70 EUR to 10.80 EUR with a median of 2.50 and a total of 128.20 EUR.
 
 #### Scenario: A barrier is charged
 
@@ -172,17 +180,42 @@ Booths that charge over a distance SHALL NOT be given a flat row. A `gantry` and
 #### Scenario: A journey across a barrier is no longer free
 
 - **WHEN** Clermont-Ferrand to Beziers, which crosses the VIADUC DE MILLAU barrier, is routed on both graphs
-- **THEN** the toll-weighted graph either charges 2 484 more weight than the untouched graph or returns a route that does not cross the barrier — measured before this change, the difference is +0.0 on both counts
+- **THEN** the toll-weighted graph either charges 2 484 more weight than the untouched graph or returns a route that does not cross the barrier
 
 #### Scenario: A barrier with no alternative is charged in full
 
 - **WHEN** Le Havre to Honfleur, whose road crosses the PONT DE NORMANDIE barrier at 5.90 EUR, is routed on both graphs
 - **THEN** both graphs return the same road, and the toll-weighted weight exceeds the untouched weight by 1 062, that is 17.7 minutes of a driver's work, with the two durations equal
 
-#### Scenario: A barrier is only as dear as the way past it
+#### Scenario: A free-flow point charge is charged
 
-- **WHEN** a plaza's other lanes carry no `barrier=toll_booth` node, so the inventory holds one lane of it, as at ILE DE RE
-- **THEN** the toll-weighted graph routes through the untagged lanes and pays a fraction of the tariff, and no rule in this step corrects that — what is missing is a booth in the extract, not a row in the file
+- **WHEN** MONTESSON, a booth carrying `type: gantry` and `price: 10.80` and ending no placed pair, is written
+- **THEN** the file carries a row for the arc leaving each of its lane nodes, each carrying the whole 10.80 EUR
+
+#### Scenario: A two-way booth that charges at a point is charged
+
+- **WHEN** LESTELLE ST MARTORY, carrying `type: bidirectional` and `price: 1.50` and ending no placed pair, is written
+- **THEN** the file carries a row for the arc leaving its lane node, carrying the whole 1.50 EUR
+
+#### Scenario: A ticketless entrance gets no flat row
+
+- **WHEN** the booth at Chambéry Nord carrying `type: gantry`, `payment:none=yes` in the extract, `prices` and no `price` is considered
+- **THEN** no row is written for the arcs leaving it, because it carries no `price` and takes no money at that point
+
+#### Scenario: A section end gets no flat row
+
+- **WHEN** a booth carries a `price` and is also the target of a placed pair, as the gantry at Montbeugny Est priced at 1.90 EUR over 3.55 km is
+- **THEN** no row is written for the arcs leaving it, because its passage is already paid for by that pair
+
+#### Scenario: A gantry with a flat price gets no flat row
+
+- **WHEN** a booth's entry carries `type: gantry` and a `price`, and that booth is also an end of placed pairs — as the gantry carrying `price` and `prices` together at Montbeugny Est is
+- **THEN** no row is written for the arcs leaving it, because it would otherwise be charged twice; a gantry carrying a `price` and ending no pair is written instead
+
+#### Scenario: A ticket booth gets no flat row
+
+- **WHEN** a booth's entry carries `type: enter` or `type: exit`
+- **THEN** no row is written for the arcs leaving it, because it carries no `price`, and its tolls reach the file only through the pairs it belongs to
 
 #### Scenario: Each direction of a two-way barrier is its own row
 
@@ -194,30 +227,44 @@ Booths that charge over a distance SHALL NOT be given a flat row. A `gantry` and
 - **WHEN** a flat-charge group is carried by six lane nodes, as ENTREE TUNNEL DU FREJUS is
 - **THEN** the file carries a row for the arc leaving each of the six, and no lane of that plaza is cheaper than another
 
-#### Scenario: A ticket booth gets no flat row
+#### Scenario: A barrier is only as dear as the way past it
 
-- **WHEN** a booth's entry carries `type: enter` or `type: exit`
-- **THEN** no row is written for the arcs leaving it on that account, and its tolls reach the file only through the pairs it belongs to
+- **WHEN** a plaza's other lanes carry no `barrier=toll_booth` node, so the inventory holds one lane of it, as at ILE DE RE
+- **THEN** the toll-weighted graph routes through the untagged lanes and pays a fraction of the tariff, and no rule in this step corrects that — what is missing is a booth in the extract, not a row in the file
 
-#### Scenario: A gantry with a flat price gets no flat row
+#### Scenario: The flat set is chosen after the routing
 
-- **WHEN** a booth's entry carries `type: gantry` and a `price`
-- **THEN** no row is written for the arcs leaving it, because that booth is also an end of priced pairs and would otherwise be charged twice
+- **WHEN** the step is run without routing, to enumerate its work
+- **THEN** it names the groups carrying a `price` and does not claim a number of arcs to charge, since which of them end a placed pair is not yet known
 
 ### Requirement: The arc of a flat-charge booth is measured on the graph, and an unmeasured one stops the run
 
 The length, duration and weight of an arc leaving a flat-charge booth SHALL be taken from the router's own annotation for that arc, as they already are for a sampled segment. They are the numbers the graph was built with, and a length taken from the extract or a speed taken from the road's class would restate the arc's duration to no purpose.
 
+A measured arc SHALL be checked against the straight-line distance between its own two nodes, so that a route returning some other stretch of road is not taken for the arc and given the whole tariff. The allowed disagreement SHALL be **the larger of one metre and one per cent of that straight line**.
+
+The bound SHALL NOT be one metre alone. A road bends between its nodes, so the routed length exceeds the chord by a share of the length rather than by a fixed amount, and an absolute metre is a bound only a short arc can meet. A barrier sits in a plaza where the next node is close — 18.4 m at the median — while a free-flow point sits on open motorway where it can be half a kilometre away. Measured over the 44 new arcs, the disagreement is 0.07 m at the median and 1.53 m at the worst, which is 0.4874% of its own arc; the flat metre rejects two arcs of about 500 m that every radius and every standoff measures identically, and the proportional bound rejects none.
+
 The step SHALL stop when any arc of a flat-charge group cannot be measured, naming the group, its tariff and the arc. It SHALL NOT write a file in which some lanes of a plaza carry the charge and others do not, and it SHALL NOT silently drop a barrier.
 
 The step SHALL likewise stop when a flat-charge booth's entry in the inventory carries no `onward_nodes`, naming the booth. An inventory too old to hold the field prices every barrier at nothing, and nothing downstream can tell that from a file that simply has no barriers in it.
 
-Measured over the 288 arcs, two independent measurements agree exactly. A route between the arc's two node coordinates, with the snapping radius held to a few metres, returns 287 of them; a route that drives past the arc from a standoff either side returns 257 and covers the one the first misses. Over the 256 arcs both return, they differ by 0.000 m, 0.000 s and 0.000 weight.
+Measured, a route between the arc's two node coordinates with the snapping radius held to a few metres returns all 44 of the new arcs and 287 of the 289 already written. A route that drives past the arc from a standoff either side returns 257 of the 289 and covers the ones the first misses; over the 256 both return, they differ by 0.000 m, 0.000 s and 0.000 weight.
 
 #### Scenario: An arc is measured
 
 - **WHEN** an arc leaving a flat-charge booth is measured
-- **THEN** its length, duration and weight are those the untouched graph reports for that arc, and the routed length agrees with the distance between its two nodes to within a metre
+- **THEN** its length, duration and weight are those the untouched graph reports for that arc, and the routed length agrees with the distance between its two nodes within the larger of one metre and one per cent
+
+#### Scenario: A long arc on a bend is accepted
+
+- **WHEN** an arc whose two nodes are 500.1 m apart routes 501.7 m, a disagreement of 1.5 m and 0.305%
+- **THEN** it is accepted, because the bound at that length is 5.0 m rather than 1 m
+
+#### Scenario: A short arc is still held to a metre
+
+- **WHEN** an arc whose two nodes are 20 m apart routes 21.5 m
+- **THEN** it is rejected, because one per cent of 20 m is below the one-metre floor
 
 #### Scenario: An unmeasurable arc stops the run
 
@@ -232,20 +279,20 @@ Measured over the 288 arcs, two independent measurements agree exactly. A route 
 #### Scenario: Every group is accounted for
 
 - **WHEN** the step completes
-- **THEN** every flat-charge group in the price file has a row for every node its lane nodes' `onward_nodes` name
+- **THEN** every flat-charge group has a row for every node its lane nodes' `onward_nodes` name
 
 ### Requirement: A flat charge and a per-kilometre rate add on the same segment
 
-Where a directed segment both leaves a flat-charge booth and carries samples from priced pairs, its target weight SHALL include both terms. A row SHALL NOT replace one with the other.
+Where a directed segment both leaves a flat-charge booth and carries samples from priced pairs, its target weight SHALL include both terms. A row SHALL NOT replace one with the other, and the flat charge SHALL NOT be dropped on the ground that the segment is already sampled.
 
-Measured against the file as it stands, no such segment exists: none of the 288 arcs carries a row today, and no lane node of a flat-charge booth appears in any of the 249 454 rows. The rule is stated because the two sources are independent, and a future inventory or a future price file can make them meet.
+Measured against the file as it stands, no such segment exists: none of the 333 arcs carries a sample, and no lane node of a flat-charge booth appears in any of the 249 454 sampled rows. That is a consequence of how a pair is judged rather than a coincidence — a pair whose route crosses a third booth is rejected, so an arc leaving a booth is sampled only when that booth is itself a pair end, and such a booth is not a flat-charge booth. The rule is stated because a future judging rule or a future price file can make the two meet.
 
 The step SHALL report how many segments carry both.
 
 #### Scenario: The two sources are disjoint today
 
 - **WHEN** the step runs against the current price file and inventory
-- **THEN** it reports no segment carrying both a sample and a flat charge, and writes 249 742 rows: 249 454 sampled, 288 flat, none replaced
+- **THEN** it reports no segment carrying both a sample and a flat charge, and writes 249 787 rows: 249 454 sampled, 333 flat, none replaced
 
 #### Scenario: A segment carrying both
 
@@ -421,15 +468,17 @@ The check SHALL be part of the step, run against a pair fixed in the pipeline ra
 
 The fixed pair SHALL be LE PERTHUS, OSM node 36967365, to BEZIERS-OUEST, OSM node 1676618837, priced at 14.50 EUR. At 20 EUR per hour that is 43.5 minutes of work.
 
-The tolerance on that difference SHALL be 20% by default and SHALL be settable. It is not a bound on the graph's arithmetic, which is exact; it is a bound on how far the per-segment means reconstruct this one tariff. Measured, the pair comes back at 36.2 minutes — the means price this journey at 12.07 EUR against the operator's 14.50, an error of -16.7% that sits inside the measured p90 of 24.4% for all pairs.
+The tolerance on that difference SHALL be 20% by default and SHALL be settable. It is not a bound on the graph's arithmetic, which is exact; it is a bound on how far the per-segment rates reconstruct this one tariff. Measured, the pair comes back at 36.2 minutes — the rates price this journey at 12.07 EUR against the operator's 14.50, an error of -16.7% that sits inside the measured p90 for all pairs.
 
 The durations SHALL be equal. Measured, they are: 3688.7 s on both graphs.
 
 The check SHALL also cover **every arc of every flat-charge booth**. Each arc SHALL be routed on both graphs and its weight difference SHALL equal that booth's tariff converted at the wage, within 1% or one weight unit, whichever is larger. The floor is there because the cheapest barrier is 0.40 EUR, which is 72 weight units, and a proportional bound alone would turn the check on the last decimal place of the smallest tariff.
 
+The arcs and their tariffs SHALL be read from the report the run wrote, not derived again. The check routes no priced pair, so it cannot tell which groups ended one, and a check that selected its subjects by a different rule from the one that wrote the file would not be checking that file. Where the report is absent or names an arc the file does not carry, the check SHALL stop and say so.
+
 The arc SHALL be routed between its own two node positions with the snapping radius held tight, so that the router has nowhere to go but along the arc. Routing a journey across the barrier instead would not do: the toll-weighted graph is free to answer with a route that avoids the barrier, and then the check measures a different road.
 
-That part of the check is tight where the pair check is loose, and deliberately so. A flat charge is not reconstructed from means; it is written whole onto one arc, so the arithmetic is exact and any disagreement is a fault in the file or in the graph rather than in the pricing. It is also the only check that catches the three ways a flat row can fail silently: a rate the customization clamps, a rate the six-decimal grid rounds away, and a row whose segment `osrm-customize` never matched. All three leave the barrier free, and a route across it looks entirely normal.
+That part of the check is tight where the pair check is loose, and deliberately so. A flat charge is not reconstructed from rates; it is written whole onto one arc, so the arithmetic is exact and any disagreement is a fault in the file or in the graph rather than in the pricing. It is also the only check that catches the three ways a flat row can fail silently: a rate the customization clamps, a rate the written precision rounds away, and a row whose segment `osrm-customize` never matched. All three leave the barrier free, and a route across it looks entirely normal.
 
 #### Scenario: The weight difference is the toll
 
@@ -454,12 +503,22 @@ That part of the check is tight where the pair check is loose, and deliberately 
 #### Scenario: Every barrier arc is checked
 
 - **WHEN** the acceptance check runs
-- **THEN** each of the arcs written for a flat-charge booth is routed on both graphs, and each weight difference equals that booth's tariff at the wage — measured over 288 arcs, the worst disagreement is 0.00 weight units
+- **THEN** each of the 333 arcs the report names is routed on both graphs, and each weight difference equals that booth's tariff at the wage
+
+#### Scenario: A free-flow point charge is no longer free
+
+- **WHEN** an arc leaving MONTESSON, a point charge of 10.80 EUR, is routed on both graphs
+- **THEN** the toll-weighted weight exceeds the untouched weight by 1 944, that is 32.4 minutes of a driver's work, with the two durations equal
 
 #### Scenario: A barrier arc the customization did not match
 
 - **WHEN** one flat row names a segment `osrm-customize` did not apply, so its arc weighs the same on both graphs
 - **THEN** the check stops and names that booth, its tariff and its arc
+
+#### Scenario: The report is missing
+
+- **WHEN** the acceptance check runs and the report naming the flat arcs is absent
+- **THEN** it stops and names the file, rather than checking a set of arcs it derived by a different rule
 
 #### Scenario: The check fails
 
