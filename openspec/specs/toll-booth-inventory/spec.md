@@ -160,6 +160,12 @@ The system SHALL write the booth inventory to `data/osm_toll_booths.yaml` as a m
 
 Every entry, representative and alias alike, SHALL carry `latlon`, a two-element list holding **that node's own** position in latitude, longitude order. An alias SHALL NOT repeat its representative's position: consumers match against individual lanes, and the members of one group are a median of 15 metres and up to several hundred metres apart.
 
+An entry SHALL carry `name` when its node carries an OSM `name` tag, and SHALL NOT carry it otherwise. The value SHALL be the tag as the extract states it, unaltered.
+
+The name is recorded because it is the only name some booths have. Twelve booths map to no operator gare and so have no operator name; every one of them is named in OSM — Chanas, Bernay, Hochfelden, Péage de Vienne — and discarding the tag left a consumer with nothing to print but a node id. Recording it costs one string per booth and is what the extract already holds.
+
+The pipeline SHALL NOT correct, translate, or normalise the tag. What OSM calls a place is a fact about OSM; deciding it should be called something else is a different job, and doing it here would put an opinion in an inventory.
+
 An entry SHALL carry `type` when its booth charges differently from a plain one-way lane, and SHALL NOT carry it otherwise. Two values exist:
 
 - **`bidirectional`** — the booth lies on a through road the car profile can traverse in both directions. Such a booth is two tolls rather than one, and it is an entrance to a journey driven one way and an exit to the same journey driven the other.
@@ -175,6 +181,7 @@ Keys under both `toll_booths` and `aliases` SHALL be written in ascending numeri
 toll_booths:
   13380042:
     latlon: [48.3955158, 1.3849458]
+    name: Ablis
   81055576:
     latlon: [49.0371990, 0.4416040]
     type: bidirectional
@@ -185,7 +192,18 @@ aliases:
   13380044:
     parent_id: 13380042
     latlon: [48.3955521, 1.3849902]
+    name: Ablis
 ```
+
+#### Scenario: A named node carries its name
+
+- **WHEN** a booth's node carries an OSM `name` tag
+- **THEN** its entry carries `name` holding that tag unaltered, whether it is a representative or an alias
+
+#### Scenario: An unnamed node carries nothing
+
+- **WHEN** a booth's node has no `name` tag
+- **THEN** its entry carries no `name` key
 
 #### Scenario: Inventory is written
 

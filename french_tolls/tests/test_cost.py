@@ -337,16 +337,20 @@ def test_a_booth_absent_from_the_price_file():
 
 
 def test_a_gantry_or_passthrough_carrying_no_amount():
-    """Four real gantries are typed by the inventory and carry no tariff."""
+    """Four real gantries are typed by the inventory and carry no tariff.
+
+    Counted, not listed. There is no amount to show, and the name adds nothing
+    to a road the driver is already looking at. The count is still kept, so the
+    journey never stops admitting that something was crossed and not charged.
+    """
     b = build_booths(gantry("CHAMBERY NORD"), passthrough("NO PRICE"))
 
     journey = account(b.data, b.route("CHAMBERY NORD", 1, "NO PRICE"))
 
-    assert reasons(journey) == [
-        ("CHAMBERY NORD", BOOTH_NOT_PRICED),
-        ("NO PRICE", BOOTH_NOT_PRICED),
-    ]
-    assert all(p.cost is None for p in journey.passages)
+    assert journey.passages == []
+    assert journey.silent_unpriced == 2
+    assert journey.unpriced == 2
+    assert journey.cost == 0
 
 
 def test_a_two_way_booth_whose_neighbours_are_on_neither_side():
@@ -373,7 +377,10 @@ def test_a_booth_with_no_name_is_labelled_by_its_node_id():
     """A reader can look a node id up. A placeholder identifies nothing."""
     b = build_booths(plain("x"))
     booth = b.booth("x")
-    object.__setattr__(booth, "name", None)
+    # `name` is derived from the two sources, so it is the sources that have to
+    # be emptied. The OSM one is already empty; a declared booth carries only the
+    # operator's.
+    object.__setattr__(booth, "operator_name", None)
 
     journey = account(b.data, b.route("x"))
 
@@ -400,7 +407,12 @@ def test_no_unpriceable_passage_is_charged_zero_and_every_reason_is_distinct():
 
     unpriced = [p for p in journey.passages if not p.priced]
 
-    assert len(unpriced) == journey.unpriced == len(journey.passages)
+    # Every listed passage is one that could not be priced. `NO TARIFF` is the
+    # one crossing that is counted without being listed, so the total is one
+    # more than the list.
+    assert len(unpriced) == len(journey.passages)
+    assert journey.silent_unpriced == 1
+    assert journey.unpriced == len(unpriced) + 1
     assert journey.cost == 0
     for passage in unpriced:
         assert passage.cost is None, f"{passage.name} was charged {passage.cost!r}"
@@ -412,7 +424,6 @@ def test_no_unpriceable_passage_is_charged_zero_and_every_reason_is_distinct():
         EXIT_WITHOUT_ENTRANCE,
         ENTRANCE_NOT_CLOSED,
         TARIFF_MISSING,
-        BOOTH_NOT_PRICED,
         BOOTH_UNTYPED,
         SIDE_UNKNOWN,
     }

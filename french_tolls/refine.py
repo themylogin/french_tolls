@@ -157,6 +157,24 @@ def drift_sections(theirs, ours, corridor_m=CORRIDOR_M):
     return sections
 
 
+def _rank(length, start, total):
+    """A stretch's length, discounted by how far into the route it begins.
+
+    A driver follows a link from its beginning. A correction near the origin is
+    reached by everyone who follows the link at all; a correction near the
+    destination is reached only by a journey driven to the end rather than
+    abandoned, interrupted, or re-requested from a new position. Ranking by raw
+    length spends a budget of two on seventeen candidates as though every
+    kilometre were equally likely to be driven.
+
+    So a stretch at the origin counts for its full length and one at the
+    destination for half. The floor is 0.5 rather than 0 because the tail is
+    reached often enough to be worth correcting: a late stretch more than twice
+    the length of an early one still wins.
+    """
+    return length * (1.0 - (start / total) / 2 if total else 1.0)
+
+
 def waypoints_for(sections, ours, budget):
     """A waypoint on our route for each of the worst stretches.
 
@@ -167,19 +185,35 @@ def waypoints_for(sections, ours, budget):
     On **our** route, never on Google's. Google drifting means it found a road it
     liked better between two of our waypoints; naming a point on that road would
     confirm the detour rather than correct it.
+
+    Every stretch is located before any is chosen, because the rank needs the
+    position. `_nearest_index` therefore runs twice per stretch rather than twice
+    per chosen stretch -- thirty-four scans instead of four on Bayeux to Apt --
+    and the pair it produces is carried through to the placement rather than
+    recomputed.
+
+    Both distances are along **our** route. Google's would be free, since a
+    stretch is a run of its own points, but it answers a question about a journey
+    the driver does not take: where Google spends 134 km on a detour our route
+    covers in 86, every later stretch sits further along Google's route for a
+    reason that has nothing to do with how far the driver has driven.
     """
     if budget <= 0 or not sections:
         return []
 
     along = _cumulative(ours)
+    total = along[-1]
 
-    out = []
-    for section in sorted(sections, key=lambda s: -s["length"])[:budget]:
+    ranked = []
+    for section in sections:
         start = along[_nearest_index(ours, section["from"])]
         end = along[_nearest_index(ours, section["to"])]
         if end < start:
             start, end = end, start
+        ranked.append((_rank(section["length"], start, total), start, end, section))
 
+    out = []
+    for _r, start, end, section in sorted(ranked, key=lambda r: -r[0])[:budget]:
         middle = (start + end) / 2
         i = min(range(len(along)), key=lambda k: abs(along[k] - middle))
         out.append({

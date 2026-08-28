@@ -146,7 +146,10 @@ def build_booths(*specs):
             # Coordinates take no part in accounting; a distinct pair per booth
             # keeps them from comparing equal by accident.
             latlon=(45.0 + node_id / 100000.0, 4.0 + node_id / 100000.0),
-            name=spec.name,
+            # The operator's name, because that is the one that wins where a
+            # booth has both, and a test that writes a name means the name the
+            # accounting will use.
+            operator_name=spec.name,
             **spec.fields,
         )
         booth_of_node[node_id] = node_id
