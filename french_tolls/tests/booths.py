@@ -155,6 +155,6 @@ def build_booths(*specs):
         booth_of_node[node_id] = node_id
 
     return Booths(
-        BoothData(booths=booths, booth_of_node=booth_of_node, fingerprint="test"),
+        BoothData(booths=booths, booth_of_node=booth_of_node),
         ids,
     )

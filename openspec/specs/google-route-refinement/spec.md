@@ -152,7 +152,11 @@ Each phase SHALL be stored as it completes, so a journey whose link was followed
 
 Stored SHALL be the refined waypoints, the waypoints the drawable route was driven through, Google's route geometry, its distance and duration, the faithfulness before and after, and when it was fetched.
 
-A refinement SHALL be invalidated by the same data fingerprint that invalidates a route answer. A refinement is a statement about a particular optimal route; when the route changes, the statement is about a journey that no longer exists.
+A refinement SHALL be keyed exactly as a route answer is keyed, and `route-service` states that key. A refinement describes a particular optimal route, so it is stale exactly when that route is, and the two SHALL therefore be invalidated together and never separately.
+
+Nothing SHALL invalidate a refinement automatically. A rebuilt pipeline leaves both the answer and the refinement in place, and an operator purges them by hand. This is what `route-service` decided for the answer, and a refinement that outlived the route it describes — or was discarded while that route stood — would be the one thing in the store that disagreed with it.
+
+A refinement is paid for. Where the two could be treated differently, the refinement SHALL be the one kept: an answer recomputes in about a second, and a refinement costs up to two Google requests.
 
 #### Scenario: A link costs one request
 
@@ -176,8 +180,18 @@ A refinement SHALL be invalidated by the same data fingerprint that invalidates 
 
 #### Scenario: A rebuilt pipeline invalidates it
 
-- **WHEN** the artefacts change and the same journey is requested
-- **THEN** the stored refinement is not used, because the route it described has been recomputed
+- **WHEN** the artefacts change, the cache is purged as a rebuild now requires, and the same journey is requested
+- **THEN** the stored refinement is not used, and the refinement is bought again
+
+#### Scenario: A rebuilt pipeline that was not purged does not
+
+- **WHEN** the artefacts change and the same journey is requested without the cache being purged
+- **THEN** the stored refinement is still used, because nothing detects that the route it describes has been recomputed
+
+#### Scenario: The answer and the refinement are purged together
+
+- **WHEN** the cache is purged after a pipeline rebuild
+- **THEN** neither the answer nor the refinement for a journey survives, because the two share a key
 
 ### Requirement: The refinement is reachable as an answer and as a redirect
 

@@ -16,7 +16,6 @@ and the snapshot was taken before the `gantry` type existed, so 52 priced
 gantries charged nothing and no part of the answer said so.
 """
 from dataclasses import dataclass, field
-import hashlib
 import logging
 import os
 
@@ -28,19 +27,12 @@ __all__ = ["BoothData", "MissingArtefact", "load", "load_or_exit"]
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 
-# The four artefacts, plus the segment weight file. The last one is not read for
-# any booth fact: it is in the fingerprint because it is what the toll-weighted
-# graph is built from, so a repriced graph with an unchanged price file would
-# otherwise be indistinguishable from the graph before it.
 ARTEFACTS = (
     "osm_toll_booths.yaml",
     "vinci_price.yaml",
     "vinci_toll_booth.yaml",
     "bidirectional_booth_sides.yaml",
 )
-FINGERPRINTED = ARTEFACTS + ("segment_weights.csv",)
-
-FINGERPRINT_CHARS = 16
 
 
 class MissingArtefact(Exception):
@@ -108,7 +100,6 @@ class BoothData:
     # of them, so a lookup that only knew the representative would miss the
     # passage whenever the router picked a neighbouring lane.
     booth_of_node: dict[int, int]
-    fingerprint: str
 
     def at(self, node_id: int) -> Booth | None:
         """The booth a route node belongs to, resolving a lane to its plaza."""
@@ -141,21 +132,6 @@ def _parse(name: str, raw: bytes) -> dict:
         )
 
     return parsed
-
-
-def fingerprint() -> str:
-    """A digest of everything an answer depends on.
-
-    Part of the cache key, and stamped into the golden fixture. Keying a cached
-    answer on the coordinates alone -- which is what the application this
-    replaces did -- means a rebuilt price file never reaches a cached journey,
-    and nothing on disk tells a stale answer from a current one.
-    """
-    h = hashlib.sha256()
-    for name in FINGERPRINTED:
-        h.update(_read(name))
-
-    return h.hexdigest()[:FINGERPRINT_CHARS]
 
 
 def load() -> BoothData:
@@ -200,16 +176,15 @@ def load() -> BoothData:
             # against anything. Reported rather than silently dropped.
             logger.warning("alias %s names parent %s, which is not a booth", node_id, parent)
 
-    data = BoothData(booths=booths, booth_of_node=booth_of_node, fingerprint=fingerprint())
+    data = BoothData(booths=booths, booth_of_node=booth_of_node)
 
     logger.info(
-        "loaded %d booths, %d lanes, %d gares, %d priced, %d with sides (fingerprint %s)",
+        "loaded %d booths, %d lanes, %d gares, %d priced, %d with sides",
         len(booths),
         len(booth_of_node) - len(booths),
         sum(1 for b in booths.values() if b.gare),
         sum(1 for b in booths.values() if b.type),
         sum(1 for b in booths.values() if b.inside_nodes or b.outside_nodes),
-        data.fingerprint,
     )
 
     return data

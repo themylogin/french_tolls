@@ -199,7 +199,7 @@ class FakeDB:
     def reserve_google_request(self, ceiling):
         return True
 
-    def write_refinement(self, fingerprint, from_, to, refinement):
+    def write_refinement(self, from_, to, refinement):
         self.written = refinement
 
 
@@ -222,7 +222,7 @@ def first_pass(monkeypatch, ours, theirs, original):
 
     monkeypatch.setattr(refine, "_ask", ask)
 
-    result = asyncio.run(refine._first_pass("fp", ours[0], ours[-1], ours, original))
+    result = asyncio.run(refine._first_pass(ours[0], ours[-1], ours, original))
     return result, fake
 
 

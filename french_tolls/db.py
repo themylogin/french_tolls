@@ -54,31 +54,31 @@ CREATE TABLE IF NOT EXISTS google_requests (
     count      INTEGER NOT NULL DEFAULT 0
 );
 
--- A computed journey. Keyed by the data fingerprint as well as the two points,
--- so a rebuilt pipeline is a miss rather than a stale hit.
+-- A computed journey, keyed by the two points and nothing else. A rebuilt
+-- pipeline is therefore a hit rather than a miss, and the cache has to be
+-- purged by hand after one. Nothing here detects a stale answer, and a stale
+-- toll total looks exactly like a correct one.
 CREATE TABLE IF NOT EXISTS routes (
-    fingerprint TEXT NOT NULL,
     from_lon    REAL NOT NULL,
     from_lat    REAL NOT NULL,
     to_lon      REAL NOT NULL,
     to_lat      REAL NOT NULL,
     answer      TEXT NOT NULL,
     stored_at   TEXT NOT NULL,
-    PRIMARY KEY (fingerprint, from_lon, from_lat, to_lon, to_lat)
+    PRIMARY KEY (from_lon, from_lat, to_lon, to_lat)
 );
 
 -- What Google said about a journey, bought once. Same key as the answer: a
 -- refinement describes a particular optimal route, so it is stale exactly when
--- that route is.
+-- that route is, and the two are purged together.
 CREATE TABLE IF NOT EXISTS refinements (
-    fingerprint TEXT NOT NULL,
     from_lon    REAL NOT NULL,
     from_lat    REAL NOT NULL,
     to_lon      REAL NOT NULL,
     to_lat      REAL NOT NULL,
     refinement  TEXT NOT NULL,
     stored_at   TEXT NOT NULL,
-    PRIMARY KEY (fingerprint, from_lon, from_lat, to_lon, to_lat)
+    PRIMARY KEY (from_lon, from_lat, to_lon, to_lat)
 );
 """
 
@@ -121,6 +121,29 @@ def _adopt_legacy_table(connection):
     logger.info("carried %d autocomplete rows over from the legacy table", moved)
 
 
+def _drop_fingerprinted(connection):
+    """Drop the two cache tables that were keyed by a data fingerprint.
+
+    `CREATE TABLE IF NOT EXISTS` will not alter a table that is already there, so
+    a database written under the old schema would keep a column the statements
+    below do not mention: every read would miss and every write would fail on it.
+
+    Dropped rather than migrated. Collapsing several fingerprints of one journey
+    to one row needs a rule for which survives, and the code to apply it runs
+    once and is read forever. The cost is the refinements, which were paid for;
+    they are bought again lazily, within the ceiling that already bounds
+    spending.
+
+    The condition is false ever after, so this happens once without a version
+    table to carry.
+    """
+    for table in ("routes", "refinements"):
+        columns = connection.execute(f"PRAGMA table_info({table})").fetchall()
+        if any(c[1] == "fingerprint" for c in columns):
+            connection.execute(f"DROP TABLE {table}")
+            logger.info("dropped %s: it was keyed by a data fingerprint", table)
+
+
 @contextmanager
 def connect():
     """A connection to the store, with the schema in place."""
@@ -137,6 +160,9 @@ def connect():
             # and the API can both be in flight, and the evaluation may be
             # reading at the same time.
             connection.execute("PRAGMA journal_mode=WAL")
+            # Before the schema: the two cache tables have to be gone by the time
+            # the `CREATE TABLE IF NOT EXISTS` below would decline to change them.
+            _drop_fingerprinted(connection)
             connection.executescript(SCHEMA)
             _adopt_legacy_table(connection)
             connection.commit()
@@ -154,48 +180,48 @@ def _now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-def _key(fingerprint, from_, to):
-    return (fingerprint, float(from_[0]), float(from_[1]), float(to[0]), float(to[1]))
+def _key(from_, to):
+    return (float(from_[0]), float(from_[1]), float(to[0]), float(to[1]))
 
 
-def read_answer(fingerprint, from_, to):
+def read_answer(from_, to):
     with connect() as c:
         row = c.execute(
-            "SELECT answer FROM routes WHERE fingerprint=? AND from_lon=? AND from_lat=? "
-            "AND to_lon=? AND to_lat=?", _key(fingerprint, from_, to)).fetchone()
+            "SELECT answer FROM routes WHERE from_lon=? AND from_lat=? "
+            "AND to_lon=? AND to_lat=?", _key(from_, to)).fetchone()
     return json.loads(row[0]) if row else None
 
 
-def write_answer(fingerprint, from_, to, answer):
+def write_answer(from_, to, answer):
     try:
         with connect() as c:
             c.execute(
                 "INSERT OR REPLACE INTO routes "
-                "(fingerprint, from_lon, from_lat, to_lon, to_lat, answer, stored_at) "
-                "VALUES (?,?,?,?,?,?,?)", (*_key(fingerprint, from_, to),
-                                           json.dumps(answer), _now()))
+                "(from_lon, from_lat, to_lon, to_lat, answer, stored_at) "
+                "VALUES (?,?,?,?,?,?)", (*_key(from_, to),
+                                         json.dumps(answer), _now()))
             c.commit()
     except sqlite3.Error as e:
         # A cache that cannot be written is not a failed journey.
         logger.warning("could not store answer: %s", e)
 
 
-def read_refinement(fingerprint, from_, to):
+def read_refinement(from_, to):
     with connect() as c:
         row = c.execute(
-            "SELECT refinement FROM refinements WHERE fingerprint=? AND from_lon=? "
-            "AND from_lat=? AND to_lon=? AND to_lat=?", _key(fingerprint, from_, to)).fetchone()
+            "SELECT refinement FROM refinements WHERE from_lon=? "
+            "AND from_lat=? AND to_lon=? AND to_lat=?", _key(from_, to)).fetchone()
     return json.loads(row[0]) if row else None
 
 
-def write_refinement(fingerprint, from_, to, refinement):
+def write_refinement(from_, to, refinement):
     try:
         with connect() as c:
             c.execute(
                 "INSERT OR REPLACE INTO refinements "
-                "(fingerprint, from_lon, from_lat, to_lon, to_lat, refinement, stored_at) "
-                "VALUES (?,?,?,?,?,?,?)", (*_key(fingerprint, from_, to),
-                                           json.dumps(refinement), _now()))
+                "(from_lon, from_lat, to_lon, to_lat, refinement, stored_at) "
+                "VALUES (?,?,?,?,?,?)", (*_key(from_, to),
+                                         json.dumps(refinement), _now()))
             c.commit()
     except sqlite3.Error as e:
         logger.warning("could not store refinement: %s", e)

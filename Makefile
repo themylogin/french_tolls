@@ -642,9 +642,14 @@ test:
 
 # Drops every cached answer and the autocomplete database.
 #
-# The cache is keyed by the data fingerprint, so a pipeline rebuild already
-# invalidates it and this is not needed to pick up new prices. It is here to
-# reclaim the disk of superseded fingerprints.
+# RUN THIS AFTER ANY PIPELINE REBUILD. The cache is keyed by the two points and
+# nothing else, so a rebuilt price file reaches a journey answered before it.
+# Nothing detects that, and a stale toll total looks exactly like a correct one.
+#
+# It also drops every stored refinement, each of which cost up to two paid
+# Google requests, and the autocomplete rows, each of which cost a paid
+# LocationIQ request. Those are the price of the purge; the answers themselves
+# recompute in about a second each.
 clean-cache:
 	$(COMPOSE) --profile app down
 	docker volume rm $$(basename $$(pwd))_cache || true

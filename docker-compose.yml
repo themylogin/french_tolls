@@ -133,8 +133,10 @@ services:
       GOOGLE_DIRECTIONS_API_KEY: "${GOOGLE_DIRECTIONS_API_KEY:-}"
       GOOGLE_DIRECTIONS_MAX_REQUEST_PER_MONTH: "${GOOGLE_DIRECTIONS_MAX_REQUEST_PER_MONTH:-0}"
       # Where the three directions links point, so a link in a Telegram message
-      # comes back here to be refined before it goes on to Google.
-      PUBLIC_SITE_URL: "${PUBLIC_SITE_URL:-}"
+      # comes back here to be refined before it goes on to Google. Required, and
+      # reported by Compose rather than passed on empty: an empty value is a
+      # service that exits at start-up, and the error is clearer here.
+      PUBLIC_SITE_URL: "${PUBLIC_SITE_URL:?set PUBLIC_SITE_URL in .env}"
       MAX_WAYPOINTS: "${MAX_WAYPOINTS:-9}"
       QUERY_BUDGET: "${QUERY_BUDGET:-500}"
       SNAP_REACH_M: "${SNAP_REACH_M:-1000}"
@@ -163,6 +165,11 @@ services:
       DATA_DIR: "/data"
       CACHE_DIR: "/cache"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      # The bot needs this as much as `web` does, and did not have it. Without
+      # it the three link keys used to fall back to direct Google addresses, so
+      # every link the bot sent went straight to Google unrefined -- which is
+      # what `refine-waypoints-with-google` set out to stop.
+      PUBLIC_SITE_URL: "${PUBLIC_SITE_URL:?set PUBLIC_SITE_URL in .env}"
       MAX_WAYPOINTS: "${MAX_WAYPOINTS:-9}"
       QUERY_BUDGET: "${QUERY_BUDGET:-500}"
       SNAP_REACH_M: "${SNAP_REACH_M:-1000}"

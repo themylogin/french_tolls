@@ -338,7 +338,7 @@ def _measure(theirs, ours):
     return sections, drift, (1.0 - drift / length if length else None)
 
 
-async def refine(fingerprint, from_, to, optimal, *, with_geometry=False):
+async def refine(from_, to, optimal, *, with_geometry=False):
     """Refine a journey's waypoints, or say why it was not refined.
 
     Two phases, because the two things a caller can want cost differently.
@@ -358,20 +358,20 @@ async def refine(fingerprint, from_, to, optimal, *, with_geometry=False):
     original = [list(w) for w in optimal["waypoints"]]
     ours = [(lat, lon) for lon, lat in optimal["nodes"]]
 
-    stored = db.read_refinement(fingerprint, from_, to)
+    stored = db.read_refinement(from_, to)
     result = _from_stored(stored, original) if stored else None
 
     if result is None:
-        result = await _first_pass(fingerprint, from_, to, ours, original)
+        result = await _first_pass(from_, to, ours, original)
 
     # The drawable route, bought only when someone asks to look at it.
     if with_geometry and result.refined and not result.nodes:
-        result = await _second_pass(fingerprint, from_, to, ours, result)
+        result = await _second_pass(from_, to, ours, result)
 
     return result
 
 
-async def _first_pass(fingerprint, from_, to, ours, original):
+async def _first_pass(from_, to, ours, original):
     """Ask what Google drives through the waypoints we have, and correct them."""
     budget = MAX_WAYPOINTS - len(original)
 
@@ -399,7 +399,7 @@ async def _first_pass(fingerprint, from_, to, ours, original):
     if not added:
         # Google already drove our route, so the route it drove *is* the route
         # the link produces. Nothing more to buy: the geometry is already here.
-        return _store(fingerprint, from_, to, Refinement(
+        return _store(from_, to, Refinement(
             refined=False, reason=AGREED,
             waypoints=original, sent_waypoints=original, added=[],
             nodes=[[lon, lat] for lat, lon in theirs],
@@ -417,7 +417,7 @@ async def _first_pass(fingerprint, from_, to, ours, original):
     # `nodes` is left empty on purpose. The route through these new waypoints is
     # not the route just measured, and drawing that one would put the added
     # points visibly off the line they were computed to correct.
-    return _store(fingerprint, from_, to, Refinement(
+    return _store(from_, to, Refinement(
         refined=True, reason=None,
         waypoints=[p[1] for p in positions], sent_waypoints=original,
         added=[[w["latlon"][1], w["latlon"][0]] for w in added],
@@ -425,7 +425,7 @@ async def _first_pass(fingerprint, from_, to, ours, original):
         before_overlap=share, drift_m=drift, budget=budget))
 
 
-async def _second_pass(fingerprint, from_, to, ours, result):
+async def _second_pass(from_, to, ours, result):
     """Buy the route through the refined waypoints, so it can be drawn."""
     if not API_KEY or not db.reserve_google_request(MONTHLY_CEILING):
         # The waypoints stand; only the picture is unavailable.
@@ -444,9 +444,9 @@ async def _second_pass(fingerprint, from_, to, ours, result):
     result.distance = route.get("distanceMeters")
     result.duration = _duration_s(route)
     result.overlap = share
-    return _store(fingerprint, from_, to, result)
+    return _store(from_, to, result)
 
 
-def _store(fingerprint, from_, to, result):
-    db.write_refinement(fingerprint, from_, to, result.stored())
+def _store(from_, to, result):
+    db.write_refinement(from_, to, result.stored())
     return result

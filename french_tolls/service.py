@@ -7,7 +7,6 @@ already reads keeps its name and its meaning; what this adds, it adds as new
 keys.
 """
 from datetime import datetime, timezone
-import hashlib
 import json
 import logging
 import os
@@ -29,20 +28,16 @@ __all__ = ["RouteError", "get_route"]
 BOOTHS = load_or_exit()
 
 CACHE_DIR = os.environ.get("CACHE_DIR", "/cache")
+
 PUBLIC_SITE_URL = os.environ.get("PUBLIC_SITE_URL", "").rstrip("/")
+if not PUBLIC_SITE_URL:
+    # Beside `load_or_exit` and failing the same way, for the same reason. The
+    # three link keys address this service, and a service that does not know its
+    # own address cannot produce them. Starting anyway would mean answering with
+    # links of another shape, which is a silent change to a contract the bot and
+    # the page both read.
+    raise SystemExit("french_tolls: cannot start: PUBLIC_SITE_URL is not set")
 
-
-def _generation():
-    """What a cached answer is only valid for.
-
-    The data fingerprint says the tariffs and the graph are the ones the answer
-    was computed from. It says nothing about configuration, and the answer also
-    carries three links whose shape depends on `PUBLIC_SITE_URL` -- so changing
-    that would otherwise serve links built for the old address forever, which is
-    the very failure the fingerprint exists to prevent.
-    """
-    return BOOTHS.fingerprint + ":" + hashlib.sha256(
-        PUBLIC_SITE_URL.encode()).hexdigest()[:8]
 MAX_WAYPOINTS_SETTING = int(os.environ.get("MAX_WAYPOINTS", str(MAX_WAYPOINTS)))
 
 
@@ -74,7 +69,6 @@ def _record_failure(from_, to, cause, message):
                 "to": list(to),
                 "cause": cause,
                 "message": message,
-                "fingerprint": BOOTHS.fingerprint,
             }, f)
     except OSError as e:
         logger.warning("could not record failure: %s", e)
@@ -113,41 +107,45 @@ def _go_url(form, from_, to):
     return f"{PUBLIC_SITE_URL}/go/{form}?{query}"
 
 
-def _describe(route: osrm.Route, plan, journey, *, endpoints=None) -> dict:
+def _with_links(answer, from_, to):
+    """Add the three links to both routes of an answer, in place.
+
+    Not part of what is cached. The three are a function of the two coordinates
+    and this service's address, and the two coordinates *are* the cache key --
+    so storing them would put the address into what is keyed on the journey, and
+    a service whose address changed would serve links to its old one forever.
+
+    Applied to a cache hit and a computed answer alike, so a caller cannot tell
+    the two apart and the two paths cannot drift.
+    """
+    for route in answer.values():
+        route["url"] = _go_url("start", from_, to)
+        route["url_from_current_location"] = _go_url("here", from_, to)
+        route["url_from_current_location_through_start"] = _go_url(
+            "here-via-start", from_, to)
+
+    return answer
+
+
+def _describe(route: osrm.Route, plan, journey) -> dict:
     """One route, in the shape every consumer already reads."""
     points = [_as_latlon(route.coordinates[0])]
     points += [_as_latlon(c) for c in (plan.locations if plan else ())]
     points.append(_as_latlon(route.coordinates[-1]))
 
-    from_, to = endpoints if endpoints else (None, None)
-    ours = (
-        {
-            "url": _go_url("start", from_, to),
-            "url_from_current_location": _go_url("here", from_, to),
-            "url_from_current_location_through_start": _go_url("here-via-start", from_, to),
-        }
-        if endpoints and PUBLIC_SITE_URL
-        # With no public address configured there is nothing to redirect through,
-        # so the links stay what they have always been.
-        else {
-            "url": google_maps_link(points),
-            "url_from_current_location": google_maps_link(["Current Location"] + points[1:]),
-            "url_from_current_location_through_start": google_maps_link(
-                ["Current Location"] + points),
-        }
-    )
-
     return {
-        # Keys every existing consumer reads. Same names, same meanings.
+        # Keys every existing consumer reads. Same names, same meanings. The
+        # three link keys are not here: `_with_links` adds them after the cache.
         "distance": route.distance,
         "duration": route.duration,
         "nodes": [list(c) for c in route.coordinates],
         "peages": [p.as_dict() for p in journey.passages],
         "cost": journey.cost,
-        **ours,
 
         # The unrefined Google address, for a consumer that would rather not
-        # depend on this service being reachable.
+        # depend on this service being reachable. Unlike the three, it is built
+        # from the route's own geometry rather than from the endpoints, so it is
+        # not derivable from the key and is stored with the answer.
         "google_url": google_maps_link(points),
 
         # Added by this work. How faithful the link is, and what could not be
@@ -166,9 +164,9 @@ async def get_route(from_, to):
     Returns `{"fast": ..., "optimal": ...}`, the shape `api.py` serves and
     `bot.py` formats.
     """
-    cached = db.read_answer(_generation(), from_, to)
+    cached = db.read_answer(from_, to)
     if cached is not None:
-        return cached
+        return _with_links(cached, from_, to)
 
     try:
         async with osrm.session() as session:
@@ -187,10 +185,8 @@ async def get_route(from_, to):
             result = {
                 # The fast route needs no waypoints: it is by definition what a
                 # fastest-path router computes from the two endpoints alone.
-                "fast": _describe(fast, None, account(BOOTHS, fast.node_ids),
-                                  endpoints=(from_, to)),
-                "optimal": _describe(optimal, plan, account(BOOTHS, optimal.node_ids),
-                                     endpoints=(from_, to)),
+                "fast": _describe(fast, None, account(BOOTHS, fast.node_ids)),
+                "optimal": _describe(optimal, plan, account(BOOTHS, optimal.node_ids)),
             }
     except TooFarFromNetwork as e:
         _record_failure(from_, to, "out_of_reach", str(e))
@@ -213,8 +209,8 @@ async def get_route(from_, to):
         routers.requests,
     )
 
-    db.write_answer(_generation(), from_, to, result)
-    return result
+    db.write_answer(from_, to, result)
+    return _with_links(result, from_, to)
 
 
 def maps_link_with(points_latlon):
@@ -235,7 +231,7 @@ async def refined_link(from_, to, form="start", *, with_geometry=False):
     # draw, and that costs a second request. A redirect needs only the
     # waypoints, so it never buys one.
     refinement = await refine_module.refine(
-        BOOTHS.fingerprint, from_, to, optimal, with_geometry=with_geometry)
+        from_, to, optimal, with_geometry=with_geometry)
 
     origin = _as_latlon(optimal["nodes"][0])
     destination = _as_latlon(optimal["nodes"][-1])
