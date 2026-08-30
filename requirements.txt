@@ -18,6 +18,7 @@ certifi==2026.7.22
     # via
     #   httpcore
     #   httpx
+    #   pyproj
 frozenlist==1.8.0
     # via
     #   aiohttp
@@ -45,21 +46,29 @@ multidict==6.7.1
     # via
     #   aiohttp
     #   yarl
+numpy==2.4.6
+    # via shapely
 packaging==26.3
     # via pytest
 pluggy==1.6.0
     # via pytest
+polyline==2.0.4
+    # via french-tolls (pyproject.toml)
 propcache==0.5.2
     # via
     #   aiohttp
     #   yarl
 pygments==2.21.0
     # via pytest
+pyproj==3.7.2
+    # via french-tolls (pyproject.toml)
 pytest==9.1.1
     # via french-tolls (pyproject.toml)
 python-telegram-bot==21.11.1
     # via french-tolls (pyproject.toml)
 pyyaml==6.0.3
+    # via french-tolls (pyproject.toml)
+shapely==2.1.2
     # via french-tolls (pyproject.toml)
 sqlalchemy==2.0.52
     # via

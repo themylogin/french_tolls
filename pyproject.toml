@@ -8,8 +8,11 @@ dependencies = [
     "aiohttp",
     "aiosqlite",
     "alembic",
+    "polyline",
+    "pyproj",
     "pytest",
     "python-telegram-bot~=21.0",
     "PyYAML",
+    "shapely",
     "SQLAlchemy>=2",
 ]
