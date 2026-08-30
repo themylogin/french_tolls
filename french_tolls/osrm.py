@@ -192,7 +192,7 @@ class Routers:
             distance_m=w["distance"],
         )
 
-    async def distance_to_network(self, location) -> float:
+    async def distance_to_road_network(self, location) -> float:
         """How far a coordinate is from the nearest road, in metres."""
         body = await self._get(
             TOLL_URL, f"/nearest/v1/driving/{location[0]},{location[1]}", {"number": 1}
