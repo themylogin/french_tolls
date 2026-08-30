@@ -1,19 +1,4 @@
 # -*- coding=utf-8 -*-
-"""The two routing graphs, and the route as this application reads one.
-
-`osrm-toll` serves the untouched graph: the road network as OSM describes it,
-with no tariff in it. A route from it is the fastest by time, and it is this
-application's model of what a general-purpose navigation application computes
-when it is given two points and nothing else.
-
-`osrm-optimal` serves the toll-weighted graph: the same network with
-`data/segment_weights.csv` applied, so a tolled segment costs what its tariff
-costs a driver. A route from it is the cheapest in money and time together.
-
-The two are addressed by Compose service name. The published host ports are for
-inspection -- on this host they refuse connections while the Compose network
-answers -- so nothing here routes through them.
-"""
 from dataclasses import dataclass
 import logging
 import os
@@ -25,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "BudgetExhausted",
+    "Match",
     "NoRoute",
     "Route",
     "RouterUnavailable",
@@ -33,46 +19,31 @@ __all__ = [
     "TooFarFromNetwork",
 ]
 
-TOLL_URL = os.environ.get("OSRM_TOLL_URL", "http://osrm-toll:5000")
-OPTIMAL_URL = os.environ.get("OSRM_OPTIMAL_URL", "http://osrm-optimal:5000")
+TOLL_URL = "http://osrm-toll:5000"
+OPTIMAL_URL = "http://osrm-optimal:5000"
 
-# How far an origin or a destination may be from the road network. The bot's
-# reply text says a kilometre, so the two have to agree.
-SNAP_REACH_M = float(os.environ.get("SNAP_REACH_M", "1000"))
+# How far an origin or a destination may be from the road network.
+SNAP_REACH_M = 1000.0
 
-# How many routing requests one journey's search may issue. A request against
-# these graphs takes 2-11 ms, so the request count is what a search's cost is
-# made of; a wall clock would measure the machine's load instead.
+# How many routing requests one journey's search may issue.
 #
-# 500 rather than the 200 first planned. Measured across France, the dearest
-# journey found -- Strasbourg to Nantes, 11 127 nodes and 8 waypoints -- costs
-# 325 requests, and 200 truncated it to 4 of its 8. 500 leaves headroom above the
-# worst measured case and still bounds a search at about two seconds.
-QUERY_BUDGET = int(os.environ.get("QUERY_BUDGET", "500"))
+# Hundreds, not two. Answering a journey costs four requests -- snap both ends,
+# then the fast route and the optimal one. Everything after that is
+# `search.plan_waypoints` solving a different problem: the smallest set of
+# waypoints that makes a plain fastest-path router reproduce the toll-optimal
+# route. Only the router can say whether a given span reproduces it, so every
+# probe is a request.
+#
+# 1000 is a guard against an infinite loop. The real highest request count in
+# our tests across France was 327.
+QUERY_BUDGET = 1000
 
-REQUEST_TIMEOUT_S = float(os.environ.get("OSRM_TIMEOUT_S", "30"))
-
-# How many times a dropped connection is retried before the router is called
-# unavailable. Two is enough for a keep-alive the server closed under us; a
-# router that is actually down fails all three in milliseconds.
-CONNECTION_RETRIES = 2
+REQUEST_TIMEOUT_S = 30.0
 
 
 class RouterUnavailable(Exception):
-    """A routing service did not answer, or answered something unusable."""
+    pass
 
-    def __init__(self, message, code=None):
-        # The router's own error code, where it gave one. `route` needs it to
-        # tell a rejected hint from a query that is wrong for another reason.
-        self.code = code
-        super().__init__(message)
-
-
-# What this OSRM answers when it will not take a hint. Measured on 26.8: a hint
-# it cannot decode comes back as `InvalidQuery`, not as the `InvalidHints` the
-# documentation suggests. Both are listed so a future version that uses the
-# documented code is handled too.
-HINT_REJECTED_CODES = ("InvalidHints", "InvalidQuery")
 
 
 class NoRoute(Exception):
@@ -92,32 +63,21 @@ class TooFarFromNetwork(Exception):
 
 
 class BudgetExhausted(Exception):
-    """The query budget for one journey ran out.
-
-    Caught by the search, which returns what it has verified so far. It is never
-    allowed to reach a caller: a partial list of verified waypoints is worth more
-    to a driver than an error.
-    """
+    """The query budget for one journey ran out."""
 
 
 @dataclass(frozen=True)
 class Snap:
     """A query coordinate placed on the road network.
-
-    `hint` is the router's own handle for the exact lane the coordinate landed
-    on. Passing it back pins a later request to that lane rather than to
-    whichever one happens to be nearest, which is what keeps the two graphs'
-    routes starting in the same place.
-
-    The two graphs are the same graph with different edge weights -- the
-    toll-weighted one is a file copy of the untouched one followed by
-    `osrm-customize` -- so they share node ids, geometry, and the checksum a
-    hint carries. One snap therefore serves both, and snapping separately on
-    each would let the two routes start on different lanes.
     """
 
     # [longitude, latitude], as the router returned it.
     location: tuple[float, float]
+    # The router's own handle for the exact lane the coordinate landed on.
+    # Passing it back pins a later request to that lane rather than to whichever
+    # one happens to be nearest, which is what keeps the two graphs' routes
+    # starting in the same place. It works because the graphs are the same; only
+    # the weights differ.
     hint: str
     # The two nodes of the segment the coordinate landed on.
     nodes: tuple[int, ...]
@@ -127,21 +87,10 @@ class Snap:
 @dataclass(frozen=True)
 class Route:
     """One leg of a routing answer.
-
-    `node_ids` and `coordinates` are parallel and both of length n. The
-    per-segment measures are of length n - 1, because n nodes have n - 1
-    segments between them.
-
-    Keeping them apart is the point. The annotation reports n node ids and n - 1
-    distances, and pairing them element by element -- which is what the
-    application this replaces did -- silently discards the last node id of every
-    route. A Lyon-Paris route returns 8 642 and 8 641, and a barrier standing on
-    that last node was never charged.
     """
 
     node_ids: tuple[int, ...]
-    # [longitude, latitude] per node, from the full-overview GeoJSON geometry,
-    # which carries exactly one point per annotated node.
+    # [longitude, latitude] per node, exactly one point per annotated node.
     coordinates: tuple[tuple[float, float], ...]
     segment_distance: tuple[float, ...]
     segment_duration: tuple[float, ...]
@@ -151,9 +100,6 @@ class Route:
     distance: float
     duration: float
     weight: float
-    # True when a router rejected a hint and the request was retried without it.
-    # A rejected hint means the two graphs were not built from one extract.
-    hint_rejected: bool = False
 
     def __len__(self):
         return len(self.node_ids)
@@ -165,16 +111,27 @@ class Route:
             return None
 
 
-class Routers:
-    """The two graphs, an aiohttp session, and one journey's query budget.
-
-    One instance per journey. The budget is per journey rather than global
-    because it bounds a single search, and a counter shared between concurrent
-    requests would make one journey's cost depend on another's.
+@dataclass(frozen=True)
+class Match:
+    """A foreign geometry placed on the graph, as the nodes it runs over.
     """
 
-    def __init__(self, session: aiohttp.ClientSession, budget: int = QUERY_BUDGET):
-        self._session = session
+    node_ids: tuple[int, ...]
+    # How many separate matchings the router needed.
+    # More than one means it lost confidence somewhere and started again.
+    pieces: int
+
+    @property
+    def whole(self) -> bool:
+        """True where the router matched the trace in one piece."""
+        return self.pieces == 1
+
+
+class Routers:
+    """One instance per journey.
+    """
+
+    def __init__(self, budget: int = QUERY_BUDGET):
         self.budget = budget
         self.requests = 0
 
@@ -189,27 +146,17 @@ class Routers:
         self.requests += 1
         url = f"{base}{path}?{urllib.parse.urlencode(params, doseq=True, quote_via=urllib.parse.quote)}"
 
-        # A search issues hundreds of requests over one session, and the server
-        # closes a pooled connection from time to time. That arrives as a
-        # ServerDisconnectedError on the next request over that connection --
-        # nothing to do with the query, and answered normally on a fresh one.
-        # Retried rather than reported, and not counted again against the budget:
-        # the budget bounds the questions asked, not the sockets used to ask them.
-        for attempt in range(CONNECTION_RETRIES + 1):
-            try:
-                async with self._session.get(url) as resp:
+        timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as resp:
                     body = await resp.json(content_type=None)
-                break
-            except aiohttp.ClientConnectionError as e:
-                if attempt == CONNECTION_RETRIES:
-                    raise RouterUnavailable(f"{base} did not answer: {e}") from e
-                logger.debug("%s dropped the connection; retrying (%d)", base, attempt + 1)
-            except aiohttp.ClientError as e:
-                raise RouterUnavailable(f"{base} did not answer: {e}") from e
-            except TimeoutError as e:
-                raise RouterUnavailable(
-                    f"{base} did not answer within {REQUEST_TIMEOUT_S:.0f} s"
-                ) from e
+        except aiohttp.ClientError as e:
+            raise RouterUnavailable(f"{base} did not answer: {e}") from e
+        except TimeoutError as e:
+            raise RouterUnavailable(
+                f"{base} did not answer within {REQUEST_TIMEOUT_S:.0f} s"
+            ) from e
 
         code = body.get("code")
         if code == "Ok":
@@ -217,18 +164,13 @@ class Routers:
         if code in ("NoRoute", "NoSegment"):
             raise NoRoute(f"{base} reports {code}: {body.get('message', '')}")
 
-        # A rejected hint is the one error worth a retry rather than a failure,
-        # and the caller decides that. Everything else is a bad request or a
-        # broken service, and neither improves by being asked again.
-        raise RouterUnavailable(f"{base} answered {code}: {body.get('message', '')}", code)
+        raise RouterUnavailable(f"{base} answered {code}: {body.get('message', '')}")
 
     async def snap(self, location, *, reach_m: float = None) -> Snap:
         """Place a coordinate on the road network, on the untouched graph.
 
         Snapping on one graph and using the result on both is deliberate; see
-        `Snap`. Routing the coordinate to a fixed third point to snap it -- which
-        is what the application this replaces did -- fails for a location that
-        cannot reach that point, and for the point itself.
+        `Snap`.
         """
         reach_m = SNAP_REACH_M if reach_m is None else reach_m
 
@@ -260,12 +202,6 @@ class Routers:
 
     async def route(self, base: str, start: Snap, end: Snap) -> Route:
         """One route between two snapped points.
-
-        `geometries=geojson` with `overview=full` returns exactly one coordinate
-        per annotated node, so nodes and coordinates pair directly. The
-        alternative -- concatenating the per-step polylines -- decodes at
-        precision 5, which rounds every coordinate by about a metre, and has to
-        drop the last point of each step to splice them.
         """
         params = {
             "annotations": "nodes,distance,duration",
@@ -276,30 +212,29 @@ class Routers:
         }
         coords = f"{start.location[0]},{start.location[1]};{end.location[0]},{end.location[1]}"
 
-        hint_rejected = False
-        try:
-            body = await self._get(base, f"/route/v1/driving/{coords}", params)
-        except RouterUnavailable as e:
-            if e.code not in HINT_REJECTED_CODES:
-                raise
+        body = await self._get(base, f"/route/v1/driving/{coords}", params)
 
-            # The router will not take one of the hints -- which is what happens
-            # when the two graphs were not built from one extract. Retrying
-            # unpinned still gives an answer; it is simply no longer tied to a
-            # chosen lane, and the answer says so.
-            #
-            # The same code also covers a query malformed for a reason of our
-            # own, so the original error is re-raised when the unpinned request
-            # fails too. Otherwise a bug of ours would read as a hint problem.
-            logger.warning("%s refused a hint (%s); retrying unpinned", base, e.code)
-            params.pop("hints")
-            try:
-                body = await self._get(base, f"/route/v1/driving/{coords}", params)
-            except RouterUnavailable:
-                raise e from None
-            hint_rejected = True
+        return _read_route(body)
 
-        return _read_route(body, hint_rejected)
+    async def match(self, coordinates) -> Match:
+        """Place a foreign geometry on the graph, as node ids.
+        """
+        coords = ";".join(f"{lon:.6f},{lat:.6f}" for lon, lat in coordinates)
+        params = {
+            "annotations": "nodes",
+            "overview": "false",
+            "steps": "false",
+            # Because a trace has no timestamps. Left at `split`, the router
+            # is free to decide that two consecutive points are too far apart in
+            # a time nobody gave it.
+            "gaps": "ignore",
+            "tidy": "false",
+            # Nothing pins a later request to these points, and a hint per
+            # tracepoint is most of the response body.
+            "generate_hints": "false",
+        }
+        body = await self._get(TOLL_URL, f"/match/v1/driving/{coords}", params)
+        return _read_match(body)
 
     async def fast(self, start: Snap, end: Snap) -> Route:
         """The fastest route: the untouched graph, which carries no tariff."""
@@ -310,7 +245,7 @@ class Routers:
         return await self.route(OPTIMAL_URL, start, end)
 
 
-def _read_route(body: dict, hint_rejected: bool) -> Route:
+def _read_route(body: dict) -> Route:
     routes = body.get("routes") or []
     if not routes:
         raise NoRoute("the router returned no route")
@@ -325,9 +260,6 @@ def _read_route(body: dict, hint_rejected: bool) -> Route:
     coordinates = tuple(tuple(c) for c in route["geometry"]["coordinates"])
 
     if len(coordinates) != len(node_ids):
-        # The full overview carries one point per annotated node. If it ever does
-        # not, every position the search computes is off by the difference, and
-        # failing here is the only way that does not become a wrong waypoint.
         raise RouterUnavailable(
             f"{len(node_ids)} annotated nodes but {len(coordinates)} geometry points"
         )
@@ -347,10 +279,30 @@ def _read_route(body: dict, hint_rejected: bool) -> Route:
         distance=route["distance"],
         duration=route["duration"],
         weight=route["weight"],
-        hint_rejected=hint_rejected,
     )
 
 
-def session() -> aiohttp.ClientSession:
-    """The session the routers share for one journey."""
-    return aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S))
+def _read_match(body: dict) -> Match:
+    """The node sequence of a matching, with each leg's repeated head dropped.
+
+    A leg's node annotation begins with the node *preceding* the leg's start,
+    because a tracepoint snaps partway along a segment and the leg has to name
+    the segment it starts in the middle of. 
+
+    Dropping the head leaves one node repeated *in place* at each boundary, so
+    we cut that repetition off too.
+    """
+    matchings = body.get("matchings") or []
+    if not matchings:
+        raise NoRoute("the router matched no part of the trace")
+
+    node_ids = []
+    for matching in matchings:
+        for k, leg in enumerate(matching.get("legs") or []):
+            nodes = leg["annotation"]["nodes"]
+            for node_id in (nodes[1:] if k > 0 else nodes):
+                if not node_ids or node_ids[-1] != node_id:
+                    node_ids.append(node_id)
+
+    return Match(node_ids=tuple(node_ids), pieces=len(matchings))
+
