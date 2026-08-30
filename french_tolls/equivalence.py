@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 
-from .geometry import project
+from .overlap import project
 from .osrm import BudgetExhausted, NoRoute, RouterUnavailable
 from .tolls import booths_crossed
 
@@ -46,7 +46,7 @@ def optimize(coordinates, spacing_m=250.0):
     toll-free road beside it. What has to be bounded here is the gap between the
     points, not how far the line strays from the road.
 
-    Distances are read in the projection `geometry` works in, not off a sphere.
+    Distances are read in the projection `overlap` works in, not off a sphere.
     That is the more accurate of the two -- 0.0007% against 0.22% -- but accuracy
     is not why: at a 250 m spacing the sphere's error is half a metre and no
     matcher notices. It is so that one distance model decides every measure in

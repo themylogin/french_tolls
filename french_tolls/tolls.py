@@ -4,7 +4,7 @@
 from dataclasses import dataclass, field
 import logging
 
-from .data import Booth, BoothData
+from .booths import Booth, BoothData
 
 logger = logging.getLogger(__name__)
 
