@@ -19,7 +19,7 @@ async def calculate(request):
 
     if config.debug:
         refinement = await refine_module.refine(
-            data["from"], data["to"], answer["optimal"], with_geometry=True)
+            data["from"], data["to"], answer["optimal"])
         answer["google"] = {
             "nodes": refinement.nodes,
             "waypoints": refinement.waypoints,

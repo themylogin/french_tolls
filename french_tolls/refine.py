@@ -1,151 +1,110 @@
 # -*- coding=utf-8 -*-
 """Ask Google what it would drive, and spend the waypoint budget correcting it.
 
-The waypoint search verifies each leg against OSRM's graph, which is the honest
-contract it was built to. OSRM's graph is not Google's, so no amount of care on
-our side reveals that Google prefers a different road between two of our
-waypoints. Google will say so if asked, and the stretches where it left our
-route are exactly the places another waypoint helps.
-
-Measured on Bayeux to Apt before this existed: Google covered in 1 009 km what
-our route does in 959 km, spending 134 km on a single detour our route skips in
-86, for a faithfulness of 74.4%.
-
-Asking costs money. It is asked at most once per journey, and never more often
-in a month than the operator allows.
+The waypoint search verifies each leg against OSRM's graph, which is the contract
+it was built to meet. OSRM's graph is not Google's, so no amount of care on our
+side reveals that Google prefers a different road between two of our waypoints.
+Google will say so if asked, and the stretches where it left our route are
+exactly the places another waypoint helps.
 """
 from dataclasses import dataclass, field
 import json
 import logging
-import math
-import os
-import urllib.parse
 
 import aiohttp
+import numpy as np
 
-from . import db
-from .geometry import DEFAULT_CORRIDOR_M, SegmentIndex, decode_polyline, encode_polyline
+from . import spending
+from .config import config
+from .overlap import (
+    DEFAULT_CORRIDOR_M, Corridor, decode_polyline, lengths_m, total_length_m,
+)
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["MAX_WAYPOINTS", "Refinement", "refine"]
-
-ROUTES_ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes"
-
-API_KEY = os.environ.get("GOOGLE_DIRECTIONS_API_KEY", "").strip()
-MONTHLY_CEILING = int(os.environ.get("GOOGLE_DIRECTIONS_MAX_REQUEST_PER_MONTH", "0") or 0)
+__all__ = ["GoogleRoute", "MAX_WAYPOINTS", "Refinement", "refine", "request_route_once"]
 
 # What a Google Maps directions URL carries.
 MAX_WAYPOINTS = 9
 
-CORRIDOR_M = float(os.environ.get("REFINE_CORRIDOR_M", DEFAULT_CORRIDOR_M))
+# The routing quality every request asks for.
+#
+# At `TRAFFIC_UNAWARE` Google returns bizarre routes that leave a motorway at a
+# junction and rejoin it shortly after.
+ROUTING_PREFERENCE = "TRAFFIC_AWARE_OPTIMAL"
 
-REQUEST_TIMEOUT_S = float(os.environ.get("GOOGLE_TIMEOUT_S", "30"))
+REQUEST_TIMEOUT_S = 30.0
 
-EARTH_RADIUS_M = 6371000.0
 
-# Why a journey was not refined. Reported rather than swallowed: a route Google
-# agreed with and a route nobody could afford to ask about look the same from
-# outside, and they are not the same thing.
-AGREED = "google already followed the route"
-NO_WAYPOINT_BUDGET = "the link is already full at nine waypoints"
-NO_REQUEST_BUDGET = "this month's Google request budget is spent"
-NOT_CONFIGURED = "no Google key or monthly ceiling is configured"
-FAILED = "the Google request failed"
+@dataclass(frozen=True)
+class GoogleRoute:
+    # How much of Google's route ran inside the corridor of ours.
+    share: float | None
+    # The original waypoints, plus the ones that need to be added.
+    waypoints: list = field(default_factory=list)
+    # The route geometry Google returned.
+    geometry: list = field(default_factory=list)
 
 
 @dataclass
 class Refinement:
-    """What Google said, and what was done about it."""
-
     refined: bool = False
     reason: str | None = None
     # The waypoints to put in a link: the refined set, or the original ones.
     waypoints: list = field(default_factory=list)
-    # The waypoints the stored route was actually driven through. Distinct from
-    # `waypoints`, and the distinction matters: one Google request per journey
-    # buys the route through the waypoints we *had*, and the refined set is what
-    # we worked out from it. Drawing the refined markers on that route puts them
-    # where Google demonstrably did not go -- which is where they were put on
-    # purpose, and looks like a bug.
+    # The original waypoints.
     sent_waypoints: list = field(default_factory=list)
+    # Added waypoints.
     added: list = field(default_factory=list)
-    # Google's route through `waypoints` -- the one the link now carries. Always
-    # the route that matches the markers a viewer sees, so a correct refinement
-    # can never look like a fault. Empty until someone asks to see it.
+    # Google's route through `waypoints` -- the one the link now carries.
     nodes: list = field(default_factory=list)
     distance: float | None = None
     duration: float | None = None
     overlap: float | None = None
-    # What the first request measured: how faithfully Google drove the *original*
-    # waypoints, and how far it strayed. This is why the refinement happened, and
-    # it is kept even though the route it describes is not drawn.
+    # What the first request measured: how faithfully Google drove through the
+    # *original* waypoints, and how far it strayed.
     before_overlap: float | None = None
     drift_m: float | None = None
     budget: int = 0
 
-    def as_dict(self):
-        return {
-            "refined": self.refined,
-            "reason": self.reason,
-            "waypoints": self.waypoints,
-            "sent_waypoints": self.sent_waypoints,
-            "added": self.added,
-            "nodes": self.nodes,
-            "distance": self.distance,
-            "duration": self.duration,
-            "overlap": self.overlap,
-            "before_overlap": self.before_overlap,
-            "drift": self.drift_m,
-            "budget": self.budget,
-        }
-
-    def stored(self):
-        """The row form: the geometry encoded, because it is 50 000 points."""
-        d = self.as_dict()
-        d["nodes"] = encode_polyline([(lat, lon) for lon, lat in self.nodes])
-        return d
-
-
-def _metres(a, b):
-    lat1, lon1 = math.radians(a[0]), math.radians(a[1])
-    lat2, lon2 = math.radians(b[0]), math.radians(b[1])
-    h = (math.sin((lat2 - lat1) / 2) ** 2 +
-         math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2)
-    return 2 * EARTH_RADIUS_M * math.asin(math.sqrt(h))
-
 
 def _cumulative(points):
-    out = [0.0]
-    for a, b in zip(points, points[1:]):
-        out.append(out[-1] + _metres(a, b))
-    return out
+    """Distance along `points`, in metres, one entry per point starting at zero."""
+    if len(points) < 2:
+        return [0.0]
+    return [0.0] + list(np.cumsum(lengths_m(points)))
 
 
-def _nearest_index(points, target):
-    best_i, best_d = 0, None
-    for i, p in enumerate(points):
-        d = _metres(p, target)
-        if best_d is None or d < best_d:
-            best_i, best_d = i, d
-    return best_i
+def _positions(ours, points):
+    """Where along `ours`, in metres, each of `points` lies.
+    """
+    along = _cumulative(ours)
+    route = Corridor(ours)
+    return [along[route.nearest_index(p)] for p in points]
 
 
-def drift_sections(theirs, ours, corridor_m=CORRIDOR_M):
+def drift_sections(theirs, ours, corridor_m=DEFAULT_CORRIDOR_M):
     """The stretches of Google's route lying outside the corridor of ours."""
-    index = SegmentIndex(ours)
+    if len(theirs) < 2 or len(ours) < 2:
+        return []
+
+    points = np.asarray(theirs, dtype=float)
+    lengths = lengths_m(points)
+    real = np.flatnonzero(lengths > 0.0)
+    if len(real) == 0:
+        return []
+
+    midpoints = ((points[:-1] + points[1:]) / 2.0)[real]
+    inside = Corridor(ours, corridor_m).within(midpoints)
 
     sections = []
     current = None
-    for a, b in zip(theirs, theirs[1:]):
-        length = _metres(a, b)
-        if length == 0.0:
-            continue
-        midpoint = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-        if not index.within(midpoint, corridor_m):
+    for i, is_inside in zip(real, inside):
+        if not is_inside:
+            a, b = theirs[i], theirs[i + 1]
             if current is None:
                 current = {"from": a, "to": b, "length": 0.0}
-            current["length"] += length
+            current["length"] += float(lengths[i])
             current["to"] = b
         elif current is not None:
             sections.append(current)
@@ -160,43 +119,15 @@ def drift_sections(theirs, ours, corridor_m=CORRIDOR_M):
 def _rank(length, start, total):
     """A stretch's length, discounted by how far into the route it begins.
 
-    A driver follows a link from its beginning. A correction near the origin is
-    reached by everyone who follows the link at all; a correction near the
-    destination is reached only by a journey driven to the end rather than
-    abandoned, interrupted, or re-requested from a new position. Ranking by raw
-    length spends a budget of two on seventeen candidates as though every
-    kilometre were equally likely to be driven.
-
-    So a stretch at the origin counts for its full length and one at the
-    destination for half. The floor is 0.5 rather than 0 because the tail is
-    reached often enough to be worth correcting: a late stretch more than twice
-    the length of an early one still wins.
+    We care more about correcting the beginning of the route than the end.
+    The plans might change, the end might never be reached, or the route
+    might be re-routed midway to get some gas or have dinner.
     """
     return length * (1.0 - (start / total) / 2 if total else 1.0)
 
 
 def waypoints_for(sections, ours, budget):
     """A waypoint on our route for each of the worst stretches.
-
-    The stretch is located on our route by its two ends -- where Google left and
-    where it rejoined -- and the waypoint is our route's own midpoint between
-    them.
-
-    On **our** route, never on Google's. Google drifting means it found a road it
-    liked better between two of our waypoints; naming a point on that road would
-    confirm the detour rather than correct it.
-
-    Every stretch is located before any is chosen, because the rank needs the
-    position. `_nearest_index` therefore runs twice per stretch rather than twice
-    per chosen stretch -- thirty-four scans instead of four on Bayeux to Apt --
-    and the pair it produces is carried through to the placement rather than
-    recomputed.
-
-    Both distances are along **our** route. Google's would be free, since a
-    stretch is a run of its own points, but it answers a question about a journey
-    the driver does not take: where Google spends 134 km on a detour our route
-    covers in 86, every later stretch sits further along Google's route for a
-    reason that has nothing to do with how far the driver has driven.
     """
     if budget <= 0 or not sections:
         return []
@@ -204,10 +135,10 @@ def waypoints_for(sections, ours, budget):
     along = _cumulative(ours)
     total = along[-1]
 
+    ends = _positions(ours, [s[end] for s in sections for end in ("from", "to")])
+
     ranked = []
-    for section in sections:
-        start = along[_nearest_index(ours, section["from"])]
-        end = along[_nearest_index(ours, section["to"])]
+    for section, start, end in zip(sections, ends[0::2], ends[1::2]):
         if end < start:
             start, end = end, start
         ranked.append((_rank(section["length"], start, total), start, end, section))
@@ -228,15 +159,6 @@ def waypoints_for(sections, ours, budget):
 
 def _request_body(from_, to, waypoints):
     """The Routes API request, with every choice stated rather than defaulted.
-
-    `TRAFFIC_UNAWARE` is what makes Google's answer comparable to the route it is
-    being compared against: it is Google's own name for routing as though the
-    road were empty, which is what OSRM computes from its profile's speeds.
-
-    No departureTime -- supplying one enables traffic, which would make
-    TRAFFIC_UNAWARE a contradiction. Tolls are emphatically not avoided: a route
-    that uses toll roads is the entire subject. Waypoint order is not optimised,
-    because reordering would answer a question about a journey nobody asked for.
     """
     def point(lon, lat):
         return {"location": {"latLng": {"latitude": lat, "longitude": lon}}}
@@ -244,9 +166,12 @@ def _request_body(from_, to, waypoints):
     return {
         "origin": point(from_[0], from_[1]),
         "destination": point(to[0], to[1]),
+        # Stopovers, which is what a point with no `via` is. A Google Maps
+        # directions URL cannot express a pass-through waypoint, so a request
+        # that used one would measure a route the link cannot produce.
         "intermediates": [point(lon, lat) for lon, lat in waypoints],
         "travelMode": "DRIVE",
-        "routingPreference": "TRAFFIC_UNAWARE",
+        "routingPreference": ROUTING_PREFERENCE,
         "polylineQuality": "HIGH_QUALITY",
         "polylineEncoding": "ENCODED_POLYLINE",
         "computeAlternativeRoutes": False,
@@ -262,19 +187,16 @@ def _request_body(from_, to, waypoints):
     }
 
 
-# Only what is used. The evaluation asks for every field because it buys an
-# answer once against questions not yet asked; this asks a question it already
-# knows.
 FIELD_MASK = "routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration"
 
 
 async def _ask_google(session, body):
     async with session.post(
-        ROUTES_ENDPOINT,
+        config.google_routes_endpoint,
         data=json.dumps(body),
         headers={
             "Content-Type": "application/json",
-            "X-Goog-Api-Key": API_KEY,
+            "X-Goog-Api-Key": config.google_api_key,
             "X-Goog-FieldMask": FIELD_MASK,
         },
         timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S),
@@ -292,26 +214,7 @@ def _duration_s(route):
     return float(raw) if isinstance(raw, (int, float)) else None
 
 
-def _from_stored(stored, original):
-    """A refinement read back from the store."""
-    encoded = stored.get("nodes") or ""
-    return Refinement(
-        refined=stored.get("refined", False),
-        reason=stored.get("reason"),
-        waypoints=stored.get("waypoints") or original,
-        sent_waypoints=stored.get("sent_waypoints") or original,
-        added=stored.get("added") or [],
-        nodes=[[lon, lat] for lat, lon in decode_polyline(encoded)] if encoded else [],
-        distance=stored.get("distance"),
-        duration=stored.get("duration"),
-        overlap=stored.get("overlap"),
-        before_overlap=stored.get("before_overlap"),
-        drift_m=stored.get("drift"),
-        budget=stored.get("budget", 0),
-    )
-
-
-async def _ask(from_, to, waypoints):
+async def _request_route(from_, to, waypoints):
     """One paid Google request. Returns the route, or None."""
     body = _request_body(from_, to, waypoints)
     try:
@@ -334,62 +237,77 @@ def _measure(theirs, ours):
     """How faithfully `theirs` followed `ours`, and how far it strayed."""
     sections = drift_sections(theirs, ours)
     drift = sum(s["length"] for s in sections)
-    length = sum(_metres(a, b) for a, b in zip(theirs, theirs[1:]))
+    length = total_length_m(theirs)
     return sections, drift, (1.0 - drift / length if length else None)
 
 
-async def refine(from_, to, optimal, *, with_geometry=False):
+async def request_route_once(from_, to, ours, waypoints):
+    """One Google request through `waypoints`. Returns a `GoogleRoute`, or None.
+    """
+    if not config.google_api_key or config.google_max_requests_per_month <= 0:
+        return None
+    if not await spending.reserve_google_request(config.google_max_requests_per_month):
+        return None
+
+    route = await _request_route(from_, to, waypoints)
+    if route is None:
+        return None
+
+    theirs = _geometry(route)
+    sections, _drift, share = _measure(theirs, ours)
+    geometry = [[lon, lat] for lat, lon in theirs]
+
+    budget = MAX_WAYPOINTS - len(waypoints)
+    added = waypoints_for(sections, ours, budget) if budget > 0 else []
+    if not added:
+        return GoogleRoute(share=share, waypoints=list(waypoints), geometry=geometry)
+
+    # In the order our route reaches them: Google is asked to visit them in
+    # order, and a list in another order describes a different journey.
+    positions = list(zip(_positions(ours, [(lat, lon) for lon, lat in waypoints]),
+                         ([lon, lat] for lon, lat in waypoints)))
+    positions += [(w["at_m"], [w["latlon"][1], w["latlon"][0]]) for w in added]
+    positions.sort(key=lambda p: p[0])
+    return GoogleRoute(share=share, waypoints=[p[1] for p in positions], geometry=geometry)
+
+
+async def refine(from_, to, optimal):
     """Refine a journey's waypoints, or say why it was not refined.
 
-    Two phases, because the two things a caller can want cost differently.
-
-    Following a link needs only the refined waypoints, and those come from one
-    request: Google's route through the waypoints we already had, read for the
-    stretches where it went its own way.
-
-    Seeing the result needs a second, because the route through the refined
-    waypoints does not exist until it is asked for. The first request cannot
-    answer it — its whole purpose is to find the places that route will differ.
-
-    So `with_geometry` is what the page's button passes and a redirect does not.
-    Both phases are stored, so a journey costs at most two requests ever, and a
-    link followed after the button costs nothing.
+    This is for debug purposes only.
     """
     original = [list(w) for w in optimal["waypoints"]]
     ours = [(lat, lon) for lon, lat in optimal["nodes"]]
 
-    stored = db.read_refinement(from_, to)
-    result = _from_stored(stored, original) if stored else None
+    result = await _first_pass(from_, to, ours, original)
 
-    if result is None:
-        result = await _first_pass(from_, to, ours, original)
-
-    # The drawable route, bought only when someone asks to look at it.
-    if with_geometry and result.refined and not result.nodes:
+    if not result.nodes and (
+            result.refined or result.reason == "the link is already full at nine waypoints"):
         result = await _second_pass(from_, to, ours, result)
 
     return result
 
 
 async def _first_pass(from_, to, ours, original):
-    """Ask what Google drives through the waypoints we have, and correct them."""
+    """Ask Google to route through our waypoints, and add more where they help.
+    """
     budget = MAX_WAYPOINTS - len(original)
 
-    if not API_KEY or MONTHLY_CEILING <= 0:
-        return Refinement(reason=NOT_CONFIGURED, waypoints=original,
-                          sent_waypoints=original, budget=budget)
+    if not config.google_api_key or config.google_max_requests_per_month <= 0:
+        return Refinement(reason="no Google key or monthly ceiling is configured",
+                          waypoints=original, sent_waypoints=original, budget=budget)
 
     if budget <= 0:
-        return Refinement(reason=NO_WAYPOINT_BUDGET, waypoints=original,
+        return Refinement(reason="the link is already full at nine waypoints", waypoints=original,
                           sent_waypoints=original, budget=0)
 
-    if not db.reserve_google_request(MONTHLY_CEILING):
-        return Refinement(reason=NO_REQUEST_BUDGET, waypoints=original,
+    if not await spending.reserve_google_request(config.google_max_requests_per_month):
+        return Refinement(reason="this month's Google request budget is spent", waypoints=original,
                           sent_waypoints=original, budget=budget)
 
-    route = await _ask(from_, to, original)
+    route = await _request_route(from_, to, original)
     if route is None:
-        return Refinement(reason=FAILED, waypoints=original,
+        return Refinement(reason="the Google request failed", waypoints=original,
                           sent_waypoints=original, budget=budget)
 
     theirs = _geometry(route)
@@ -397,44 +315,42 @@ async def _first_pass(from_, to, ours, original):
     added = waypoints_for(sections, ours, budget)
 
     if not added:
-        # Google already drove our route, so the route it drove *is* the route
-        # the link produces. Nothing more to buy: the geometry is already here.
-        return _store(from_, to, Refinement(
-            refined=False, reason=AGREED,
+        # No refinement needed: Google already follows our route.
+        return Refinement(
+            refined=False, reason="Google already followed the route",
             waypoints=original, sent_waypoints=original, added=[],
             nodes=[[lon, lat] for lat, lon in theirs],
             distance=route.get("distanceMeters"), duration=_duration_s(route),
-            overlap=share, before_overlap=share, drift_m=drift, budget=budget))
+            overlap=share, before_overlap=share, drift_m=drift, budget=budget)
 
-    # Merged in the order our route reaches them: Google is asked to visit them
-    # in order, and a list in another order describes a different journey.
-    along = _cumulative(ours)
-    positions = [(along[_nearest_index(ours, (lat, lon))], [lon, lat])
-                 for lon, lat in original]
+    # Merge our waypoints with the added ones.
+    positions = list(zip(_positions(ours, [(lat, lon) for lon, lat in original]),
+                         ([lon, lat] for lon, lat in original)))
     positions += [(w["at_m"], [w["latlon"][1], w["latlon"][0]]) for w in added]
     positions.sort(key=lambda p: p[0])
 
-    # `nodes` is left empty on purpose. The route through these new waypoints is
-    # not the route just measured, and drawing that one would put the added
-    # points visibly off the line they were computed to correct.
-    return _store(from_, to, Refinement(
+    # `nodes` is left empty on purpose, so that `_second_pass` re-requests the
+    # route through the new waypoint set.
+    return Refinement(
         refined=True, reason=None,
         waypoints=[p[1] for p in positions], sent_waypoints=original,
         added=[[w["latlon"][1], w["latlon"][0]] for w in added],
         nodes=[], distance=None, duration=None, overlap=None,
-        before_overlap=share, drift_m=drift, budget=budget))
+        before_overlap=share, drift_m=drift, budget=budget)
 
 
 async def _second_pass(from_, to, ours, result):
-    """Buy the route through the refined waypoints, so it can be drawn."""
-    if not API_KEY or not db.reserve_google_request(MONTHLY_CEILING):
+    """Re-request the refined route through the new waypoint set.
+    """
+    if not config.google_api_key or not await spending.reserve_google_request(
+            config.google_max_requests_per_month):
         # The waypoints stand; only the picture is unavailable.
-        result.reason = result.reason or NO_REQUEST_BUDGET
+        result.reason = result.reason or "this month's Google request budget is spent"
         return result
 
-    route = await _ask(from_, to, result.waypoints)
+    route = await _request_route(from_, to, result.waypoints)
     if route is None:
-        result.reason = result.reason or FAILED
+        result.reason = result.reason or "the Google request failed"
         return result
 
     theirs = _geometry(route)
@@ -444,9 +360,11 @@ async def _second_pass(from_, to, ours, result):
     result.distance = route.get("distanceMeters")
     result.duration = _duration_s(route)
     result.overlap = share
-    return _store(from_, to, result)
 
+    if result.before_overlap is None:
+        result.before_overlap = share
+    if result.drift_m is None:
+        result.drift_m = drift
 
-def _store(from_, to, result):
-    db.write_refinement(from_, to, result.stored())
     return result
+
