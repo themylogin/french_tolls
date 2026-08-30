@@ -1,0 +1,15 @@
+[project]
+name = "french-tolls"
+version = "0.0.0"
+description = "Cheapest-by-toll routes across France, as a web service and a Telegram bot"
+requires-python = ">=3.11"
+
+dependencies = [
+    "aiohttp",
+    "aiosqlite",
+    "alembic",
+    "pytest",
+    "python-telegram-bot~=21.0",
+    "PyYAML",
+    "SQLAlchemy>=2",
+]
