@@ -11,7 +11,7 @@ states reachable. An exit whose entrance does not price it, a gantry carrying no
 amount, a two-way barrier whose neighbours are on neither side -- each is one
 line here, and a hunt through 1 295 real booths otherwise.
 """
-from ..data import Booth, BoothData
+from ..booths import Booth, BoothData
 
 __all__ = [
     "Spec",

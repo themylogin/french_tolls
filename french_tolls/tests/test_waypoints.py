@@ -3,7 +3,7 @@
 
 Every test writes a graph, runs the search against a stub answering from it, and
 asserts what the search did. Nothing here reaches a routing service, reads
-`data/`, or imports `service`.
+`data/`, or imports `route`.
 
 A graph names only the legs on which the fast graph *differs* from the optimal
 route. Every other leg answers with the optimal slice, so `fast_legs={(0, 9): …}`
@@ -11,7 +11,7 @@ reads as "the fast graph disagrees over the whole route, and nowhere else".
 """
 import asyncio
 
-from ..search import plan_waypoints
+from ..waypoints import plan_waypoints
 from .graph import FakeRouters, Graph, leg_rejoining, leg_with_extra_node
 
 # Node ids well away from the position indices, so a node id and a position are

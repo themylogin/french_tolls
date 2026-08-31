@@ -1,0 +1,8 @@
+{
+ "key": "toll-free",
+ "outcome": "the optimal route pays no tolls, so nothing is asked",
+ "from": "Ancenis-Saint-G\u00e9r\u00e9on",
+ "to": "Plo\u00ebrmel",
+ "preference": "TRAFFIC_AWARE_OPTIMAL",
+ "calls": []
+}

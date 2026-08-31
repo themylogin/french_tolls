@@ -3,18 +3,9 @@
 
 Every test builds the booths it needs and runs the accounting over a node
 sequence it writes. Nothing here reads `data/`, reaches a router, or imports
-`service`.
+`route`.
 """
-from ..tolls import (
-    BOOTH_NOT_PRICED,
-    BOOTH_UNTYPED,
-    ENTRANCE_NOT_CLOSED,
-    EXIT_WITHOUT_ENTRANCE,
-    GARE_UNKNOWN,
-    SIDE_UNKNOWN,
-    TARIFF_MISSING,
-    account,
-)
+from ..tolls import account
 from .booths import (
     build_booths,
     entrance,
@@ -174,7 +165,7 @@ def test_the_ticket_state_does_not_decide_the_sense():
 
     journey = account(b.data, b.route(INSIDE, "ESVRES", OUTSIDE))
 
-    assert reasons(journey) == [("ESVRES", EXIT_WITHOUT_ENTRANCE)]
+    assert reasons(journey) == [("ESVRES", "exit without an entrance")]
     assert journey.cost == 0
     assert journey.unpriced == 1
 
@@ -194,7 +185,7 @@ def test_a_two_way_barrier_falls_back_to_the_following_node():
     assert costs(entering) == [("ESVRES → TOURS", 1.90)]
 
     leaving = account(b.data, b.route(999, "ESVRES", OUTSIDE))
-    assert reasons(leaving) == [("ESVRES", EXIT_WITHOUT_ENTRANCE)]
+    assert reasons(leaving) == [("ESVRES", "exit without an entrance")]
 
 
 # --------------------------------------------------------------------------
@@ -279,7 +270,7 @@ def test_an_exit_with_no_ticket_open():
 
     journey = account(b.data, b.route("B", 1, 2))
 
-    assert reasons(journey) == [("B", EXIT_WITHOUT_ENTRANCE)]
+    assert reasons(journey) == [("B", "exit without an entrance")]
     assert journey.passages[0].cost is None
 
 
@@ -292,7 +283,7 @@ def test_an_entrance_reached_while_a_ticket_is_already_open():
 
     journey = account(b.data, b.route("A", 1, "C", 2, "B"))
 
-    assert reasons(journey)[0] == ("A", ENTRANCE_NOT_CLOSED)
+    assert reasons(journey)[0] == ("A", "entrance never closed by an exit")
     assert journey.passages[0].cost is None
     # The later ticket still closes normally.
     assert costs(journey)[1] == ("C → B", 4.00)
@@ -306,7 +297,7 @@ def test_an_exit_whose_gare_the_entrance_does_not_price():
 
     journey = account(b.data, b.route("A", 1, "ELSEWHERE"))
 
-    assert reasons(journey) == [("A → ELSEWHERE", TARIFF_MISSING)]
+    assert reasons(journey) == [("A → ELSEWHERE", "the entrance does not price this exit")]
     assert journey.passages[0].cost is None
 
 
@@ -319,11 +310,11 @@ def test_an_exit_carrying_no_gare_code():
 
     journey = account(b.data, b.route("A", 1, "UNMAPPED"))
 
-    assert reasons(journey) == [("A → UNMAPPED", GARE_UNKNOWN)]
+    assert reasons(journey) == [("A → UNMAPPED", "the booth maps to no gare")]
 
 
 def test_a_missing_tariff_and_an_unknown_gare_are_told_apart():
-    assert TARIFF_MISSING != GARE_UNKNOWN
+    assert "the entrance does not price this exit" != "the booth maps to no gare"
 
 
 def test_a_booth_absent_from_the_price_file():
@@ -332,7 +323,7 @@ def test_a_booth_absent_from_the_price_file():
 
     journey = account(b.data, b.route("SAINT EXUPERY"))
 
-    assert reasons(journey) == [("SAINT EXUPERY", BOOTH_UNTYPED)]
+    assert reasons(journey) == [("SAINT EXUPERY", "the booth is absent from the price file")]
     assert journey.passages[0].cost is None
 
 
@@ -360,7 +351,7 @@ def test_a_two_way_booth_whose_neighbours_are_on_neither_side():
 
     journey = account(b.data, b.route(777, "ESVRES", 888))
 
-    assert reasons(journey) == [("ESVRES", SIDE_UNKNOWN)]
+    assert reasons(journey) == [("ESVRES", "neither neighbour is a recorded side of this barrier")]
     assert journey.passages[0].cost is None
 
 
@@ -369,7 +360,7 @@ def test_a_route_ending_with_a_ticket_still_open():
 
     journey = account(b.data, b.route(1, "BEAUNE SUD", 2))
 
-    assert reasons(journey) == [("BEAUNE SUD", ENTRANCE_NOT_CLOSED)]
+    assert reasons(journey) == [("BEAUNE SUD", "entrance never closed by an exit")]
     assert journey.passages[0].cost is None
 
 
@@ -421,18 +412,10 @@ def test_no_unpriceable_passage_is_charged_zero_and_every_reason_is_distinct():
         assert passage.name
 
     assert {p.reason for p in unpriced} == {
-        EXIT_WITHOUT_ENTRANCE,
-        ENTRANCE_NOT_CLOSED,
-        TARIFF_MISSING,
-        BOOTH_UNTYPED,
-        SIDE_UNKNOWN,
+        "exit without an entrance",
+        "entrance never closed by an exit",
+        "the entrance does not price this exit",
+        "the booth is absent from the price file",
+        "neither neighbour is a recorded side of this barrier",
     }
 
-
-def test_the_eight_reasons_are_all_different_strings():
-    reasons_ = [
-        EXIT_WITHOUT_ENTRANCE, ENTRANCE_NOT_CLOSED, TARIFF_MISSING,
-        BOOTH_NOT_PRICED, BOOTH_UNTYPED, GARE_UNKNOWN, SIDE_UNKNOWN,
-    ]
-
-    assert len(set(reasons_)) == len(reasons_)

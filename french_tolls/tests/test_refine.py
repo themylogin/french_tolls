@@ -3,22 +3,25 @@
 
 Every test builds a straight route along the equator and hand-writes the
 stretches Google is supposed to have strayed over. Nothing here reaches Google
-or the store: the one test that needs a whole first pass stubs both.
+or the spend accounting: the one test that needs a whole first pass stubs both.
 
-A metre of longitude at the equator is a metre of route, and the haversine of a
-segment at latitude zero is exactly `R * dlon`, so a route written this way has
-cumulative distances that are the round numbers the tests name.
+A metre of longitude at the equator is a metre of route, and a segment at
+latitude zero measures exactly its share of the equator, so a route written this
+way has cumulative distances that are the round numbers the tests name.
 """
 import asyncio
-import math
+from dataclasses import replace
 
 import pytest
+from pyproj import Geod
 
 from .. import refine
 from ..refine import _rank, waypoints_for
 
-# Metres per degree of longitude at the equator, exactly as `_metres` measures it.
-M_PER_DEGREE = math.pi * refine.EARTH_RADIUS_M / 180
+# Metres per degree of longitude at the equator, exactly as the module measures
+# it: the WGS84 geodesic, not a sphere. 111 319.5 m against the 111 194.9 m the
+# old constant gave, which is the 0.11% the sphere was running short by.
+M_PER_DEGREE = Geod(ellps="WGS84").inv(0.0, 0.0, 1.0, 0.0)[2]
 
 TOTAL_M = 1_000_000.0
 STEP_M = 1_000.0
@@ -190,17 +193,20 @@ def test_nothing_to_spend_and_nothing_to_spend_it_on():
 # The merge, through a whole first pass with Google and the store stubbed
 # --------------------------------------------------------------------------
 
-class FakeDB:
-    """The two calls `_first_pass` makes, and what was written."""
+class FakeSpending:
+    """The one call `_first_pass` makes, and what it was asked for.
+
+    A coroutine, as `spending`'s own is. Nothing is written any more: a refinement
+    is not stored, so the fake has nothing to record but the claims made against
+    the month's ceiling.
+    """
 
     def __init__(self):
-        self.written = None
+        self.claims = []
 
-    def reserve_google_request(self, ceiling):
+    async def reserve_google_request(self, ceiling):
+        self.claims.append(ceiling)
         return True
-
-    def write_refinement(self, from_, to, refinement):
-        self.written = refinement
 
 
 def google_leaving_between(ours, from_m, to_m, offset_deg=0.05):
@@ -211,16 +217,16 @@ def google_leaving_between(ours, from_m, to_m, offset_deg=0.05):
 
 
 def first_pass(monkeypatch, ours, theirs, original):
-    fake = FakeDB()
-    monkeypatch.setattr(refine, "API_KEY", "test-key")
-    monkeypatch.setattr(refine, "MONTHLY_CEILING", 100)
-    monkeypatch.setattr(refine, "db", fake)
+    fake = FakeSpending()
+    monkeypatch.setattr(refine, "config", replace(
+        refine.config, google_api_key="test-key", google_max_requests_per_month=100))
+    monkeypatch.setattr(refine, "spending", fake)
     monkeypatch.setattr(refine, "_geometry", lambda route: theirs)
 
-    async def ask(from_, to, waypoints):
+    async def request_route(from_, to, waypoints):
         return {"distanceMeters": 1, "duration": "1s"}
 
-    monkeypatch.setattr(refine, "_ask", ask)
+    monkeypatch.setattr(refine, "_request_route", request_route)
 
     result = asyncio.run(refine._first_pass(ours[0], ours[-1], ours, original))
     return result, fake
@@ -241,7 +247,9 @@ def test_a_new_waypoint_is_merged_in_route_order(monkeypatch):
     lon = result.waypoints[1][0]
     assert 490_000 < lon * M_PER_DEGREE < 530_000
     assert result.added == [result.waypoints[1]]
-    assert fake.written is not None
+    # One claim against the month's ceiling, and nothing stored: the refinement is
+    # the return value now, not a row.
+    assert fake.claims == [100]
 
 
 def test_the_waypoints_asked_about_are_kept_apart_from_the_refined_set(monkeypatch):
@@ -262,5 +270,5 @@ def test_google_agreeing_adds_nothing(monkeypatch):
     result, _fake = first_pass(monkeypatch, ours, list(ours), original)
 
     assert not result.refined
-    assert result.reason == refine.AGREED
+    assert result.reason == "Google already followed the route"
     assert result.waypoints == original

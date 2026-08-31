@@ -1,0 +1,8 @@
+{
+ "key": "routes-agree",
+ "outcome": "it pays a toll, but our fastest route crosses the booths our optimal one does, so nothing is asked",
+ "from": "Perpignan",
+ "to": "Béziers",
+ "preference": "TRAFFIC_AWARE_OPTIMAL",
+ "calls": []
+}
