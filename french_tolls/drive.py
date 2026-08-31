@@ -32,7 +32,7 @@ from .overlap import lengths_m
 __all__ = [
     "AskGoogle", "AskRoute", "Basis", "Message", "Opinion", "Outcome", "Part",
     "AVOID_TOLLS", "COMPLEX", "MAX_DEPTH", "UNVERIFIED",
-    "accepts", "drive", "midpoint",
+    "accepts", "drive", "midpoint", "pays_no_tolls", "routes_agree",
 ]
 
 # How many times a journey may be halved
@@ -41,7 +41,7 @@ MAX_DEPTH = 2
 AVOID_TOLLS = "<b>⚠️ Please enable Avoid tolls before driving.</b>"
 UNVERIFIED = ("<b>⚠️ We were unable to check if the Google Maps route matches the proposed "
               "route.</b> Please check manually if it has any unnecessary loops.")
-COMPLEX = "This route is long and complex. Here is the next part of the route."
+COMPLEX = "This route is long and complex."
 
 
 class Basis(StrEnum):
@@ -165,6 +165,21 @@ def link_from_here(part, waypoints, maps_link):
     return maps_link(points)
 
 
+def pays_no_tolls(part) -> bool:
+    """Rule 1. Answered by the avoid-tolls setting, with no request."""
+    return part.cost <= 0
+
+
+def routes_agree(part) -> bool:
+    """Rule 2. Our fastest route crosses the booths our optimal one does.
+
+    Both sets have to be known. `None == None` is true, and two unknowns are
+    not an agreement.
+    """
+    return (part.booths is not None and part.fast_booths is not None
+            and part.fast_booths == part.booths)
+
+
 def accepts(part, opinion, fits):
     """Which test accepts Google's route for this part, or None if neither.
     """
@@ -192,15 +207,14 @@ def _part(part, budget, fits, maps_link, outcome, first):
     prefix = "" if first else COMPLEX + "\n"
 
     # Just avoiding tolls is the optimal route.
-    if part.cost <= 0:
+    if pays_no_tolls(part):
         outcome.messages.append(Message(
             text=(prefix + AVOID_TOLLS).strip(),
-            link=link_from_here(part, part.waypoints, maps_link)))
+            link=link_from_here(part, (), maps_link)))
         return
 
     # The fastest route pays the same tolls, so the plain link is the optimal route.
-    if (part.booths is not None and part.fast_booths is not None
-            and part.fast_booths == part.booths):
+    if routes_agree(part):
         outcome.messages.append(Message(
             text=prefix.strip(),
             link=link_from_here(part, (), maps_link),
