@@ -12,6 +12,7 @@ let googleWaypointMarkers = [];
 let startMarker = null;
 let endMarker = null;
 
+
 function encodeHTML(str) {
     return str.replace(/&/g, "&amp;")
               .replace(/</g, "&lt;")
@@ -24,9 +25,6 @@ function nodeLatLon(n) {
     return { lat: n[1], lng: n[0] };
 }
 
-// A small filled circle, for the waypoints handed to Google in debug mode.
-// Deliberately not the teardrop pin the endpoints use: a waypoint is a point the
-// route is made to pass through, not a place anyone is going to.
 function waypointDot(color) {
     const dot = document.createElement("div");
     dot.style.width = "12px";
@@ -62,26 +60,9 @@ function showPath(route, color, weight, zIndex) {
 }
 
 // What to show in a passage's cost cell.
-//
-// Not every passage has an amount: the API answers with a null cost and a reason
-// when it crossed a barrier it could not price -- a gantry carrying no tariff, an
-// exit whose entrance does not price it, a booth missing from the tariff data.
-//
-// Intl.NumberFormat coerces its argument with ToNumber, and Number(null) is 0,
-// so formatting one of those renders "0,00 €" and tells a driver that a toll
-// they will be charged for is free. That is the one claim the pricing is not
-// allowed to make.
-//
-// The test is against null and undefined rather than falsiness on purpose: a
-// passage that genuinely costs nothing must still read as "0,00 €".
 function peageCost(peage) {
     if (peage.cost === null || peage.cost === undefined) {
-        // "X €", not a dash. Every passage that reaches this list is a charge
-        // the driver will pay — the ones nobody could price are still charges,
-        // only their size is unknown. A dash reads as "nothing to pay", which is
-        // the opposite of the truth; this reads as a price nobody filled in.
-        return '<span class="unpriced" title="' +
-               encodeHTML(peage.reason || "not priced") + '">X €</span>';
+        return '<span class="unpriced">× €</span>';
     }
 
     return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' })
@@ -131,64 +112,22 @@ function showRoute(title, color, route) {
     return html.join("");
 }
 
-// Ask what Google would actually drive for this journey, and draw it.
-//
-// This is what spends money, and only when a visitor asks. The service refines
-// the waypoints if it can, stores the answer, and returns Google's own route so
-// it can be drawn beside ours.
-function showGoogleRoute(fromLonLat, toLonLat) {
-    const note = document.getElementById("google-note");
-    if (note) note.textContent = "Asking Google…";
+// Draw what Google actually drove, from the key the answer carried.
+function drawGoogleRoute(google) {
+    if (!google || !google.nodes || !google.nodes.length) {
+        return;
+    }
 
-    fetch('/api/refine', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 'from': fromLonLat, 'to': toLonLat }),
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (googlePath) {
-            googlePath.setMap(null);
-            googlePath = null;
-        }
-        googleWaypointMarkers.forEach(m => { m.map = null; });
-        googleWaypointMarkers = [];
+    googlePath = showPath(google, "#ff8c00", 16, 2);
 
-        if (!data.nodes || !data.nodes.length) {
-            // Nothing to draw. Saying why matters: a route Google agreed with
-            // and a route nobody could afford to ask about look identical from
-            // here, and they are not the same thing.
-            if (note) note.textContent = data.reason || data.message || "No Google route available.";
-            return;
-        }
-
-        googlePath = showPath(data, "#ff8c00", 5, 2);
-
-        // The orange route is Google's route through `waypoints` — the set the
-        // links above now carry — so every marker below lies on it. That
-        // invariant is the whole reason the geometry is bought separately: the
-        // first request answers a different question, and drawing its route
-        // beneath these markers put them visibly off the line.
-        const added = (data.added || []).map(w => w.join(","));
-        googleWaypointMarkers = (data.waypoints || []).map(w => {
-            const isAdded = added.includes(w.join(","));
-            return new AdvancedMarkerElement({
-                position: nodeLatLon(w),
-                map: map,
-                content: waypointDot(isAdded ? "#8e24aa" : "#ff8c00"),
-                title: isAdded
-                    ? "waypoint added to stop a detour"
-                    : "waypoint from the optimal route",
-            });
+    const added = (google.added || []).map(w => w.join(","));
+    googleWaypointMarkers = (google.waypoints || []).map(w => {
+        const isAdded = added.includes(w.join(","));
+        return new AdvancedMarkerElement({
+            position: nodeLatLon(w),
+            map: map,
+            content: waypointDot(isAdded ? "#8e24aa" : "#ff8c00"),
         });
-
-        // Nothing is said when the route is drawn: the map says it. The note is
-        // only for the case below, where there is nothing to draw and silence
-        // would be indistinguishable from a broken page.
-        if (note) note.textContent = "";
-    })
-    .catch(() => {
-        if (note) note.textContent = "Could not reach Google for this route.";
     });
 }
 
@@ -246,12 +185,6 @@ function calculate() {
             map: map,
             content: markerIcon("https://maps.google.com/mapfiles/ms/icons/red-dot.png"),
         });
-        // Stacking order, bottom to top: fast, Google, optimal.
-        //
-        // Stated explicitly rather than left to creation order, because the
-        // orange has to land between the other two. The optimal route is on top
-        // because it is the answer the page exists to give; the orange sits
-        // under it and over the blue.
         fastPath = showPath(data.fast, "#0f53ff", 8, 1);
         optimalPath = showPath(data.optimal, "#188038", 8, 3);
 
@@ -266,25 +199,12 @@ function calculate() {
 
         const from_name = from["name"].replace(", France", "");
         const to_name = to["name"].replace(", France", "");
-        // Each link gets a control beside it that asks what Google would
-        // actually drive. It is a button rather than something that happens on
-        // its own: the answer costs money, and it is bought when a visitor asks
-        // for it and at no other time.
-        const showIcon = '<i class="bi bi-sign-turn-right show-google" ' +
-            'title="Show what Google actually drives"></i> ';
         document.getElementById("routes").innerHTML = (
-            '<div class="links">Google Maps links:<br>' +
-            showIcon + '<a href="' + encodeHTML(data.optimal.url_from_current_location) + '">Your location → ' + to_name + '</a><br>' +
-            showIcon + '<a href="' + encodeHTML(data.optimal.url_from_current_location_through_start) + '">Your location → ' + from_name + ' → ' + to_name + '</a><br>' +
-            showIcon + '<a href="' + encodeHTML(data.optimal.url) + '">' + from_name + ' → ' + to_name + '</a><br>' +
-            '<div id="google-note" class="small gray"></div>' +
-            '</div>' +
             showRoute("Optimal route", "#188038", data.optimal) +
             showRoute("Fastest route", "#0f53ff", data.fast)
         );
-        document.querySelectorAll(".show-google").forEach(icon => {
-            icon.addEventListener("click", () => showGoogleRoute(from["lonlat"], to["lonlat"]));
-        });
+
+        drawGoogleRoute(data.google);
 
         calculateButton.style.display = "block";
         calculating.style.display = "none";
