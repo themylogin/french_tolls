@@ -55,9 +55,11 @@ DEFAULT_COUNT = 50
 # the reachability test. Paris, Place du Châtelet.
 MAINLAND_REFERENCE = (2.347, 48.858)
 
-# One /table request carries up to this many destinations. The routers are
-# started with --max-table-size 2000, so this stays under it with room for the
-# single source.
+# One /table request carries up to this many destinations. The routers run with
+# OSRM's default --max-table-size 100, which refuses a request whose
+# sources x destinations exceeds 100 * 100. One source against 1 500
+# destinations is 1 501 cells, so the batch is bounded by request size and
+# router memory rather than by that flag.
 TABLE_BATCH = 1500
 
 

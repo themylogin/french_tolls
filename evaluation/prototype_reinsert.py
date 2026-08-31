@@ -20,7 +20,7 @@ import os
 import sys
 import urllib.parse
 
-from french_tolls.geometry import DEFAULT_CORRIDOR_M, SegmentIndex, decode_polyline
+from french_tolls.overlap import DEFAULT_CORRIDOR_M, Corridor, decode_polyline
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 ROUTES_DIR = os.path.join(DATA_DIR, "google_routes")
@@ -67,17 +67,22 @@ def drift_sections(theirs, ours, corridor_m):
 
     Each carries its length, and the points at which it left and rejoined.
     """
-    index = SegmentIndex(ours)
+    corridor = Corridor(ours, corridor_m)
+
+    pairs = list(zip(theirs, theirs[1:]))
+    lengths = [metres(a, b) for a, b in pairs]
+    kept = [i for i, length in enumerate(lengths) if length != 0.0]
+    midpoints = [((pairs[i][0][0] + pairs[i][1][0]) / 2,
+                  (pairs[i][0][1] + pairs[i][1][1]) / 2) for i in kept]
+    inside = corridor.within(midpoints)
 
     sections = []
     current = None
 
-    for a, b in zip(theirs, theirs[1:]):
-        length = metres(a, b)
-        if length == 0.0:
-            continue
-        midpoint = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-        outside = not index.within(midpoint, corridor_m)
+    for i, is_inside in zip(kept, inside):
+        a, b = pairs[i]
+        length = lengths[i]
+        outside = not is_inside
 
         if outside:
             if current is None:

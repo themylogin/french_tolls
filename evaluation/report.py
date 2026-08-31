@@ -20,15 +20,39 @@ import sys
 import urllib.parse
 import urllib.request
 
-from french_tolls.geometry import DEFAULT_CORRIDOR_M, decode_polyline, overlap
+from french_tolls.bot import FIT_THRESHOLD
+from french_tolls.overlap import DEFAULT_CORRIDOR_M, decode_polyline, overlap
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 OUT_DIR = os.path.join(DATA_DIR, "google_routes")
 FRENCH_TOLLS_URL = os.environ.get("FRENCH_TOLLS_URL", "http://web:8080")
-PUBLIC_SITE_URL = os.environ.get(
-    "PUBLIC_SITE_URL", "https://french-tolls.undiscoveredlatitudes.com")
+SITE_URL = os.environ.get("URL", "https://french-tolls.undiscoveredlatitudes.com")
 
 TOP = 10
+
+# Overlap at or above which Google is taken to have driven our road. A judgement
+# rather than a fact, so it is settable and printed with the result.
+#
+# 0.98 because the predicted post-refinement overlaps of the first twenty
+# journeys leave an empty band between 97.7% and 99.5% -- 98 and 99 produce the
+# same split, so the line sits in a gap rather than through a cluster.
+#
+# Read from the application rather than restated. The bot decides whether a link
+# is followable against this same number, and a report that called a route
+# faithful while the bot called it unfollowable would be describing a different
+# product from the one that ships.
+CLOSE_OVERLAP = FIT_THRESHOLD
+
+# How near two of our own routes must be to count as the same route. A journey
+# whose optimal route is its fast route had no toll worth avoiding, so there was
+# nothing to steer Google away from and it tests nothing.
+#
+# Exact equality would do -- measured over the first thirty journeys, one is
+# identical to the metre and the rest differ by kilometres, with nothing in
+# between -- but a metre and a second of slack costs nothing and does not rely
+# on two float sums agreeing bit for bit.
+SAME_ROUTE_M = 1.0
+SAME_ROUTE_S = 1.0
 
 
 def google_route(stored):
@@ -77,7 +101,7 @@ def site_link(stored):
         "to": {"name": stored["destination"]["name"],
                "lonlat": [stored["destination"]["latlon"][1], stored["destination"]["latlon"][0]]},
     }
-    return f"{PUBLIC_SITE_URL}/#" + urllib.parse.quote(json.dumps(payload), safe="")
+    return f"{SITE_URL}/#" + urllib.parse.quote(json.dumps(payload), safe="")
 
 
 def maps_link(stored, with_waypoints):
@@ -127,10 +151,32 @@ def load(corridor_m, check_current):
     """Every stored answer, measured."""
     journeys = []
     unusable = 0
+    unrefined = 0
+    no_choice = 0
 
     for path in sorted(glob.glob(os.path.join(OUT_DIR, "*.json"))):
         with open(path) as f:
             stored = json.load(f)
+
+        if "refined" not in stored:
+            # Bought before refinement existed, so its stored route is the one
+            # Google drove through the *unrefined* waypoints. Reading it here
+            # would put an unrefined overlap into a report about refined ones,
+            # and the two are not comparable: Bayeux to Apt scores 74.4% on the
+            # route nobody is sent down and 91.8% on the one they are.
+            unrefined += 1
+            continue
+
+        ours = stored["ours"]
+        if (abs(ours["distance"] - ours["fast_distance"]) < SAME_ROUTE_M
+                and abs(ours["duration"] - ours["fast_duration"]) < SAME_ROUTE_S):
+            # The optimal route *is* the fast route, so there was no toll to
+            # avoid and no decision to steer Google away from. Google would have
+            # driven it unprompted; counting it as faithfully driven measures
+            # nothing about the waypoints and only inflates the population that
+            # is supposed to say whether they work.
+            no_choice += 1
+            continue
 
         route = google_route(stored)
         if route is None:
@@ -147,10 +193,20 @@ def load(corridor_m, check_current):
             unusable += 1
             continue
 
+        before = stored.get("before") or {}
         entry = {
             "path": path,
             "stored": stored,
             "overlap": share,
+            # What the unrefined route scored, and why the refinement could or
+            # could not fix it. The refined route is what is ranked; these say
+            # what it was rescued from.
+            "before_overlap": before.get("overlap"),
+            "drift": before.get("drift"),
+            "stretches": before.get("stretches"),
+            "covered_by_budget": before.get("covered_by_budget"),
+            "budget": stored.get("budget"),
+            "added": len(stored.get("added") or []),
             "google_distance": route.get("distanceMeters"),
             "google_duration": google_seconds,
             "google_length": google_length,
@@ -171,7 +227,7 @@ def load(corridor_m, check_current):
 
         journeys.append(entry)
 
-    return journeys, unusable
+    return journeys, unusable, unrefined, no_choice
 
 
 def hms(seconds):
@@ -183,7 +239,9 @@ def describe(entry, index):
     stored = entry["stored"]
     o, d = stored["origin"]["name"], stored["destination"]["name"]
     print(f"  {index:2d}. {o} -> {d}")
-    print(f"      overlap {entry['overlap'] * 100:5.1f}%   "
+    was = entry.get("before_overlap")
+    moved = f"{was * 100:.1f}% -> " if was is not None else ""
+    print(f"      overlap {moved}{entry['overlap'] * 100:5.1f}%   "
           f"waypoints {entry['waypoints']}   "
           f"ours {entry['our_distance'] / 1000:.0f} km / {hms(entry['our_duration'])}   "
           f"Google {(entry['google_distance'] or 0) / 1000:.0f} km / {hms(entry['google_duration'])}")
@@ -198,6 +256,9 @@ def main():
     parser.add_argument("--corridor", type=float, default=DEFAULT_CORRIDOR_M,
                         help=f"corridor half-width in metres (default {DEFAULT_CORRIDOR_M:.0f})")
     parser.add_argument("--top", type=int, default=TOP, help=f"how many to list (default {TOP})")
+    parser.add_argument("--close-overlap", type=float, default=CLOSE_OVERLAP,
+                        help="overlap at or above which a journey counts as faithfully "
+                             f"driven (default {CLOSE_OVERLAP})")
     parser.add_argument("--check-current", action="store_true",
                         help="also ask this project for each journey today, to see if the "
                              "algorithm has moved since the answers were bought")
@@ -206,7 +267,7 @@ def main():
     if not os.path.isdir(OUT_DIR):
         raise SystemExit(f"{OUT_DIR} does not exist. Run `make test_google_routes` first.")
 
-    journeys, unusable = load(args.corridor, args.check_current)
+    journeys, unusable, unrefined, no_choice = load(args.corridor, args.check_current)
     if not journeys:
         raise SystemExit(f"no usable answers under {OUT_DIR}.")
 
@@ -227,6 +288,15 @@ def main():
     if expected and len(journeys) < expected:
         print(f"missing           : {expected - len(journeys)} — every figure below is "
               f"over the {len(journeys)} that were bought")
+    if no_choice:
+        print(f"nothing to steer  : {no_choice} — the optimal route is the fast route, so")
+        print(f"                    Google would drive it unprompted and it says nothing")
+        print(f"                    about whether the waypoints work. Excluded.")
+    if unrefined:
+        print(f"not yet refined   : {unrefined} — bought before refinement existed, and")
+        print(f"                    excluded: their stored route is the one Google drove")
+        print(f"                    through the unrefined waypoints. `make test_google_routes`")
+        print(f"                    brings each forward for one request.")
     if unusable:
         print(f"unusable answers  : {unusable}")
     print(f"corridor          : {args.corridor:.0f} m")
@@ -276,25 +346,65 @@ def main():
               f"(ours {hms(e['our_duration'])}, Google {hms(e['google_duration'])}, "
               f"{e['delta_s'] / 60:+.1f} min)")
 
-    # ---- 3. the multiplier -------------------------------------------------
-    ratios = [e["ratio"] for e in journeys]
+    # ---- 3. the multiplier, per population ---------------------------------
+    close = [e for e in journeys if e["overlap"] >= args.close_overlap]
+    far = [e for e in journeys if e["overlap"] < args.close_overlap]
+
     print()
     print("-" * 78)
     print("3. TRAVEL TIME: OSRM TO GOOGLE")
     print("-" * 78)
-    print(f"   mean multiplier   : x{statistics.fmean(ratios):.4f}")
-    print(f"   median            : x{statistics.median(ratios):.4f}")
-    if len(ratios) > 1:
-        print(f"   standard deviation: {statistics.stdev(ratios):.4f}")
-    ordered = sorted(ratios)
-    for label, value in (("min", ordered[0]),
-                         ("p10", ordered[len(ordered) // 10]),
-                         ("p90", ordered[min(len(ordered) - 1, len(ordered) * 9 // 10)]),
-                         ("max", ordered[-1])):
-        print(f"   {label:18s}: x{value:.4f}")
+    print(f"   split at {args.close_overlap * 100:.0f}% overlap, because one number over both")
+    print("   populations cannot be read as either: where Google drove our road the")
+    print("   ratio compares two clocks on the same tarmac, and where it drove its own")
+    print("   it compares our time on one road with Google's on another.")
     print()
-    print(f"   over {len(journeys)} journeys. A multiplier above 1 means Google thinks the")
-    print("   drive takes longer than OSRM does.")
+
+    def population(label, group, explanation):
+        print(f"   {label}  n={len(group)}")
+        if not group:
+            print("     (none)")
+            print()
+            return
+        ratios = [e["ratio"] for e in group]
+        ordered = sorted(ratios)
+        print(f"     mean   x{statistics.fmean(ratios):.4f}"
+              + (f"   sd {statistics.stdev(ratios):.4f}" if len(ratios) > 1 else ""))
+        print(f"     median x{statistics.median(ratios):.4f}"
+              f"   min x{ordered[0]:.4f}   max x{ordered[-1]:.4f}")
+        print(f"     {explanation}")
+        print()
+
+    population("FAITHFUL after refining", close,
+               "how OSRM's clock differs from Google's on the same road")
+    population("STILL DIVERGING", far,
+               "how much time Google believes it saves by ignoring the route")
+
+    # The mixed figure stays, labelled, so a number that used to be reported
+    # alone does not change meaning silently.
+    allr = [e["ratio"] for e in journeys]
+    print(f"   MIXED over all {len(journeys)}: x{statistics.fmean(allr):.4f}"
+          + (f"   sd {statistics.stdev(allr):.4f}" if len(allr) > 1 else ""))
+    print("     both populations together — kept only so the split above is")
+    print("     comparable with what was reported before it existed")
+
+    if far:
+        print()
+        print("   why each diverging journey is still diverging:")
+        for e in sorted(far, key=lambda e: e["overlap"]):
+            s = e["stored"]
+            cov = e.get("covered_by_budget")
+            budget = e.get("budget")
+            if cov is not None and cov < 0.90:
+                why = (f"budget-limited: {budget} slot(s) for {e['stretches']} stretches, "
+                       f"covering {cov * 100:.0f}% of the drift")
+            elif cov is not None:
+                why = (f"budget covered {cov * 100:.0f}% of the drift and it still "
+                       f"diverges — placement, not the ceiling")
+            else:
+                why = "no before-measurements stored"
+            print(f"     {s['origin']['name']} -> {s['destination']['name']}: "
+                  f"{e['overlap'] * 100:.1f}%  ({why})")
 
     if args.check_current:
         moved = sum(1 for e in journeys if e.get("moved"))

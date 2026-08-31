@@ -26,7 +26,8 @@ import urllib.request
 
 import yaml
 
-from french_tolls.geometry import encode_polyline
+from french_tolls.overlap import decode_polyline, encode_polyline, overlap
+from french_tolls.refine import MAX_WAYPOINTS, drift_sections, waypoints_for
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 FRENCH_TOLLS_URL = os.environ.get("FRENCH_TOLLS_URL", "http://web:8080")
@@ -37,10 +38,22 @@ OUT_DIR = os.path.join(DATA_DIR, "google_routes")
 
 ROUTES_ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes"
 
-# Any request carrying intermediate waypoints falls into Google's Advanced tier.
-# Used only to state the cost before it is incurred; it is not billing, it is a
-# number to think with.
-USD_PER_1000_ADVANCED = 10.0
+# Google's published free allowance, in requests per calendar month.
+#
+# Counted rather than priced. The pricing page names Essentials and Pro tiers
+# and does not say which a route request carrying intermediate waypoints falls
+# into, so a figure in money cannot be derived from it -- and the figure this
+# step used to print was not derived from it either, it was written from memory.
+# What an operator can act on before a run is how much of the month's allowance
+# it will consume, and what that leaves for the application, which shares the key.
+FREE_REQUESTS_PER_MONTH = 10000
+
+# Two Google requests per journey. The first asks what Google drives through the
+# waypoints the optimal search emitted; the second asks what it drives through
+# the refined set, and that is the route a driver is actually sent down. The
+# first cannot be skipped -- the refined waypoints are placed in the stretches it
+# reveals -- so two is the floor rather than a choice.
+REQUESTS_PER_JOURNEY = 2
 
 # Sequential, with a pause. 2 450 requests at this rate is about ten minutes,
 # which is dominated by politeness rather than by work, and it keeps a failure
@@ -74,7 +87,8 @@ def outstanding(cities):
         for destination in cities:
             if origin["osm_id"] == destination["osm_id"]:
                 continue
-            if not os.path.exists(path_for(origin, destination)):
+            stored = read_stored(origin, destination)
+            if not is_complete(stored):
                 pairs.append((origin, destination))
     return pairs
 
@@ -144,6 +158,15 @@ def google_request_body(origin, destination, waypoints):
     No departureTime -- supplying one enables traffic, which would make
     TRAFFIC_UNAWARE a contradiction.
 
+    **This deliberately no longer matches the application.** `refine` asks at
+    TRAFFIC_AWARE_OPTIMAL, because the cheaper search invents motorway
+    exit-and-re-entry manoeuvres that change which booths a route crosses. This
+    measures durations against OSRM's, and there is no setting that answers both
+    questions: a traffic-aware duration and an empty-road duration are not
+    comparable, whatever the road. So the two diverge on purpose, and what this
+    reports is the faithfulness of a route on an empty road rather than of the
+    link the bot now emits.
+
     The three route modifiers are all defaults. They are written out anyway, so
     that a change to Google's defaults cannot quietly change what was measured.
     Tolls are emphatically not avoided: a route that uses toll roads is the
@@ -197,28 +220,138 @@ def ask_google(body):
         return json.load(response)
 
 
-def store(origin, destination, waypoints, ours, request_body, response_body):
-    """Keep the answer, and enough of the question to interpret it later.
+def measure(theirs, ours_points):
+    """How faithfully Google followed, and how far it strayed."""
+    share, length = overlap(theirs, ours_points, )
+    sections = drift_sections(theirs, ours_points)
+    return share, sum(s["length"] for s in sections), sections
 
-    `ours` is stored beside Google's answer rather than left to be recomputed at
-    report time. The report then compares what Google was actually asked to
-    drive against what it drove; recomputing would compare Google's old answer
-    against a route today's algorithm produces, and a change to the algorithm
-    would read as Google having changed its mind.
+
+def duration_s(route):
+    """Google reports a duration as a string of seconds, like `17802s`."""
+    raw = route.get("duration") or route.get("staticDuration")
+    if isinstance(raw, str) and raw.endswith("s"):
+        return float(raw[:-1])
+    return float(raw) if isinstance(raw, (int, float)) else None
+
+
+def merge_waypoints(sent, added, ours_points):
+    """The refined list, in the order our route reaches its members.
+
+    Google is asked to visit waypoints in the order given, so a list in another
+    order describes a different journey.
     """
+    if not added:
+        return [list(w) for w in sent]
+
+    along = [0.0]
+    for a, b in zip(ours_points, ours_points[1:]):
+        along.append(along[-1] + haversine_m(a, b))
+
+    def at(lon, lat):
+        best, best_d = 0, None
+        for i, p in enumerate(ours_points):
+            d = haversine_m(p, (lat, lon))
+            if best_d is None or d < best_d:
+                best, best_d = i, d
+        return along[best]
+
+    positions = [(at(lon, lat), [lon, lat]) for lon, lat in sent]
+    positions += [(w["at_m"], [w["latlon"][1], w["latlon"][0]]) for w in added]
+    positions.sort(key=lambda p: p[0])
+    return [p[1] for p in positions]
+
+
+def haversine_m(a, b):
+    lat1, lon1 = math.radians(a[0]), math.radians(a[1])
+    lat2, lon2 = math.radians(b[0]), math.radians(b[1])
+    h = (math.sin((lat2 - lat1) / 2) ** 2 +
+         math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2)
+    return 2 * 6371000.0 * math.asin(math.sqrt(h))
+
+
+def is_complete(stored):
+    """Has this journey been bought under the two-phase scheme?
+
+    `refined` is the discriminator rather than `response`. A file written before
+    refinement existed carries a `response` too, but it holds the route through
+    the *unrefined* waypoints -- the same key meaning a different thing -- and
+    such a journey still owes the request that buys the route worth measuring.
+    """
+    return bool(stored) and "response" in stored and "refined" in stored
+
+
+def adopt_unrefined(stored):
+    """Bring a pre-refinement answer up to the two-phase shape, for nothing.
+
+    Everything phase one would have asked Google is already in the file: the
+    waypoints that were sent, our route, and the route Google drove through
+    them. So the drift, the refined waypoints and the before-measurements are
+    all derivable, and the journey needs only the second request rather than
+    both -- twenty requests to bring the corpus forward instead of forty.
+    """
+    route = (stored.get("response") or {}).get("routes", [None])[0]
+    if route is None:
+        return None
+
+    sent = stored.get("waypoints") or []
+    ours_points = decode_polyline(stored["ours"]["polyline"])
+    theirs = decode_polyline(route["polyline"]["encodedPolyline"])
+    share, drift, sections = measure(theirs, ours_points)
+
+    budget = MAX_WAYPOINTS - len(sent)
+    added = waypoints_for(sections, ours_points, budget)
+
+    out = dict(stored)
+    out["sent_waypoints"] = sent
+    out["waypoints"] = merge_waypoints(sent, added, ours_points)
+    out["added"] = [[w["latlon"][1], w["latlon"][0]] for w in added]
+    out["budget"] = budget
+    out["before"] = {
+        "overlap": share,
+        "drift": drift,
+        "stretches": len(sections),
+        "covered_by_budget": (
+            sum(s["length"] for s in sorted(sections, key=lambda s: -s["length"])[:budget]) / drift
+            if drift and budget > 0 else (1.0 if not drift else 0.0)),
+        "distance": route.get("distanceMeters"),
+        "duration": duration_s(route),
+    }
+
+    if not added:
+        # Google already followed us, so the route on file is the one the link
+        # produces. Complete without spending anything at all.
+        out["refined"] = False
+    else:
+        # The stored route was driven through the old waypoints; it is not what
+        # the refined link produces, so it is dropped and phase two buys the
+        # route that is.
+        out.pop("response", None)
+
+    return out
+
+
+def read_stored(origin, destination):
+    """What is already on disk for this journey, or None.
+
+    A journey may be here with only its first phase done -- the sweep writes
+    between the two -- so a caller has to look at what it holds, not merely
+    whether it exists.
+    """
+    try:
+        with open(path_for(origin, destination)) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def write_stored(origin, destination, payload):
+    """Write a journey's answer, atomically."""
     os.makedirs(OUT_DIR, exist_ok=True)
     path = path_for(origin, destination)
     tmp = f"{path}.part"
     with open(tmp, "w") as f:
-        json.dump({
-            "fetched_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "origin": origin,
-            "destination": destination,
-            "waypoints": waypoints,
-            "ours": ours,
-            "request": request_body,
-            "response": response_body,
-        }, f)
+        json.dump(payload, f)
     os.replace(tmp, path)
     return path
 
@@ -260,10 +393,15 @@ def main():
                   f"({great_circle_km(origin, destination):.0f} km apart)")
 
     planned = min(len(pairs), args.limit) if args.limit else len(pairs)
-    cost = planned * USD_PER_1000_ADVANCED / 1000.0
-    print(f"    would fetch now: {planned}")
-    print(f"    estimated cost:  ${cost:.2f} "
-          f"(at ${USD_PER_1000_ADVANCED:.0f} per 1000, Google's Advanced tier)")
+    requests = planned * REQUESTS_PER_JOURNEY
+    print(f"    would fetch now: {planned} journeys")
+    print(f"    Google requests: up to {requests} "
+          f"({REQUESTS_PER_JOURNEY} per journey, one to find the detours and one "
+          f"to drive the corrected route)")
+    print(f"    of the month's free allowance of {FREE_REQUESTS_PER_MONTH}, that is "
+          f"{requests * 100 / FREE_REQUESTS_PER_MONTH:.0f}%, leaving about "
+          f"{max(FREE_REQUESTS_PER_MONTH - requests, 0)} for the application, "
+          f"which shares the key")
 
     if not API_KEY:
         raise SystemExit(
@@ -273,23 +411,125 @@ def main():
 
     if not args.yes:
         print()
-        print("==> nothing requested. Re-run with --yes to spend the amount above.")
+        print("==> nothing requested. Re-run with --yes to use the allowance above.")
         print("    A first run of `--limit 10 --yes` is the cheap way to see what "
               "comes back before buying the rest.")
         return 0
 
     print(f"==> fetching {planned} journeys")
-    fetched = failures = 0
+    fetched = failures = requests_made = 0
     started = time.time()
 
     for origin, destination in pairs[:planned]:
         label = f"{origin['name']} -> {destination['name']}"
+        existing = read_stored(origin, destination)
+
         try:
-            ours = our_route(origin, destination)
-            optimal = ours["optimal"]
-            waypoints = optimal["waypoints"]
-            body = google_request_body(origin, destination, waypoints)
-            response = ask_google(body)
+            if existing is not None and not is_complete(existing) and "before" not in existing:
+                # A file from before refinement existed. Everything phase one
+                # would ask is already in it, so it is adopted rather than
+                # re-bought.
+                adopted = adopt_unrefined(existing)
+                if adopted is not None:
+                    existing = adopted
+                    write_stored(origin, destination, existing)
+
+            if existing is None:
+                # Phase one. What does Google drive through the waypoints the
+                # optimal search emitted? Its answer is not what is measured --
+                # a link carries the refined set, so this route describes a link
+                # nobody receives -- but the stretches where it left our route
+                # are the only thing that says where a new waypoint belongs.
+                ours = our_route(origin, destination)
+                optimal = ours["optimal"]
+                sent = optimal["waypoints"]
+                first_body = google_request_body(origin, destination, sent)
+                first = ask_google(first_body)
+                requests_made += 1
+
+                route = (first.get("routes") or [None])[0]
+                if route is None:
+                    raise RuntimeError("Google returned no route")
+
+                ours_points = [(lat, lon) for lon, lat in optimal["nodes"]]
+                theirs = decode_polyline(route["polyline"]["encodedPolyline"])
+                share, drift, sections = measure(theirs, ours_points)
+
+                budget = MAX_WAYPOINTS - len(sent)
+                added = waypoints_for(sections, ours_points, budget)
+                refined = merge_waypoints(sent, added, ours_points)
+
+                # Of phase one only the numbers survive. They are why the
+                # refinement happened and what the improvement is measured
+                # against; its geometry is never drawn or ranked, and keeping it
+                # would double a corpus already in the hundreds of megabytes.
+                existing = {
+                    "fetched_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "origin": origin,
+                    "destination": destination,
+                    "sent_waypoints": sent,
+                    "waypoints": refined,
+                    "added": [[w["latlon"][1], w["latlon"][0]] for w in added],
+                    "budget": budget,
+                    "before": {
+                        "overlap": share,
+                        "drift": drift,
+                        "stretches": len(sections),
+                        "covered_by_budget": (
+                            sum(s["length"] for s in sorted(
+                                sections, key=lambda s: -s["length"])[:budget]) / drift
+                            if drift and budget > 0 else (1.0 if not drift else 0.0)),
+                        "distance": route.get("distanceMeters"),
+                        "duration": duration_s(route),
+                    },
+                    "ours": {
+                        "distance": optimal["distance"],
+                        # `duration_osrm`, not `duration`: the service serves the
+                        # latter multiplied by TIME_MULTIPLIER, which is the very
+                        # figure this corpus exists to measure. Storing the served
+                        # number would make the next report read x1.0 and call the
+                        # correction perfect.
+                        "duration": optimal["duration_osrm"],
+                        "cost": optimal["cost"],
+                        "waypoints_needed": optimal["waypoints_needed"],
+                        "complete": optimal["complete"],
+                        "unpriced": optimal["unpriced"],
+                        # Our own geometry encoded rather than as floats: 24 KB a
+                        # route instead of 167 KB, and it is our data, free to
+                        # recompute. Only Google's answer is stored verbatim,
+                        # because only Google's answer was paid for.
+                        "polyline": encode_polyline(ours_points),
+                        "node_count": len(optimal["nodes"]),
+                        "fast_distance": ours["fast"]["distance"],
+                        "fast_duration": ours["fast"]["duration_osrm"],
+                        "fast_cost": ours["fast"]["cost"],
+                    },
+                    "request": first_body,
+                }
+
+                if not added:
+                    # Google already drove our route, so the route it drove *is*
+                    # the route the link produces. Nothing more to buy.
+                    existing["response"] = first
+                    existing["refined"] = False
+
+                # Written before the second request, so a run interrupted
+                # between the two resumes rather than paying for phase one again.
+                write_stored(origin, destination, existing)
+
+            if "response" not in existing:
+                # Phase two. What does Google drive through the refined
+                # waypoints? This is the route a driver is sent down, and the
+                # only one worth ranking.
+                second_body = google_request_body(
+                    origin, destination, existing["waypoints"])
+                second = ask_google(second_body)
+                requests_made += 1
+                existing["response"] = second
+                existing["request"] = second_body
+                existing["refined"] = True
+                write_stored(origin, destination, existing)
+
         except urllib.error.HTTPError as e:
             detail = e.read()[:400].decode(errors="replace")
             print(f"    FAILED {label}: HTTP {e.code} {detail}")
@@ -300,36 +540,16 @@ def main():
             failures += 1
             continue
 
-        # Our own geometry goes in encoded rather than as an array of floats.
-        # Measured over the first ten journeys, that is 24 KB a route instead of
-        # 167 KB, and across 2 450 it is a 614 MB corpus instead of 972 MB. It
-        # is our data, recomputable for nothing; only Google's answer is stored
-        # verbatim, because only Google's answer was paid for.
-        store(origin, destination, waypoints, {
-            "distance": optimal["distance"],
-            "duration": optimal["duration"],
-            "cost": optimal["cost"],
-            "waypoints_needed": optimal["waypoints_needed"],
-            "complete": optimal["complete"],
-            "unpriced": optimal["unpriced"],
-            "polyline": encode_polyline([(lat, lon) for lon, lat in optimal["nodes"]]),
-            "node_count": len(optimal["nodes"]),
-            "fast_distance": ours["fast"]["distance"],
-            "fast_duration": ours["fast"]["duration"],
-            "fast_cost": ours["fast"]["cost"],
-        }, body, response)
-
         fetched += 1
         if fetched % 25 == 0 or fetched == planned:
             rate = fetched / max(time.time() - started, 1e-6)
             print(f"    {fetched}/{planned} fetched, {failures} failed, "
-                  f"{rate:.1f}/s")
+                  f"{requests_made} requests, {rate:.1f}/s")
 
         time.sleep(args.delay)
 
-    spent = fetched * USD_PER_1000_ADVANCED / 1000.0
     print(f"==> fetched {fetched}, failed {failures}")
-    print(f"    spent about ${spent:.2f}")
+    print(f"    Google requests made: {requests_made}")
     print(f"    still outstanding: {len(outstanding(cities))}")
     return 1 if failures and not fetched else 0
 
