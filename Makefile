@@ -99,7 +99,7 @@ COMPOSE ?= $(DOCKER) compose
 # lands as root and the plain `mv`/`rm`/`touch` in these recipes fails.
 HOST_USER   := $(shell id -u):$(shell id -g)
 RUN_BUILDER := $(COMPOSE) run --rm --user $(HOST_USER) builder
-RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-tools
+RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-toll-tools
 
 .PHONY: all download_pbf setup_osrm build_osm_toll_booths build_route_set \
         build_vinci_toll_booths build_vinci_prices build_booth_sides \
@@ -108,7 +108,7 @@ RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-tools
         guard-osrm-path guard-osrm-optimal-path guard-osrm-paths-differ \
         guard-ulys-key guard-ulys-passage-date \
         update_route_set clean clean-osrm \
-        web bot app app-down test clean-cache \
+        web bot app app-down test clean-cache requirements \
         test_cities test_google_routes test_google
 
 all: download_pbf setup_osrm build_osm_toll_booths build_route_set \
@@ -244,7 +244,7 @@ $(OSRM_STAMP): $(BLACKLIST) $(PATCH) | $(PBF)
 	@rm -rf "$(OSRM_DIR)"/france-latest.osrm* "$(PROFILE_DIR)"
 	@mkdir -p "$(PROFILE_DIR)"
 	@echo "==> setup_osrm: taking the routing profile out of the image"
-	$(COMPOSE) run --rm --user $(HOST_USER) --entrypoint sh osrm-tools -c \
+	$(COMPOSE) run --rm --user $(HOST_USER) --entrypoint sh osrm-toll-tools -c \
 	    "cp /opt/car.lua /osrm/profile/car.lua.orig && cp -r /opt/lib /osrm/profile/"
 	@echo "==> setup_osrm: patching it with $(BLACKLIST) and the gate rule"
 	$(RUN_BUILDER) python3 patch_car_profile.py \
@@ -640,19 +640,37 @@ app-down:
 test:
 	$(COMPOSE) --profile test run --rm --no-TTY tests
 
-# Drops every cached answer and the autocomplete database.
+# Drops the store: the autocomplete answers and the month's request count.
 #
-# RUN THIS AFTER ANY PIPELINE REBUILD. The cache is keyed by the two points and
-# nothing else, so a rebuilt price file reaches a journey answered before it.
-# Nothing detects that, and a stale toll total looks exactly like a correct one.
+# A PIPELINE REBUILD NO LONGER NEEDS THIS. It used to, and that was the whole
+# reason the target existed: route answers and refinements were kept under the
+# two endpoints, so a rebuilt price file reached a journey answered before it and
+# a stale toll total looked exactly like a correct one. Neither is stored now, so
+# every journey is priced against the artefacts as they are and there is nothing
+# a rebuild can leave behind.
 #
-# It also drops every stored refinement, each of which cost up to two paid
-# Google requests, and the autocomplete rows, each of which cost a paid
-# LocationIQ request. Those are the price of the purge; the answers themselves
-# recompute in about a second each.
+# What it still drops costs money to replace. Each autocomplete row was a paid
+# LocationIQ request, and the request count is what the monthly ceiling is
+# enforced against -- dropping it mid-month lets the ceiling be reached twice.
+# So run this to reset a deployment, not as routine maintenance.
 clean-cache:
 	$(COMPOSE) --profile app down
 	docker volume rm $$(basename $$(pwd))_cache || true
+
+# Recompiles requirements.txt from pyproject.toml.
+#
+# In a container on the interpreter the image runs, because a resolution is
+# specific to a Python version and this host has neither that version nor uv.
+# Resolving against whatever happens to be installed here would pin a set the
+# image cannot install.
+#
+# Run it after changing a dependency in pyproject.toml, and commit both files.
+requirements:
+	$(DOCKER) run --rm -v "$$(pwd)/pyproject.toml:/in/pyproject.toml:ro" \
+	    ghcr.io/astral-sh/uv:python3.11-bookworm-slim \
+	    sh -c 'mkdir -p /build && cp /in/pyproject.toml /build/ && cd /build \
+	           && uv pip compile pyproject.toml -o requirements.txt >/dev/null 2>&1 \
+	           && cat requirements.txt' > requirements.txt
 
 # --------------------------------------------------------------------------
 # The paid evaluation (not one of the eleven steps, and not part of `test`)

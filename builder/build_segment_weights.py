@@ -133,6 +133,22 @@ PROGRESS_EVERY = 25         # source booths
 # the CSV keys on; the other three give the numbers the graph was built with.
 ANNOTATIONS = "nodes,distance,duration,weight"
 
+# The grid a weight is stored on. `osrm-customize` computes
+# `round(length / rate * WEIGHT_MULTIPLIER)` and keeps that integer, so the graph
+# holds no distinction finer than one over it, and the API reports a weight
+# already divided by it.
+#
+# Ten, because the profile sets no `weight_precision` and OSRM's default is 1.
+# Taken from the graph rather than trusted: over one run's report, all 249 448
+# sampled segments and all 333 barrier arcs carry a weight that is an exact
+# multiple of 0.1, and not one has a second decimal.
+#
+# Not parsed out of the profile at run time. `write_csv` has no business reading
+# Lua, and a wrong value here does not pass quietly -- it snaps every target onto
+# the wrong grid, which moves every arc's weight, which is the quantity
+# `check_arcs` holds to 0.01 EUR.
+WEIGHT_MULTIPLIER = 10
+
 # How many rows of each findings table are printed. The full record always goes
 # to the report file, so a cap costs nothing but the scrolling.
 TABLE_ROWS = 40
@@ -1345,11 +1361,31 @@ def write_csv(path, rows, wage):
     Sorted by node pair so a rerun from the same inputs is byte-identical, and
     with no blank line anywhere -- OSRM rejects the whole file for one.
 
-    The rate is written to nine decimal places rather than six. A whole tariff
-    on one short arc asks for a rate near 0.0014, where the sixth decimal is a
-    coarse grid; the fitted rows never ask for less than 1.09, so six was never
-    tested below that. Nine keeps the weight OSRM derives inside 0.0001% of the
-    weight the row asked for at either end of the range.
+    The target weight is rounded onto the grid the graph stores before it is
+    inverted into a rate, rather than after. `osrm-customize` computes
+    `round(length / rate * WEIGHT_MULTIPLIER)` and keeps that integer, so a
+    target between two grid points is a target the graph will not hold. Rounding
+    it here does not change the graph -- the integer OSRM arrives at is the same
+    one either way -- and it changes the file, because the row now names a weight
+    that survives the trip.
+
+    What that buys is a diff that means something. The fit couples every segment
+    to every other through the journeys that cross them, so one journey routing
+    differently moves a rate almost everywhere, by a median of 3e-9. Unrounded,
+    every one of those becomes a line in the diff of a file that is committed:
+    measured at one regeneration, 38 306 rows moved and 3 of them changed a
+    stored weight. Rounded, a rerun that leaves the graph alone leaves the file
+    alone.
+
+    The rate is still written to nine decimal places rather than six, and now for
+    a sharper reason than before. Nine is what it takes to name a grid point
+    rather than its neighbour at the small end of the range: a whole tariff on
+    one short arc asks for a rate near 0.0014, where six places land 0.08% away
+    and pick up a different integer. The fitted rows never ask for less than
+    1.09, so six was never tested below that.
+
+    The rounded target is never zero. An annotated weight above zero is at least
+    one grid step, being a multiple of it, and the toll term only ever adds.
     """
     tmp = path + ".part"
     written = 0
@@ -1360,7 +1396,8 @@ def write_csv(path, rows, wage):
                 continue
             speed_kmh = metres / dur * 3.6
             target = weight + toll_eur / wage * 3600.0
-            rate = metres / target
+            stored = round(target * WEIGHT_MULTIPLIER) / WEIGHT_MULTIPLIER
+            rate = metres / stored
             fh.write(f"{frm},{to},{speed_kmh:.6f},{rate:.9f}\n")
             written += 1
     os.replace(tmp, path)

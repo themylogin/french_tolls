@@ -1,0 +1,11 @@
+*
+
+!alembic
+!evaluation
+!french_tolls
+!alembic.ini
+!requirements.txt
+
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
