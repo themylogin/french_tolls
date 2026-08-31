@@ -6,7 +6,7 @@ from aiohttp import web
 from . import refine as refine_module
 from .autocomplete import autocomplete
 from .config import config
-from .service import get_route
+from .route import get_route
 
 logger = logging.getLogger(__name__)
 

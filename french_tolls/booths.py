@@ -57,7 +57,7 @@ class BoothData:
 
 def load_file(name: str) -> dict:
     # The open file rather than its bytes, so a YAML error names the path it is
-    # in. Read at import by `service`, so either failure stops the service.
+    # in. Read at import by `route`, so either failure stops the service.
     with open(os.path.join(DATA_DIR, name), "rb") as f:
         return yaml.safe_load(f)
 
