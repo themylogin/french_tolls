@@ -29,7 +29,7 @@ SNAP_REACH_M = 1000.0
 #
 # Hundreds, not two. Answering a journey costs four requests -- snap both ends,
 # then the fast route and the optimal one. Everything after that is
-# `search.plan_waypoints` solving a different problem: the smallest set of
+# `waypoints.plan_waypoints` solving a different problem: the smallest set of
 # waypoints that makes a plain fastest-path router reproduce the toll-optimal
 # route. Only the router can say whether a given span reproduces it, so every
 # probe is a request.

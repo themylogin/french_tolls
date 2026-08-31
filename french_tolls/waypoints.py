@@ -1,16 +1,6 @@
 # -*- coding=utf-8 -*-
-"""Reducing the optimal route to the waypoints a fastest-path router needs.
-
-A general-purpose navigation application computes the fastest route between the
-points it is given. The optimal route is not the fastest one, so handing it only
-an origin and a destination sends the driver down the expensive road. The job
-here is to find the fewest intermediate points such that, for every consecutive
-pair, the fastest route between them *is* the optimal route between them.
-
-The untouched graph stands in for that navigation application. That is the
-honest contract, and it is what the tests can measure: a leg verified here is
-the fastest route on this project's own graph, not a promise about what any
-particular third party will drive.
+"""Reducing the optimal route to the waypoints a fastest-path router (e.g.
+Google Maps) needs.
 """
 from dataclasses import dataclass, field
 import logging
@@ -21,32 +11,18 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["Divergence", "WaypointPlan", "plan_waypoints"]
 
-# The most intermediate waypoints a Google Maps directions URL carries. Beyond
-# it Maps drops the surplus without saying so, which is worse than a link that
-# admits it is partial.
+# The most intermediate waypoints a Google Maps directions URL carries.
 MAX_WAYPOINTS = 9
 
 
 @dataclass(frozen=True)
 class Divergence:
-    """A stretch no waypoint can make a fastest-path router follow.
-
-    The optimal route is optimal in the toll-weighted graph, so it may use a
-    segment that lies on no fastest path between its own endpoints. That is a
-    fact about the two graphs rather than an error: raising on it fails a whole
-    journey over one segment, and retrying on it does not terminate.
-    """
+    """A stretch no waypoint can make a fastest-path router follow."""
 
     from_index: int
     to_index: int
     from_location: tuple[float, float]
     to_location: tuple[float, float]
-
-    def as_dict(self):
-        return {
-            "from": list(self.from_location),
-            "to": list(self.to_location),
-        }
 
 
 @dataclass
@@ -68,23 +44,7 @@ class WaypointPlan:
 
 async def _reproduces(routers: Routers, optimal: Route, a: int, b: int,
                       start: Snap, end: Snap) -> bool:
-    """Does the fastest route from position `a` to position `b` follow `optimal`?
-
-    Equality is of the whole node sequence. A leg that leaves the optimal route
-    and rejoins it before `b` drives a road the optimal route does not, and the
-    driver pays for that road.
-
-    One node at each end is bookkeeping rather than road. A coordinate taken from
-    the optimal route's geometry snaps onto a segment, and the router's
-    annotation then carries that segment's *other* end as well -- measured on the
-    France graph, a leg from position i comes back as `(optimal[i - 1],) +
-    optimal[i:b + 1]`. So a leading node equal to `optimal[a - 1]` and a trailing
-    node equal to `optimal[b + 1]` are stripped before comparing.
-
-    The tolerance cannot hide a detour. The only nodes it forgives are the
-    endpoints' immediate neighbours *on the optimal route itself*; a leg that
-    drove any other road differs in its interior and still fails.
-    """
+    """Does the fastest route from position `a` to position `b` follow `optimal`?"""
     try:
         leg = await routers.fast(start, end)
     except NoRoute:
@@ -113,13 +73,7 @@ def _snap_at(optimal: Route, index: int, snaps: dict[int, Snap],
 
 async def _snap_position(routers: Routers, optimal: Route, index: int,
                          snaps: dict[int, Snap], origin: Snap, destination: Snap) -> Snap | None:
-    """Snap a position's coordinate with no hint, caching the result.
-
-    Snapping only. Whether the position may be *emitted* is a separate question,
-    answered by `_is_emittable` against the snap this returns. Keeping the two
-    apart is what stops a cached snap taken for one purpose from being handed out
-    for the other without being checked.
-    """
+    """Snap a position's coordinate with no hint, caching the result."""
     cached = _snap_at(optimal, index, snaps, origin, destination)
     if cached is not None:
         return cached
@@ -164,7 +118,7 @@ async def plan_waypoints(routers: Routers, optimal: Route, origin: Snap,
 
     This relies on a prefix of a fastest path being a fastest path, so that a
     leg reproducing the route implies every shorter leg from the same anchor
-    does. Where the router breaks a tie in favour of an equally fast alternative
+    does. Where the router breaks a tie in favour of an equally fast alternative,
     the growth stops early; that costs one extra waypoint and never costs
     correctness, because every emitted waypoint is one whose own leg came back
     equal.
@@ -183,13 +137,7 @@ async def plan_waypoints(routers: Routers, optimal: Route, origin: Snap,
         return await _snap_position(routers, optimal, index, snaps, origin, destination)
 
     async def reaches(index):
-        """Does the leg from the anchor to `index` reproduce the optimal route?
-
-        Deliberately does not ask whether `index` could be handed to a router as
-        a waypoint. Those are two different questions, and letting the second
-        stop the search makes it emit waypoints for a journey whose two routes
-        are already the same road.
-        """
+        """Does the leg from the anchor to `index` reproduce the optimal route?"""
         snap = await snap_for_leg(index)
         if snap is None:
             return None
@@ -202,10 +150,7 @@ async def plan_waypoints(routers: Routers, optimal: Route, origin: Snap,
             reach = await _furthest_reach(reaches, anchor, last)
 
             if reach is None:
-                # Nothing from here to the destination reproduces the optimal
-                # route. Step over one position and say so, rather than raising
-                # or retrying: a retry from the origin re-issues every request
-                # already made and does not terminate.
+                # Nothing from here to the destination reproduces the optimal route.
                 plan.divergences.append(Divergence(
                     from_index=anchor,
                     to_index=anchor + 1,
@@ -234,9 +179,7 @@ async def plan_waypoints(routers: Routers, optimal: Route, origin: Snap,
 
             if emit is None:
                 # No position between the anchor and the furthest reach can be
-                # handed to a router. Carry on from the furthest reach so the
-                # walk terminates, and say the link is not faithful.
-                logger.info("no emittable waypoint between %d and %d", anchor, index)
+                # handed to a router.
                 plan.complete = False
                 anchor, anchor_snap = index, snap
                 continue
@@ -267,11 +210,10 @@ async def plan_waypoints(routers: Routers, optimal: Route, origin: Snap,
                 plan.complete = False
                 plan.truncated_by = "cap"
 
-    except BudgetExhausted as e:
+    except BudgetExhausted:
         # Return what has been verified. A partial list of verified waypoints is
         # worth more to a driver than an error, and every one of them was
         # checked on the leg the driver drives.
-        logger.info("waypoint search stopped on budget: %s", e)
         plan.complete = False
         plan.truncated_by = plan.truncated_by or "budget"
 
@@ -281,12 +223,7 @@ async def plan_waypoints(routers: Routers, optimal: Route, origin: Snap,
 async def _emittable_at_or_before(routers: Routers, optimal: Route, index: int, anchor: int,
                                   snaps: dict[int, Snap], origin: Snap, destination: Snap,
                                   on_route: set[int]):
-    """The furthest position at or before `index`, above `anchor`, usable as a waypoint.
-
-    Walks back one position at a time. Measured on the France graph most
-    positions pass on the first try, and the query budget bounds the walk where
-    they do not.
-    """
+    """The furthest position at or before `index`, above `anchor`, usable as a waypoint."""
     for candidate in range(index, anchor, -1):
         snap = await _snap_position(routers, optimal, candidate, snaps, origin, destination)
         if snap is not None and _is_emittable(snap, on_route):
@@ -298,28 +235,16 @@ async def _emittable_at_or_before(routers: Routers, optimal: Route, index: int, 
 async def _furthest_reach(works, anchor: int, last: int):
     """The furthest position from `anchor` whose leg reproduces the optimal route.
 
-    `works(index)` returns that position's snap, or None. Returns
-    `(index, snap)`, or None when nothing between the anchor and the destination
+    Returns `(index, snap)`, or None when nothing between the anchor and the destination
     reproduces the route.
     """
-    # The destination first. The search is greedy for the furthest reach, and the
-    # furthest possible reach is the end: where the whole remainder reproduces
-    # the optimal route, no waypoint is needed at all and one request settles it.
-    #
-    # Probing it first is not only cheaper. Growing from the anchor upwards, the
-    # legs at offsets 1 and 2 come back one node longer than the optimal slice --
-    # the router snaps the far end onto a segment and the annotation carries that
-    # segment's other node -- while every offset from 5 up matches exactly. That
-    # short-range miss would end the growth and put a spurious waypoint a few
-    # metres into a journey whose two routes are the same road.
+    # Where the whole remainder reproduces the optimal route, no waypoint is
+    # needed at all and one request settles it.
     snap = await works(last)
     if snap is not None:
         return last, snap
 
     # Grow: 1, 2, 4, 8, ...
-    #
-    # Growth stops at the first failure *that follows a success*, not at the
-    # first failure outright, for the same short-range reason.
     best = None
     step = 1
     lo_fail = None
@@ -339,14 +264,10 @@ async def _furthest_reach(works, anchor: int, last: int):
         step *= 2
 
     if best is None:
-        # Nothing from here to the destination reproduces the optimal route. That
-        # is a genuine divergence: the optimal route is optimal in the weighted
-        # graph, so it may use a segment lying on no fastest path of its own.
+        # Nothing from here to the destination reproduces the optimal route.
         return None
 
-    # Bisect between the furthest success and the first failure. Where the growth
-    # ran off the end without a failure above it, the destination is the bound --
-    # it was probed first and did not reproduce.
+    # Bisect between the furthest success and the first failure.
     lo = best[0]
     hi = lo_fail if lo_fail is not None else last
     while hi - lo > 1:

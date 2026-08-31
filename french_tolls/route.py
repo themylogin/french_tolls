@@ -9,7 +9,7 @@ from . import equivalence, osrm
 from .config import config
 from .booths import load
 from .osrm import NoRoute, RouterUnavailable, Routers, TooFarFromNetwork
-from .search import MAX_WAYPOINTS, plan_waypoints
+from .waypoints import MAX_WAYPOINTS, plan_waypoints
 from .tolls import account, booths_crossed
 
 logger = logging.getLogger(__name__)
