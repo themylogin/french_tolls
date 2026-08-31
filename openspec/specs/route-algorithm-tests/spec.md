@@ -13,7 +13,7 @@ It SHALL run inside a container built from the application's own image, so that 
 
 A checkout with no `.env`, no graphs, and no pipeline output SHALL be able to run it. The dependency the suite replaces put every assertion behind 30 GB of graph and two long-running services, so the two pieces of logic worth protecting could not be exercised at all without them.
 
-No test SHALL import a module that reads an artefact at import time. `service` does, so a unit test SHALL reach `search`, `tolls`, `osrm`, and `data` directly rather than through it.
+No test SHALL import a module that reads an artefact at import time. `route` does, so a unit test SHALL reach `waypoints`, `tolls`, `osrm`, and `booths` directly rather than through it.
 
 #### Scenario: The suite runs with nothing else running
 
