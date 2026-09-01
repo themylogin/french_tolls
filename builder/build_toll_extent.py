@@ -4,21 +4,36 @@
 A tariff is priced between two booths, and the distance between the two booth
 nodes is not the distance the driver was charged for. A booth sits where the
 barrier is, and the tolled road runs on past it -- through the plaza, down the
-slip road, to wherever the network actually releases the traffic.
+slip road, to wherever the network releases the traffic.
 
-The end of that road is discoverable by routing. Every journey leaving an exit
-booth is on the same road until the network releases it; only then do they go to
-different places. So the last node they all share is the last node of the road.
+That point is where the driver commits, and commitment is a property of the road
+rather than of any journey over it:
 
-    for every priced booth
-        route it against its 24 nearest places        (local, batched)
-        exit:  booth -> place, keep the longest common prefix
-        enter: place -> booth, keep the longest common suffix
-        the far end of that shared run is the extent
+    enter:  the region every path through which reaches the booth
+    exit:   the region every path into which came from the booth
+    the extent is the node just outside that region, on the free side
+
+Grown backwards from the booth, a predecessor joins the region when every road
+leaving it is already inside. A roundabout node therefore never joins one: it
+always carries an arm that goes somewhere else. So the tolled section stops
+where the slip road meets the ring instead of running around it, which is what
+the previous derivation did for 753 of 990 extents, 436 of them onto a ring.
+
+The graph has to admit exactly what the router admits, or a region stops at a
+fork the driver never sees. Access tags, the barrier whitelist and the gate
+values are read out of the routing profile itself; the gate rule and the node
+blacklist are the ones builder/patch_car_profile.py compiles into it.
+
+It also has to reach further than the answer. A tolled slip road runs 8 km past
+AMBLAINVILLE, and a graph carved 2 km around the booth ends in the middle of it
+-- with no junction to stop at, which reads as "the tolled road ends here" and
+is a fabrication. So this step carves its own extract: the drive classes of the
+whole country, cut to cells that reach at least 11 km beyond every booth. A
+region that still runs off the edge is reported, never published.
 
 MERU to AMBLAINVILLE on the A16 is priced at 1.90 EUR. Booth to booth it is
 1.5 km, which reads 1.2422 EUR/km -- the highest sample in the whole segment
-table. Measured to the extents it is 10.0 km and 0.19 EUR/km, an ordinary rate.
+table. Measured to the extents it is an ordinary rate.
 
 Output:
     <--out>   `first_toll_node_id` / `last_toll_node_id` folded into the price
@@ -27,16 +42,22 @@ Output:
 
 import argparse
 import collections
-import concurrent.futures
+import gc
+import heapq
 import math
+import os
+import re
+import subprocess
 import sys
 import time
 
-import requests
+import osmium
 import yaml
 
+import booth_groups
 import build_vinci_prices as bp
 import build_vinci_direct_prices as bd
+import patch_car_profile as pc
 import overrides as ov
 
 Abort = bp.Abort
@@ -48,60 +69,515 @@ BIDIRECTIONAL, GANTRY, PASSTHROUGH = bp.BIDIRECTIONAL, bp.GANTRY, bp.PASSTHROUGH
 FIRST, FIRST_AT, LAST, LAST_AT = bp.TOLL_EXTENT_KEYS
 COORD_OF = {FIRST: FIRST_AT, LAST: LAST_AT}
 
-# Measured on AMBLAINVILLE: 24 places reach from 10.9 to 73.0 km, far enough
-# that they genuinely lie in different directions, and 24 x ~1250 booths is
-# about 30 000 routes -- the same order as the 23 835 step 10 does in 1.6 min.
-PLACES = 24
+# The tags a car profile consults for permission, most specific first. The
+# first one present decides; the rest are not read. Same order as the profile's
+# own `access_tags_hierarchy`.
+ACCESS_HIERARCHY = ("motorcar", "motor_vehicle", "vehicle", "access")
 
-# Convergence over three routes is not convergence; it is three routes that
-# happen to start the same way.
-MIN_ROUTES = 8
+# A guard, not a parameter. A region is bounded by the road, and the largest
+# over the whole inventory is 240 nodes. Reaching this many means a one-way
+# tagging error has made a corridor out of a town, and the booth is reported
+# rather than published.
+MAX_REGION = 4000
 
-# A two-way booth's routes split between its two sides, and only one side serves
-# the role being measured, so N places yield well under N usable routes. At N=24
-# that left 64 of its 90 roles below the floor. Four times rescues about half;
-# the rest have few reachable places on that side whatever N is.
-BIDIRECTIONAL_PLACES = 4
+# Distance from the barrier past which an extent is named in the report rather
+# than only counted. A long extent is either a real approach road or a region
+# that ran too far, and the two are told apart by looking.
+REPORT_KM = 1.0
 
-ROUTE_WORKERS = 16
-FLUSH_EVERY = 1             # one booth is the unit of work; see the module doc
-PROGRESS_EVERY = 50
+# How far a branch is followed before it is taken to have reached the open
+# network. This bounds what counts as "not really a way out": a plaza's own
+# roads and the ramp between two adjacent barriers, which is metres, and not a
+# tolled motorway section, which is tens of kilometres.
+#
+# The distinction matters more than it looks. ARGENTAN's merging ramp is fed by
+# a booth seven metres back, a pocket of two nodes. Raise this to 20 000 and a
+# whole tolled carriageway counts as a pocket instead, so an exit's region runs
+# on until the network releases it -- past the edge of the carve for a quarter
+# of all roles, which would need a second carve the size of France.
+ESCAPE_CAP = 500
+
+# How far from the barrier an absorbed dead end has to lie before the region is
+# sent to the wider carve. The first carve reaches at least 11 km, so a branch
+# that stops within this distance stops because the map says so, not because the
+# file ended -- Péage de Gye's stub is fifty metres out. Only a dead end near
+# the carve's own edge is worth a second look.
+STUB_FAR_M = 8000
+
+# The carve's cell size, in degrees. One cell of padding on every side, so the
+# extract reaches at least this far beyond any booth: 0.1 deg is 11.1 km of
+# latitude, against a longest measured extent of 8.11 km. The grouping carve's
+# 0.02 deg is far too tight -- it ends inside AMBLAINVILLE's slip road.
+CELL_DEG = 0.1
+
+# The second carve, for the handful of booths the first one cannot bound. A
+# region on a motorway with no junction for miles genuinely runs that far:
+# RESTIGNE's is 17.5 km, which the first carve cannot see the end of. Cut around
+# those booths alone, so the reach costs a small file rather than the memory of
+# a country. 0.3 deg is 33.3 km.
+WIDE_CELL_DEG = 0.3
+
+PROGRESS_EVERY = 200
 TABLE_ROWS = 40
 
-EARTH_KM = 6371.0
+EARTH_M = 6371000.0
 
 
 # --------------------------------------------------------------------------
-# Inputs
+# What the router admits
 # --------------------------------------------------------------------------
 
-def load_places(path):
-    """[(name, node id, (lat, lon))] from the route set's own place list.
+def lua_set(source, name):
+    """The string values of a `name = Set { 'a', 'b' }` table in the profile.
 
-    The route set already carries the towns and villages the coverage search
-    used. Reusing them keeps this step on committed inputs and introduces no
-    file of its own.
+    Read out of the profile rather than restated here, for the reason
+    `patch_car_profile.penalised_barriers` gives: an image that admits a
+    different set has that set governed by the rule, and a restatement here
+    would drift from it silently -- taking the extents with it.
     """
+    match = re.search(rf"{name}\s*=\s*Set\s*\{{(.*?)\}}", source, re.S)
+    if match is None:
+        raise Abort(f"no {name} table in the routing profile;"
+                    f" the extent graph cannot mirror what the router drives")
+    return frozenset(re.findall(r"['\"]([^'\"]+)['\"]", match.group(1)))
+
+
+class Profile:
+    """The three questions the extent graph asks of the routing profile."""
+
+    def __init__(self, source):
+        self.access_barred = lua_set(source, "access_tag_blacklist")
+        self.service_barred = lua_set(source, "service_access_tag_blacklist")
+        self.barrier_open = lua_set(source, "barrier_whitelist")
+        # `barrier=gate` and `barrier=lift_gate`: passable for a penalty in the
+        # stock profile, and passable only where an allowed class carries them
+        # once patch_car_profile has had its way.
+        self.gates = frozenset(pc.penalised_barriers(source))
+
+    def way_barred(self, tags):
+        """Whether the profile refuses a car this way."""
+        for key in ACCESS_HIERARCHY:
+            value = tags.get(key)
+            if value is not None:
+                return value in self.access_barred
+        return False
+
+    def service_way_barred(self, tags):
+        """The extra rule the profile applies to `highway=service` alone."""
+        return tags.get("access") in self.service_barred
+
+
+def read_profile(path):
+    with open(path, encoding="utf-8") as fh:
+        return Profile(fh.read())
+
+
+def load_blacklist(path):
+    """The nodes the map asserts and the ground does not."""
     with open(path, encoding="utf-8") as fh:
         doc = yaml.safe_load(fh) or {}
-    out = []
-    for entry in doc.get("places") or []:
-        latlon = entry.get("latlon") or []
-        if len(latlon) != 2:
+    return {int(n) for n in (doc.get("nodes_blacklist") or [])}
+
+
+class BarrierScan(osmium.SimpleHandler):
+    """Every `barrier=*` node in the extract, with its value."""
+
+    def __init__(self):
+        super().__init__()
+        self.values = {}
+
+    def node(self, n):
+        value = n.tags.get("barrier")
+        if value is not None:
+            self.values[n.id] = value
+
+
+def impassable_nodes(plaza_pbf, profile, blacklist):
+    """(nodes no car can cross, how many of each kind were seen).
+
+    Three rules, all the router's own. A barrier value the profile does not
+    whitelist stops a car where it stands. A gate stops one everywhere an
+    allowed highway class does not carry it, which is the rule
+    patch_car_profile compiles into the profile. A blacklisted node is not a
+    connection at all.
+
+    A booth is `barrier=toll_booth` and the profile whitelists it, so the
+    inventory stays reachable.
+    """
+    scan = BarrierScan()
+    scan.apply_file(plaza_pbf)
+    gates, opened = pc.scan_gates(plaza_pbf, sorted(profile.gates))
+    blocked = set(blacklist)
+    for node, value in scan.values.items():
+        if value in profile.barrier_open:
             continue
-        out.append((str(entry.get("name") or ""), int(entry["node_id"]),
-                    (float(latlon[0]), float(latlon[1]))))
-    if not out:
-        raise Abort(f"{path}: carries no usable `places` entries")
-    return out
+        if value in profile.gates and node in opened:
+            continue
+        blocked.add(node)
+    counts = {"barrier nodes": len(scan.values), "gates": len(gates),
+              "gates an allowed class carries": len(opened),
+              "blacklisted": len(blacklist)}
+    return blocked, counts
 
 
-def great_circle_km(a, b):
+# --------------------------------------------------------------------------
+# The graph
+# --------------------------------------------------------------------------
+
+def metres(a, b):
     lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
     h = (math.sin((lat2 - lat1) / 2) ** 2
          + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2)
-    return 2 * EARTH_KM * math.asin(math.sqrt(h))
+    return 2 * EARTH_M * math.asin(min(1.0, math.sqrt(h)))
 
+
+class Graph(osmium.SimpleHandler):
+    """Directed adjacency over the roads a car may drive, in metres.
+
+    The classes are `booth_groups.DRIVE_CLASSES` and the direction comes from
+    `booth_groups.two_way`, so this graph and the one the booths were grouped on
+    can never disagree about which way a road runs.
+
+    An edge touching an impassable node is not built at all, which is what makes
+    a locked gate stop a region rather than open one.
+
+    No coordinate is kept. The extract carries eighteen million nodes and the
+    step publishes about a thousand, so their positions are read back in one
+    further pass rather than held for every node -- three gigabytes of the
+    eleven this otherwise costs.
+    """
+
+    def __init__(self, profile, blocked):
+        super().__init__()
+        self.profile = profile
+        self.blocked = blocked
+        self.fwd = collections.defaultdict(dict)
+        self.rev = collections.defaultdict(dict)
+        self.roundabout = set()
+        self.ways_barred = 0
+        self.nodes_seen = 0
+
+    def way(self, w):
+        highway = w.tags.get("highway")
+        if highway not in booth_groups.DRIVE_CLASSES:
+            return
+        tags = dict(w.tags)
+        if self.profile.way_barred(tags) or (
+                highway == "service" and self.profile.service_way_barred(tags)):
+            self.ways_barred += 1
+            return
+        junction = tags.get("junction")
+        points = []
+        for node in w.nodes:
+            if not node.location.valid():
+                return
+            points.append((node.ref, (node.location.lat, node.location.lon)))
+        if junction == "roundabout":
+            self.roundabout.update(ref for ref, _ in points)
+        both = booth_groups.two_way(highway, tags.get("oneway"), junction)
+        self.nodes_seen += len(points)
+        for (a, at), (b, bt) in zip(points, points[1:]):
+            if a in self.blocked or b in self.blocked:
+                continue
+            length = metres(at, bt)
+            self.fwd[a][b] = length
+            self.rev[b][a] = length
+            if both:
+                self.fwd[b][a] = length
+                self.rev[a][b] = length
+
+    @property
+    def edges(self):
+        return sum(len(v) for v in self.fwd.values())
+
+
+class Positions(osmium.SimpleHandler):
+    """The coordinates of a named handful of nodes."""
+
+    def __init__(self, wanted):
+        super().__init__()
+        self.wanted = wanted
+        self.found = {}
+
+    def node(self, n):
+        if n.id in self.wanted:
+            self.found[n.id] = (n.location.lat, n.location.lon)
+
+
+def positions_of(path, wanted):
+    scan = Positions(set(wanted))
+    scan.apply_file(path)
+    return scan.found
+
+
+def carve_wide(drive_pbf, coords, out_pbf, cell_deg):
+    """A carve around named booths alone, for the regions the first cannot bound.
+
+    Not cached. It exists only when the first pass has found a region that ran
+    out of data, its booth set is that pass's finding rather than an input, and a
+    file kept from an earlier set would answer for the wrong booths.
+    """
+    if os.path.exists(out_pbf):
+        os.unlink(out_pbf)
+    booth_groups.carve_neighbourhoods(
+        drive_pbf, coords, out_pbf, os.path.dirname(out_pbf) or ".",
+        cell_deg=cell_deg, poly_name="extent_wide_cells.geojson")
+    print(f"    wider extract: {os.path.getsize(out_pbf) / 1e6:.1f} MB")
+    return out_pbf
+
+
+def carve(source_pbf, booths, ways_pbf, drive_pbf, cell_deg):
+    """The extract this step reasons over, carved once and kept.
+
+    Two stages, both `osmium` and both cached, for the reason
+    `build_osm_toll_booths.run_tags_filter` gives: a C++ streaming pass reduces
+    the country before pyosmium reads any of it.
+
+    Stage one keeps the drive classes of the whole country. Stage two cuts that
+    to cells around the booths, which is what makes the graph fit in memory --
+    the country's drive network is forty million nodes and the carve is
+    eighteen.
+    """
+    if os.path.exists(ways_pbf):
+        print(f"    reusing {ways_pbf}"
+              f" ({os.path.getsize(ways_pbf) / 1e6:.1f} MB)")
+        return ways_pbf
+    if not os.path.exists(drive_pbf):
+        expression = "w/highway=" + ",".join(sorted(booth_groups.DRIVE_CLASSES))
+        tmp = drive_pbf + ".part"
+        cmd = ["osmium", "tags-filter", "--overwrite", "-f", "pbf",
+               "-o", tmp, source_pbf, expression]
+        print("    " + " ".join(cmd), flush=True)
+        subprocess.run(cmd, check=True)
+        os.replace(tmp, drive_pbf)
+        print(f"    drive-class ways: {os.path.getsize(drive_pbf) / 1e6:.1f} MB")
+    else:
+        print(f"    reusing {drive_pbf}"
+              f" ({os.path.getsize(drive_pbf) / 1e6:.1f} MB)")
+    coords = {int(g): tuple(e["latlon"])
+              for g, e in (booths.get("toll_booths") or {}).items()}
+    coords.update({int(a): tuple(e["latlon"])
+                   for a, e in (booths.get("aliases") or {}).items()})
+    booth_groups.carve_neighbourhoods(
+        drive_pbf, coords, ways_pbf, os.path.dirname(ways_pbf) or ".",
+        cell_deg=cell_deg, poly_name="extent_cells.geojson")
+    print(f"    extent extract: {os.path.getsize(ways_pbf) / 1e6:.1f} MB")
+    return ways_pbf
+
+
+# --------------------------------------------------------------------------
+# The region
+# --------------------------------------------------------------------------
+
+def escapes_freely(node, onward, toll_nodes, cap, memo):
+    """Whether a driver taking `node` reaches the open network without paying.
+
+    The closure runs in the direction the driver would travel the branch --
+    forward out of an entrance's corridor, backward into an exit's -- and stops
+    at every toll point. A branch whose closure stays small is a stub or a pocket
+    of the toll network, and neither is a way out.
+
+    `cap` bounds the walk. A pocket larger than it reads as open, which is the
+    conservative direction: the tolled section ends early rather than running
+    over road nobody paid for.
+    """
+    hit = memo.get(node)
+    if hit is not None:
+        return hit
+    seen = {node}
+    queue = collections.deque([node])
+    free = False
+    while queue:
+        current = queue.popleft()
+        for other in onward.get(current, ()):
+            if other in seen or other in toll_nodes:
+                continue
+            if len(seen) >= cap:
+                free = True
+                queue.clear()
+                break
+            seen.add(other)
+            queue.append(other)
+    for reached in seen:
+        memo.setdefault(reached, free)
+    return free
+
+
+def region_of(seed, onward, back, traversable, resolve, group, cap=MAX_REGION,
+              toll_nodes=frozenset(), escape_cap=ESCAPE_CAP, memo=None):
+    """(the region, the booth group that bounded it, capped, stubbed).
+
+    `onward` is the direction a driver travels and `back` the direction the
+    region grows in. For an entrance those are (fwd, rev): a predecessor joins
+    when every road leaving it is already inside. For an exit they are swapped.
+
+    A road that does not get the driver out is not a way out, and there are two
+    ways to fail that. One is to lead nowhere: Péage de Gye sits on the A 31
+    mainline and the junction before it carries a two-node `motorway_link` that
+    stops dead, so a driver taking it reaches the end of the data and can only
+    turn round and pay. The other is to lead further into the toll network:
+    ARGENTAN's exit has an on-ramp merging fifty metres past the barrier, and
+    that ramp is fed seven metres back by a booth of its own, so its traffic has
+    paid too. Both ended a tolled road at its barrier.
+
+    A branch therefore bars its predecessor only when its own closure reaches the
+    open network without crossing a toll point -- see `escapes_freely`.
+
+    Whether a stub is a mapping artefact or the edge of the carve cannot be told
+    from here, so `stubbed` is returned with the region and the caller sends it
+    to the wider carve, where a road that really continues will.
+
+    Another booth group bounds the region rather than joining it. Beyond another
+    booth is another ticket, and a corridor that ran on through a second barrier
+    would carry a section this tariff does not pay for.
+    """
+    if memo is None:
+        memo = {}
+    inside = set(seed)
+    queue = collections.deque(seed)
+    blocker = None
+    capped = False
+    stubs = set()
+    while queue:
+        node = queue.popleft()
+        for other in back.get(node, ()):
+            if other in inside:
+                continue
+            if other in traversable and resolve.get(other, other) != group:
+                blocker = blocker or resolve.get(other, other)
+                continue
+            forward = onward.get(other)
+            if not forward:
+                continue
+            escapes = [n for n in forward if n not in inside]
+            if escapes:
+                if any(escapes_freely(n, onward, toll_nodes, escape_cap, memo)
+                       for n in escapes):
+                    continue
+                # Absorbed. A branch that leads into the toll network is a
+                # confident answer; one that leads nowhere might be the edge of
+                # the carve, and only that wants a wider look.
+                if any(not onward.get(n) for n in escapes):
+                    # Record the node that absorbed the dead end, not the dead
+                    # end itself: the region node is the one the caller can
+                    # measure a distance to.
+                    stubs.add(other)
+            if len(inside) >= cap:
+                capped = True
+                queue.clear()
+                break
+            inside.add(other)
+            queue.append(other)
+    return inside, blocker, capped, stubs
+
+
+def boundary_of(inside, back):
+    """(the region's own boundary nodes, the free nodes just outside them)."""
+    edge, free = set(), set()
+    for node in inside:
+        for other in back.get(node, ()):
+            if other not in inside:
+                edge.add(node)
+                free.add(other)
+    return edge, free
+
+
+def distances(sources, adj, limit=20000.0):
+    """Road distance from every node within `limit` to the booth, in metres."""
+    dist = {s: 0.0 for s in sources}
+    queue = [(0.0, s) for s in sources]
+    heapq.heapify(queue)
+    while queue:
+        d, node = heapq.heappop(queue)
+        if d > dist.get(node, math.inf) or d > limit:
+            continue
+        for other, length in adj.get(node, {}).items():
+            step = d + length
+            if step < dist.get(other, math.inf):
+                dist[other] = step
+                heapq.heappush(queue, (step, other))
+    return dist
+
+
+def side_limited(back, seed, toll_side):
+    """`back` with the booth's own toll side removed from it.
+
+    A two-way booth is an entrance driven one way and an exit driven the other,
+    and only the free side serves the role being measured. Growing a region
+    through an `inside_nodes` node would measure the other role's road.
+    """
+    if not toll_side:
+        return back
+    limited = collections.defaultdict(dict, back)
+    for node in seed:
+        limited[node] = {k: v for k, v in back.get(node, {}).items()
+                         if k not in toll_side}
+    return limited
+
+
+def measure(group, role, graph, seed, toll_side, traversable, resolve, cap,
+            boundary="inside", toll_nodes=frozenset()):
+    """Everything the report and the price file want about one booth's extent.
+
+    `boundary` names which side of the region is published. "free" is the node
+    just outside it, the last one at which a choice still existed. "inside" is
+    the node that one attaches to, one segment into the corridor -- the first
+    node the driver reaches already committed.
+
+    Both name the same junction and they differ by one segment, a median of 19 m,
+    so neither is a better measurement. What separates them is that a consumer
+    routes between the published coordinates, and a junction is exactly where a
+    router's snapping is ambiguous: asked to start from one, OSRM may take a
+    different arm and never traverse the node it was given, and
+    `build_segment_weights` then discards the pair. Measured over the priced
+    pairs, publishing the free node discards 3 912 of them and publishing the
+    inside node discards 326.
+    """
+    onward, back = ((graph.fwd, graph.rev) if role == FIRST
+                    else (graph.rev, graph.fwd))
+    back = side_limited(back, seed, toll_side)
+    inside, blocker, capped, stubs = region_of(
+        seed, onward, back, traversable, resolve, group, cap,
+        toll_nodes=toll_nodes, memo={})
+    edge, free = boundary_of(inside, back)
+    toward = graph.rev if role == FIRST else graph.fwd
+    dist = distances(seed, toward)
+    reachable = sorted((dist[n], n) for n in free if n in dist)
+    extent = reachable[0][1] if reachable else None
+    if extent is not None and boundary == "inside":
+        # The region node the chosen free node attaches to. Nearest to the
+        # booth, so the same tie-break as the free side: a region with two
+        # approaches never claims the road the other one drove.
+        attached = sorted((dist[n], n) for n in inside
+                          if extent in back.get(n, ()) and n in dist)
+        if attached:
+            extent = attached[0][1]
+    # A node the graph simply stops at is either a cul-de-sac or the edge of the
+    # carve, and the two are not told apart from inside. Only one near the edge
+    # of the carve's own reach is worth a wider look: a road that starts a few
+    # hundred metres from a barrier starts because the map says so.
+    truncated = [n for n in inside
+                 if not back.get(n) and dist.get(n, 0.0) > STUB_FAR_M]
+    return {
+        "extent": extent,
+        "metres": (dist.get(extent) if extent is not None else None),
+        "blocker": blocker,
+        "capped": capped,
+        "size": len(inside) - len(seed),
+        "free": len(free),
+        "edge": len(edge),
+        "truncated": bool(truncated) or any(
+            dist.get(n, 0.0) > STUB_FAR_M for n in stubs),
+        "truncated_at": max((dist[n] for n in truncated if n in dist), default=0.0),
+        "on_roundabout": bool(inside & graph.roundabout),
+        "at_barrier": bool(edge) and min(
+            (dist[n] for n in edge if n in dist), default=math.inf) < 1.0,
+    }
+
+
+# --------------------------------------------------------------------------
+# Which booths want an extent
+# --------------------------------------------------------------------------
 
 def wanted_roles(priced, overrides):
     """{booth: (roles, ...)} -- which extent each booth needs, and why not.
@@ -146,7 +622,7 @@ def _overridden(group, overrides):
 
     Any entry is enough. The file is where a booth the road network describes
     wrongly is corrected by hand, and a derived extent would overwrite the
-    correction on the next run -- so a booth named there is never routed,
+    correction on the next run -- so a booth named there is never derived,
     whether or not the entry states an extent.
     """
     return (group in overrides.forced or group in overrides.vinci
@@ -156,215 +632,11 @@ def _overridden(group, overrides):
             or group in overrides.last_toll_node)
 
 
-# --------------------------------------------------------------------------
-# Router
-# --------------------------------------------------------------------------
-
-class Router(bd.Router):
-    """Step 8's router, asking only for the node sequence."""
-
-    def nodes(self, a, b):
-        """(OSM nodes, [lon, lat] per node), or None when there is no route.
-
-        `overview=full` returns one geometry point per annotated node, so the
-        coordinates of any node on the route come free with the route itself.
-        """
-        (a_lat, a_lon), (b_lat, b_lon) = a, b
-        try:
-            resp = self._session().get(
-                f"{self.base_url}/route/v1/driving/"
-                f"{a_lon},{a_lat};{b_lon},{b_lat}",
-                params={"annotations": "nodes", "overview": "full",
-                        "geometries": "geojson", "steps": "false"},
-                timeout=120,
-            )
-        except requests.RequestException:
-            return None
-        if resp.status_code != 200:
-            return None
-        payload = resp.json()
-        if payload.get("code") != "Ok" or not payload.get("routes"):
-            return None
-        found = payload["routes"][0]
-        out = []
-        for leg in found["legs"]:
-            out.extend((leg.get("annotation") or {}).get("nodes") or [])
-        points = (found.get("geometry") or {}).get("coordinates") or []
-        if not out:
-            return None
-        # One point per node is what makes the coordinate lookup free. Where the
-        # router disagrees, the nodes are still usable and the coordinates are
-        # not, so the caller is told rather than handed a mismatched pair.
-        return out, (points if len(points) == len(out) else None)
-
-    def fan_out(self, origin, targets, outward):
-        """[(nodes, points), ...] for one booth against many places."""
-        def work(place):
-            a, b = (origin, place) if outward else (place, origin)
-            return self.nodes(a, b)
-
-        with concurrent.futures.ThreadPoolExecutor(self.workers) as pool:
-            answers = list(pool.map(work, targets))
-        self.routes_made += len(targets)
-        return answers
-
-
-# --------------------------------------------------------------------------
-# Convergence
-# --------------------------------------------------------------------------
-
-def oriented(nodes, booth, outward):
-    """The route's nodes from the booth outward, or None when it has no booth.
-
-    The router snaps the query coordinate onto a lane, so an outward route's
-    annotation can begin one node *before* the booth -- AMBLAINVILLE's all read
-    `[2587186119, 288919803, ...]`. That first node is upstream of the barrier
-    and belongs to no journey through it, so the sequence starts at the booth.
-
-    An inward route is reversed, which turns "the first node they converge on"
-    into the same longest-common-prefix problem.
-    """
-    if booth not in nodes:
-        return None
-    if outward:
-        return nodes[nodes.index(booth):]
-    at = len(nodes) - 1 - nodes[::-1].index(booth)
-    return nodes[:at + 1][::-1]
-
-
-def oriented_points(nodes, points, booth, outward):
-    """The geometry points, cut and reversed exactly as `oriented` cut the nodes."""
-    if points is None or booth not in nodes:
-        return None
-    if outward:
-        return points[nodes.index(booth):]
-    at = len(nodes) - 1 - nodes[::-1].index(booth)
-    return points[:at + 1][::-1]
-
-
-def common_prefix(sequences):
-    """The longest run of nodes every sequence starts with."""
-    if not sequences:
-        return []
-    out = []
-    for values in zip(*sequences):
-        first = values[0]
-        if any(v != first for v in values):
-            break
-        out.append(first)
-    return out
-
-
-def bound_at_next_booth(prefix, booth, traversable, resolve):
-    """(prefix truncated before another booth, that booth or None).
-
-    Beyond another booth is another ticket. A corridor whose nearby places all
-    lie past a second barrier would otherwise converge into a section this
-    tariff does not pay for, and the distance would be too long instead of too
-    short.
-    """
-    for i, node in enumerate(prefix):
-        if i == 0:
-            continue
-        if node in traversable:
-            group = resolve.get(node, node)
-            if group != booth:
-                return prefix[:i], group
-    return prefix, None
-
-
-def keep_side_pairs(pairs, booth, inside, role):
-    """`keep_side` over (sequence, points) pairs, keeping them aligned."""
-    if booth not in inside:
-        return pairs
-    toll_side = inside[booth]
-    return [(seq, pts) for seq, pts in pairs
-            if len(seq) >= 2 and seq[1] not in toll_side]
-
-
-def keep_side(sequences, booth, inside, role):
-    """Drop routes that used the booth's free side for the role being measured.
-
-    A two-way booth is an entrance driven one way and an exit driven the other,
-    and both roles are measured from routes that touch the same node. Direction
-    of query does not tell them apart; the side does. `inside_nodes` is the toll
-    network, so the road *away* from the network is the one whose extent is
-    wanted, and a route whose second node is on the inside is measuring the
-    other role's road.
-    """
-    if booth not in inside:
-        return sequences
-    toll_side = inside[booth]
-    kept = []
-    for seq in sequences:
-        if len(seq) < 2:
-            continue
-        if seq[1] in toll_side:
-            continue
-        kept.append(seq)
-    return kept
-
-
-def measure(booth, role, answers, inside, traversable, resolve, min_routes):
-    """(extent, blocker, kept, latlon, km) or (None, reason, kept, None, None).
-
-    The coordinates come from the geometry of one of the routes that agreed on
-    the extent, and the distance from that same route's own metres. Both are
-    free: the query already returned them.
-    """
-    outward = role == LAST
-    oriented_pairs = []
-    for nodes, points in answers:
-        seq = oriented(nodes, booth, outward)
-        if seq is None:
-            continue
-        oriented_pairs.append((seq, oriented_points(nodes, points, booth, outward)))
-    kept_pairs = keep_side_pairs(oriented_pairs, booth, inside, role)
-    seqs = [seq for seq, _pts in kept_pairs]
-    if len(seqs) < min_routes:
-        return None, f"only {len(seqs)} usable route(s)", len(seqs), None, None
-    prefix = common_prefix(seqs)
-    if not prefix:
-        return None, "no route contained the booth node", len(seqs), None, None
-    prefix, blocker = bound_at_next_booth(prefix, booth, traversable, resolve)
-    extent = prefix[-1]
-    latlon = None
-    for seq, pts in kept_pairs:
-        if pts is None:
-            continue
-        at = seq.index(extent)
-        if at < len(pts):
-            lon, lat = pts[at]
-            latlon = bp.LatLon([round(float(lat), 7), round(float(lon), 7)])
-            break
-    return extent, blocker, len(seqs), latlon, len(prefix)
-
-
-# --------------------------------------------------------------------------
-# Distance, for the report
-# --------------------------------------------------------------------------
-
-def extent_km(router, booth_pos, place_pos, booth, extent, outward):
-    """How far the extent node is from the barrier, along the road.
-
-    For the report only, so a failure costs a column rather than the run.
-    """
-    a, b = (booth_pos, place_pos) if outward else (place_pos, booth_pos)
-    try:
-        resp = router._session().get(
-            f"{router.base_url}/route/v1/driving/"
-            f"{a[1]},{a[0]};{b[1]},{b[0]}",
-            params={"annotations": "nodes,distance", "overview": "false",
-                    "steps": "false"}, timeout=120)  # noqa: E501
-        payload = resp.json()
-        ann = payload["routes"][0]["legs"][0]["annotation"]
-    except Exception:  # noqa: BLE001 - a missing distance costs a report column
-        return None
-    nodes, dist = ann["nodes"], ann["distance"]
-    if booth not in nodes or extent not in nodes:
-        return None
-    lo, hi = sorted((nodes.index(booth), nodes.index(extent)))
-    return sum(dist[lo:hi]) / 1000.0
+def lanes_of(group, traversable, resolve):
+    """The group's own node and every lane the inventory records as its alias."""
+    lanes = {group} if group in traversable else set()
+    lanes.update(n for n, parent in resolve.items() if parent == group)
+    return lanes
 
 
 # --------------------------------------------------------------------------
@@ -387,15 +659,32 @@ def measured_table(rows, gares, limit=TABLE_ROWS):
             "first" if r["role"] == FIRST else "last",
             str(r["extent"]),
             f"{r['km']:.2f}" if r["km"] is not None else "",
-            str(r["routes"]),
+            str(r["size"]),
             str(r["blocker"] or ""),
             osm_node(r["extent"]),
         ])
     lines = table(["booth", "gare", "name", "role", "extent node", "km",
-                   "routes", "bounded by", "link"], body, right={5, 6})
+                   "nodes", "bounded by", "link"], body, right={5, 6})
     if len(rows) > limit:
         lines.append(f"    ... and {len(rows) - limit} more")
     return lines
+
+
+def named_table(rows, gares, threshold):
+    """Every extent past the threshold, named rather than counted."""
+    rows = [r for r in rows if r["km"] is not None and r["km"] >= threshold]
+    body = []
+    for r in sorted(rows, key=lambda r: -r["km"]):
+        body.append([
+            str(r["booth"]),
+            gares.get(r["booth"], ("", ""))[0],
+            gares.get(r["booth"], ("", ""))[1][:26],
+            "first" if r["role"] == FIRST else "last",
+            f"{r['km']:.2f}",
+            osm_node(r["extent"]),
+        ])
+    return rows, table(["booth", "gare", "name", "role", "km", "link"], body,
+                       right={4})
 
 
 def unmeasured_table(rows, gares, limit=TABLE_ROWS):
@@ -415,28 +704,74 @@ def unmeasured_table(rows, gares, limit=TABLE_ROWS):
     return lines
 
 
-def locate(router, booth_pos, places, node, tries=8):
-    """The coordinates of `node`, found on a route out of or into the booth.
-
-    Used only for an extent the override file states. The nearest places are
-    tried in both directions until one of their routes passes the node.
-    """
-    near = sorted(places, key=lambda p: great_circle_km(booth_pos, p[2]))[:tries]
-    for outward in (True, False):
-        answers = router.fan_out(booth_pos, [p[2] for p in near], outward)
-        for nodes, points in answers:
-            if points is None or node not in nodes:
-                continue
-            at = nodes.index(node)
-            if at < len(points):
-                lon, lat = points[at]
-                return bp.LatLon([round(float(lat), 7), round(float(lon), 7)])
-    return None
-
-
 # --------------------------------------------------------------------------
 # The run
 # --------------------------------------------------------------------------
+
+def derive_pass(graph, order, by_booth, args, priced, done_routes, traversable,
+                resolve, inside_nodes, measured, unmeasured, pending, tally,
+                defer_unbounded, toll_nodes=frozenset(), unsettled_sides=frozenset()):
+    """Derive every role in `by_booth` over one graph.
+
+    Returns the roles this graph could not bound: a region that ran to a node
+    the graph stops at, or one that found no free side at all. On the first
+    carve those are deferred to a wider one; on the wider carve there is nowhere
+    left to go, so they are reported as unmeasured.
+    """
+    unbounded = []
+    for n, group in enumerate(order, 1):
+        seed = {node for node in lanes_of(group, traversable, resolve)
+                if node in graph.fwd or node in graph.rev}
+        toll_side = {int(node) for node in inside_nodes.get(group, ())}
+        for role in by_booth[group]:
+            if not seed:
+                unmeasured.append({"booth": group, "role": role,
+                                   "reason": "no lane on a road a car may drive"})
+                continue
+            if group in unsettled_sides:
+                # A two-way booth whose sides did not settle has an incomplete
+                # `inside_nodes`, so the restriction that tells its two roles
+                # apart cannot be applied. Growing a region without one runs it
+                # through the toll side and answers for the wrong role -- a
+                # wrong measurement, where leaving it out is only a gap.
+                unmeasured.append({"booth": group, "role": role,
+                                   "reason": "two-way booth's sides did not settle"})
+                continue
+            found = measure(group, role, graph, seed, toll_side,
+                            traversable, resolve, args.max_region, args.boundary,
+                            toll_nodes)
+            if found["capped"]:
+                unmeasured.append({"booth": group, "role": role,
+                                   "reason": f"region past {args.max_region} nodes"})
+                continue
+            if found["truncated"] or found["extent"] is None:
+                if defer_unbounded:
+                    unbounded.append((group, role))
+                    continue
+                tally["truncated"] += 1
+                if found["extent"] is None:
+                    unmeasured.append({"booth": group, "role": role,
+                                       "reason": "no free side within the extract"})
+                    continue
+            extent = found["extent"]
+            if found["free"] > 1:
+                tally["ambiguous"] += 1
+            if found["at_barrier"]:
+                tally["at_barrier"] += 1
+            if found["on_roundabout"]:
+                tally["on_roundabout"] += 1
+            priced[group][role] = extent
+            pending[(group, role)] = extent
+            measured.append({"booth": group, "role": role, "extent": extent,
+                             "km": None if found["metres"] is None else found["metres"] / 1000.0,
+                             "size": found["size"], "blocker": found["blocker"],
+                             "free": found["free"]})
+            bp.write_state(args.out, priced, done_routes)
+        if n % PROGRESS_EVERY == 0 or n == len(order):
+            print(f"    {n}/{len(order)} booth(s), {len(measured)} measured,"
+                  f" {len(unmeasured)} unmeasured", flush=True)
+    return unbounded
+
 
 def run(args):
     priced, done_routes = bp.load_state(args.out)
@@ -444,54 +779,64 @@ def run(args):
     gares = load_gares(args.gares)
     overrides = ov.load(args.overrides)
     bidirectional = {g for g, r in priced.items() if r["type"] == BIDIRECTIONAL}
-    inside, _barriers = bd.load_sides(args.sides, bidirectional)
-    places = load_places(args.route_set)
+    inside_nodes, _barriers, unsettled_sides = bd.load_sides(
+        args.sides, bidirectional, bd.load_adjacent(args.booths))
+
+    # A booth the override ignores is still a barrier on the ground. `ignore`
+    # says "no route goes through this lane", which is right for pricing and
+    # grouping and wrong here: traffic that came past one has paid, so the road
+    # it merges onto is still tolled. ARGENTAN's exit ended at its barrier
+    # because a ramp fed by such a booth looked like free road.
+    toll_nodes = frozenset(traversable) | frozenset(overrides.ignored)
 
     work, skipped = wanted_roles(priced, overrides)
-    stated = publish_stated(priced, overrides, None, None)
-    stated = [(g, role, node) for g, role, node in stated
+    stated = [(g, role, node) for g, role, node in publish_stated(priced, overrides)
               if COORD_OF[role] not in priced[g]]
 
     outstanding = [(g, role) for g, roles in work.items() for role in roles
-                   if role not in priced[g] or COORD_OF[role] not in priced[g]]
+                   if role not in priced[g]]
+    # A role whose node is recorded but whose coordinates are not: the run that
+    # derived it was interrupted before the positions pass. It wants a lookup,
+    # not a derivation.
+    unpositioned = {(g, role): priced[g][role]
+                    for g, roles in work.items() for role in roles
+                    if role in priced[g] and COORD_OF[role] not in priced[g]}
     total_roles = sum(len(r) for r in work.values())
     by_kind = collections.Counter(
         (priced[g]["type"], len(roles)) for g, roles in work.items())
-    print(f"    {len(places)} place(s); {len(work)} booth(s) want"
-          f" {total_roles} extent(s); {total_roles - len(outstanding)} already"
-          f" recorded, {len(outstanding)} outstanding")
+    print(f"    {len(work)} booth(s) want {total_roles} extent(s);"
+          f" {total_roles - len(outstanding)} already recorded,"
+          f" {len(outstanding)} outstanding")
     print("    " + ", ".join(
         f"{n} {kind} x{count}" for (kind, count), n in sorted(by_kind.items())))
     print(f"    skipped: " + ", ".join(f"{n} {k}" for k, n in sorted(skipped.items()))
           + (f"; {len(stated)} stated by override" if stated else ""))
     if args.dry_run:
         return 0
-    if not outstanding and not stated:
-        print("    nothing outstanding; no route issued")
+    if unpositioned:
+        print(f"    {len(unpositioned)} extent(s) recorded without a position")
+    if not outstanding and not stated and not unpositioned:
+        print("    nothing outstanding; no region derived")
         return 0
 
-    router = Router(args.osrm, workers=args.workers)
-    router.wait_ready()
-
-    # The override names a node and not a point, so its coordinates are looked
-    # up before anything is derived. It is a lookup, not a derivation: the node
-    # is the operator's and only its position is being asked for.
-    for group, role, node in stated:
-        latlon = locate(router, position[group], places, node)
-        if latlon is None:
-            raise Abort(
-                f"the override states {role} = {node} for booth {group}, and no"
-                f" route out of that booth passes it.\n"
-                f"       An extent nothing can route to is not usable. Check the"
-                f" node id, or remove the statement and let it be derived.")
-        priced[group][role] = node
-        priced[group][COORD_OF[role]] = latlon
-        bp.write_state(args.out, priced, done_routes)
-    if stated:
-        print(f"    {len(stated)} stated extent(s) located")
+    started = time.monotonic()
+    profile = read_profile(args.profile)
+    blacklist = load_blacklist(args.blacklist)
+    with open(args.booths, encoding="utf-8") as fh:
+        inventory = yaml.safe_load(fh) or {}
+    ways = carve(args.pbf, inventory, args.ways, args.drive_ways, args.cell_deg)
+    blocked, counts = impassable_nodes(ways, profile, blacklist)
+    print("    " + ", ".join(f"{v} {k}" for k, v in counts.items())
+          + f" -> {len(blocked)} impassable node(s)", flush=True)
+    graph = Graph(profile, blocked)
+    graph.apply_file(ways, locations=True, idx="flex_mem")
+    print(f"    graph: {graph.edges} edge(s),"
+          f" {graph.ways_barred} way(s) barred to a car,"
+          f" {len(graph.roundabout)} roundabout node(s)"
+          f" in {time.monotonic() - started:.0f}s", flush=True)
 
     measured, unmeasured = [], []
-    started = time.monotonic()
+    pending_position, wide_pending, wide_positions = {}, {}, {}
     by_booth = collections.defaultdict(list)
     for group, role in outstanding:
         by_booth[group].append(role)
@@ -501,57 +846,99 @@ def run(args):
         order = order[:args.limit]
         print(f"    --limit {args.limit}: measuring {len(order)} booth(s)")
 
-    for n, group in enumerate(order, 1):
-        booth_pos = position[group]
-        ordered = sorted(places, key=lambda p: great_circle_km(booth_pos, p[2]))
-        # A two-way booth loses about half its routes to the side filter, so it
-        # is given a multiple of the places a one-way booth gets.
-        count = args.places
-        if priced[group]["type"] == BIDIRECTIONAL:
-            count *= args.bidirectional_places
-        near = ordered[:count]
-        for role in by_booth[group]:
-            outward = role == LAST
-            answers = router.fan_out(booth_pos, [p[2] for p in near], outward)
-            extent, blocker, kept, latlon, _depth = measure(
-                group, role, answers, inside, traversable, resolve,
-                args.min_routes)
-            if extent is None:
-                unmeasured.append({"booth": group, "role": role,
-                                   "reason": blocker})
-                continue
-            if latlon is None:
-                unmeasured.append({"booth": group, "role": role,
-                                   "reason": "no geometry for the extent node"})
-                continue
-            priced[group][role] = extent
-            priced[group][COORD_OF[role]] = latlon
-            km = extent_km(router, booth_pos, near[0][2], group, extent, outward)
-            measured.append({"booth": group, "role": role, "extent": extent,
-                             "km": km, "routes": kept, "blocker": blocker})
-            bp.write_state(args.out, priced, done_routes)
-        if n % PROGRESS_EVERY == 0 or n == len(order):
-            rate = router.routes_made / max(time.monotonic() - started, 1e-6)
-            print(f"    {n}/{len(order)} booth(s), {router.routes_made} routed,"
-                  f" {len(measured)} measured, {len(unmeasured)} unmeasured,"
-                  f" {rate:.0f} routes/s", flush=True)
+    tally = collections.Counter()
+    unbounded = derive_pass(
+        graph, order, by_booth, args, priced, done_routes, traversable, resolve,
+        inside_nodes, measured, unmeasured, pending_position, tally,
+        defer_unbounded=True, toll_nodes=toll_nodes,
+        unsettled_sides=unsettled_sides)
 
-    bp.write_state(args.out, priced, done_routes)
-    print(f"\n    routed in {(time.monotonic() - started) / 60:.1f} min")
+    # The regions the first carve could not bound. A region that runs to a node
+    # the graph stops at has been ended by the data rather than by the road, and
+    # a booth on a motorway with no junction for miles genuinely reaches that
+    # far. Those booths -- and only those -- get a carve three times as wide.
+    if unbounded and args.wide_cell_deg > 0:
+        booths = sorted({g for g, _role in unbounded})
+        print(f"\n    {len(unbounded)} region(s) over {len(booths)} booth(s) ran"
+              f" out of extract; carving {args.wide_cell_deg} deg around them",
+              flush=True)
+        coords = {g: position[g] for g in booths if g in position}
+        # The first graph is eleven gigabytes and nothing below reads it. Freed
+        # before the second is built, so the two never sit in memory together.
+        graph = None
+        gc.collect()
+        wide = carve_wide(args.drive_ways, coords, args.wide_ways,
+                          args.wide_cell_deg)
+        wide_blocked, _counts = impassable_nodes(wide, profile, blacklist)
+        wide_graph = Graph(profile, wide_blocked)
+        wide_graph.apply_file(wide, locations=True, idx="flex_mem")
+        print(f"    wider graph: {wide_graph.edges} edge(s)", flush=True)
+        wide_by_booth = collections.defaultdict(list)
+        for group, role in unbounded:
+            wide_by_booth[group].append(role)
+        derive_pass(
+            wide_graph, sorted(wide_by_booth), wide_by_booth, args, priced,
+            done_routes, traversable, resolve, inside_nodes, measured,
+            unmeasured, wide_pending, tally, defer_unbounded=False,
+            toll_nodes=toll_nodes, unsettled_sides=unsettled_sides)
+        pending_position.update(wide_pending)
+        wide_positions = positions_of(wide, set(wide_pending.values()))
+        tally["widened"] = len(wide_pending)
+        del wide_graph
+    elif unbounded:
+        for group, role in unbounded:
+            unmeasured.append({"booth": group, "role": role,
+                               "reason": "region ran out of extract"})
+
+    # One pass for every position this run publishes. A node id alone cannot be
+    # routed to -- the consumer takes coordinates -- and holding a position for
+    # each of the extract's eighteen million nodes costs three gigabytes to
+    # answer about a thousand questions.
+    pending_position.update(unpositioned)
+    pending_position.update({(g, role): node for g, role, node in stated})
+    if pending_position:
+        print(f"    reading {len(pending_position)} position(s) from {ways}",
+              flush=True)
+        found = positions_of(ways, set(pending_position.values()))
+        found.update(wide_positions)
+        for (group, role), node in sorted(pending_position.items()):
+            latlon = found.get(node)
+            if latlon is None:
+                raise Abort(
+                    f"node {node}, recorded as {role} for booth {group}, has no"
+                    f" position in {ways}.\n"
+                    f"       An extent nothing can route to is not usable. If an"
+                    f" override states it, check the node id; otherwise this is"
+                    f" a defect in the carve.")
+            priced[group][role] = node
+            priced[group][COORD_OF[role]] = bp.LatLon(
+                [round(float(latlon[0]), 7), round(float(latlon[1]), 7)])
+        bp.write_state(args.out, priced, done_routes)
+    print(f"\n    derived in {(time.monotonic() - started) / 60:.1f} min")
 
     print(f"\n  measured extents ({len(measured)})")
     for line in measured_table(measured, gares):
         print(line)
+    named, lines = named_table(measured, gares, args.report_km)
+    if named:
+        print(f"\n  beyond {args.report_km:.2f} km ({len(named)})")
+        for line in lines:
+            print(line)
     if unmeasured:
         print(f"\n  unmeasured ({len(unmeasured)})")
         for line in unmeasured_table(unmeasured, gares):
             print(line)
 
     bounded = sum(1 for r in measured if r["blocker"])
-    known = [r["km"] for r in measured if r["km"] is not None]
+    known = sorted(r["km"] for r in measured if r["km"] is not None)
     print("\n  summary")
     print(f"    measured                    {len(measured)}")
     print(f"    ... bounded by a second booth   {bounded}")
+    print(f"    ... ambiguous boundary          {tally['ambiguous']}")
+    print(f"    ... ending at the barrier       {tally['at_barrier']}")
+    print(f"    ... needing the wider carve     {tally['widened']}")
+    print(f"    ... still unbounded there       {tally['truncated']}")
+    print(f"    ... region on a roundabout      {tally['on_roundabout']}")
     print(f"    unmeasured                  {len(unmeasured)}")
     for reason, count in sorted(collections.Counter(
             r["reason"] for r in unmeasured).items()):
@@ -559,21 +946,20 @@ def run(args):
     for kind, count in sorted(skipped.items()):
         print(f"    skipped: {kind:<19}  {count}")
     if known:
-        known.sort()
         print(f"    extent km  median {known[len(known) // 2]:6.2f}"
               f"   p90 {known[min(len(known) - 1, int(0.9 * len(known)))]:6.2f}"
               f"   max {known[-1]:7.2f}")
+    if tally["on_roundabout"]:
+        raise Abort(
+            f"{tally['on_roundabout']} region(s) contain a roundabout node.\n"
+            f"       A roundabout always carries an arm that goes somewhere"
+            f" else, so it cannot lie inside a region every path through which"
+            f" reaches the booth. This means the graph or the rule is wrong.")
     return 0
 
 
-def publish_stated(priced, overrides, router, position):
-    """Record the extents the override file states, without deriving any.
-
-    The override names a node and not a point, so the coordinates are looked up
-    the same way a derived extent gets them: by routing away from the booth and
-    reading the geometry where that node appears. That is a lookup rather than a
-    derivation -- the node is the operator's, and only its position is asked for.
-    """
+def publish_stated(priced, overrides):
+    """The extents the override file states, without deriving any."""
     stated = []
     for group, node in sorted(overrides.first_toll_node.items()):
         if group in priced:
@@ -598,22 +984,38 @@ def main():
     ap.add_argument("--booths", required=True, help="osm_toll_booths.yaml")
     ap.add_argument("--gares", required=True, help="vinci_toll_booth.yaml")
     ap.add_argument("--sides", required=True, help="bidirectional_booth_sides.yaml")
-    ap.add_argument("--route-set", required=True, help="route_set.yaml, for its places")
+    ap.add_argument("--pbf", required=True,
+                    help="france-latest.osm.pbf, carved on first use")
+    ap.add_argument("--ways", required=True,
+                    help="the carved extent extract, made here if absent")
+    ap.add_argument("--drive-ways", required=True,
+                    help="the drive-class extract the carve is cut from")
+    ap.add_argument("--boundary", choices=("inside", "free"), default="inside",
+                    help="which side of the region to publish: the node one"
+                         " segment inside it, or the free node just outside")
+    ap.add_argument("--wide-ways", required=True,
+                    help="the second, wider carve, cut around the booths the"
+                         " first one cannot bound")
+    ap.add_argument("--wide-cell-deg", type=float, default=WIDE_CELL_DEG,
+                    metavar="D",
+                    help=f"cell size for that second carve, 0 to disable it"
+                         f" (default {WIDE_CELL_DEG})")
+    ap.add_argument("--cell-deg", type=float, default=CELL_DEG, metavar="D",
+                    help=f"carve cell size in degrees; the extract reaches at"
+                         f" least this far beyond every booth"
+                         f" (default {CELL_DEG})")
+    ap.add_argument("--profile", required=True,
+                    help="the routing profile, read for what a car may drive")
+    ap.add_argument("--blacklist", required=True, help="nodes_blacklist.yaml")
     ap.add_argument("--overrides", required=True, help="hand-maintained booth overrides")
-    ap.add_argument("--osrm", required=True, help="base URL of the untouched instance")
-    ap.add_argument("--places", type=int, default=PLACES, metavar="N",
-                    help=f"nearest places to route against (default {PLACES})")
-    ap.add_argument("--bidirectional-places", type=int,
-                    default=BIDIRECTIONAL_PLACES, metavar="K",
-                    help=f"multiply --places by this for a two-way booth,"
-                         f" whose routes the side filter halves"
-                         f" (default {BIDIRECTIONAL_PLACES})")
-    ap.add_argument("--min-routes", type=int, default=MIN_ROUTES, metavar="N",
-                    help=f"leave a booth unmeasured below this many usable"
-                         f" routes (default {MIN_ROUTES})")
-    ap.add_argument("--workers", type=int, default=ROUTE_WORKERS, metavar="N")
+    ap.add_argument("--max-region", type=int, default=MAX_REGION, metavar="N",
+                    help=f"report a booth whose region passes N nodes"
+                         f" (default {MAX_REGION})")
+    ap.add_argument("--report-km", type=float, default=REPORT_KM, metavar="KM",
+                    help=f"name every extent this far from the barrier"
+                         f" (default {REPORT_KM})")
     ap.add_argument("--dry-run", action="store_true",
-                    help="enumerate the work and exit without routing")
+                    help="enumerate the work and exit without reading the extract")
     ap.add_argument("--limit", type=int, metavar="N",
                     help="diagnostic: measure only the first N booths")
     args = ap.parse_args()

@@ -97,13 +97,22 @@ def two_way(highway, oneway, junction=None):
     return True
 
 
-def carve_neighbourhoods(source_pbf, booth_coords, out_pbf, workdir):
+def carve_neighbourhoods(source_pbf, booth_coords, out_pbf, workdir,
+                         cell_deg=None, poly_name="plaza_cells.geojson"):
     """Extract just the road network around booths.
 
     Cells are snapped to a shared grid and de-duplicated, so any two cells are
     either identical or edge-adjacent -- never partially overlapping. That keeps
     the multipolygon well-formed, which per-booth boxes would not.
+
+    `cell_deg` defaults to the grouping radius. A caller that has to see further
+    than a plaza passes its own, and its own `poly_name` with it, so two carves
+    of different radius never overwrite each other's polygon.
+
+    One cell of padding is added on every side, so the carve reaches at least
+    `cell_deg` beyond any booth wherever in its cell the booth happens to sit.
     """
+    cell = CELL_DEG if cell_deg is None else cell_deg
     if os.path.exists(out_pbf):
         # Depends on the source extract and the booth positions in it, neither of
         # which an override can change. See run_tags_filter for why this is safe.
@@ -112,20 +121,20 @@ def carve_neighbourhoods(source_pbf, booth_coords, out_pbf, workdir):
 
     cells = set()
     for lat, lon in booth_coords.values():
-        cx, cy = int(math.floor(lat / CELL_DEG)), int(math.floor(lon / CELL_DEG))
+        cx, cy = int(math.floor(lat / cell)), int(math.floor(lon / cell))
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 cells.add((cx + dx, cy + dy))
 
     polys = []
     for cx, cy in sorted(cells):
-        lat0, lon0 = cx * CELL_DEG, cy * CELL_DEG
-        lat1, lon1 = lat0 + CELL_DEG, lon0 + CELL_DEG
+        lat0, lon0 = cx * cell, cy * cell
+        lat1, lon1 = lat0 + cell, lon0 + cell
         polys.append([[[lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1], [lon0, lat0]]])
 
     geojson = {"type": "Feature", "properties": {},
                "geometry": {"type": "MultiPolygon", "coordinates": polys}}
-    poly_path = f"{workdir}/plaza_cells.geojson"
+    poly_path = f"{workdir}/{poly_name}"
     with open(poly_path, "w", encoding="utf-8") as fh:
         json.dump(geojson, fh)
 

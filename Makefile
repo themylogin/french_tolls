@@ -41,6 +41,9 @@ FILTERED_PBF := $(DATA_DIR)/filtered.osm.pbf
 BOOTHS       := $(DATA_DIR)/osm_toll_booths.yaml
 PLAZAS       := $(DATA_DIR)/plazas.osm.pbf
 NO_ACCESS    := $(DATA_DIR)/no_access_ways.osm.pbf
+DRIVE_WAYS   := $(DATA_DIR)/drive_ways.osm.pbf
+EXTENT_WAYS  := $(DATA_DIR)/extent_ways.osm.pbf
+WIDE_WAYS    := $(DATA_DIR)/extent_wide_ways.osm.pbf
 SNAP         := $(DATA_DIR)/endpoint_snap.json
 ROUTE_SET    := $(DATA_DIR)/route_set.yaml
 UNCOVERED    := $(DATA_DIR)/uncovered_booths.json
@@ -400,7 +403,7 @@ build_vinci_prices: guard-osrm-path guard-ulys-key guard-ulys-passage-date \
 build_booth_sides: guard-osrm-path $(SIDES)
 	@echo "==> build_booth_sides: $(SIDES)"
 
-$(SIDES): | $(PRICES) $(VINCI) $(BOOTHS) $(ROUTE_SET) $(BUILDER_STAMP)
+$(SIDES): | $(PRICES) $(VINCI) $(BOOTHS) $(ROUTE_SET) $(FILTERED_PBF) $(BUILDER_STAMP)
 	@echo "==> build_booth_sides: starting osrm-toll"
 	$(COMPOSE) up -d osrm-toll
 	$(RUN_BUILDER) python3 build_booth_sides.py \
@@ -408,6 +411,7 @@ $(SIDES): | $(PRICES) $(VINCI) $(BOOTHS) $(ROUTE_SET) $(BUILDER_STAMP)
 	    --prices /data/vinci_price.yaml \
 	    --gares /data/vinci_toll_booth.yaml \
 	    --route-set /data/route_set.yaml \
+	    --places /data/filtered.osm.pbf \
 	    --out /data/bidirectional_booth_sides.yaml \
 	    --osrm http://osrm-toll:5000
 
@@ -453,19 +457,32 @@ build_vinci_direct_prices: guard-osrm-path guard-ulys-key \
 # and writes into the same file, so it cannot run earlier; the ninth divides each
 # tariff by the distance between what it records, so it cannot run later.
 #
-# It asks only the router -- no key, no date, no network.
+# It starts no service. The extent is derived from an extract and the routing
+# profile, so this step needs neither the router nor a key, a date or a network.
+# $(OSRM_STAMP) is a prerequisite for the profile alone: the patched graph's
+# pristine `car.lua.orig` is what says which roads a car may drive, and the
+# extent graph has to admit exactly what the router does.
+#
+# The extract is this step's own. The grouping carve reaches 2 km around a
+# booth, and a tolled slip road can run four times that -- a region that leaves
+# the carve has no junction to stop at, and stopping anyway is a fabrication.
+# $(DRIVE_WAYS) and $(EXTENT_WAYS) are cut on first use and kept, like every
+# other extract the pipeline derives from the source.
 build_toll_extent: guard-osrm-path | $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) \
-                   $(ROUTE_SET) $(BUILDER_STAMP)
+                   $(PBF) $(OSRM_STAMP) $(BUILDER_STAMP)
 	@echo "==> build_toll_extent: $(PRICES)"
-	$(COMPOSE) up -d osrm-toll
 	$(RUN_BUILDER) python3 build_toll_extent.py \
 	    --out /data/vinci_price.yaml \
 	    --booths /data/osm_toll_booths.yaml \
 	    --gares /data/vinci_toll_booth.yaml \
 	    --sides /data/bidirectional_booth_sides.yaml \
-	    --route-set /data/route_set.yaml \
+	    --pbf /data/france-latest.osm.pbf \
+	    --ways /data/extent_ways.osm.pbf \
+	    --drive-ways /data/drive_ways.osm.pbf \
+	    --wide-ways /data/extent_wide_ways.osm.pbf \
+	    --profile /osrm/profile/car.lua.orig \
+	    --blacklist /data/nodes_blacklist.yaml \
 	    --overrides /data/osm_toll_booths_overrides.yaml \
-	    --osrm http://osrm-toll:5000 \
 	    $(EXTENT_ARGS)
 
 # --------------------------------------------------------------------------
@@ -596,7 +613,9 @@ $(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/bu
 # --------------------------------------------------------------------------
 clean:
 	rm -f $(BOOTHS) $(ROUTE_SET) $(UNCOVERED) $(EXCLUDED) $(VINCI) $(PRICES) $(SIDES) \
-	      $(FILTERED_PBF) $(PLAZAS) $(NO_ACCESS) $(SNAP) $(BUILDER_STAMP)
+	      $(FILTERED_PBF) $(PLAZAS) $(NO_ACCESS) $(DRIVE_WAYS) $(EXTENT_WAYS) \
+	      $(WIDE_WAYS) \
+	      $(SNAP) $(BUILDER_STAMP)
 
 # Drops both graphs, about 9 GB each. The extract in data/ is kept, and so is
 # $(SEGMENTS): it is a deliverable rather than part of a graph, and reclaiming

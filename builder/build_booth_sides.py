@@ -48,6 +48,7 @@ import sys
 import threading
 import time
 
+import osmium
 import requests
 import yaml
 
@@ -126,6 +127,39 @@ def load_places(path):
     with open(path, encoding="utf-8") as fh:
         doc = yaml.safe_load(fh) or {}
     return [tuple(p["latlon"]) for p in (doc.get("places") or [])]
+
+
+class PlaceCatalogue(osmium.SimpleHandler):
+    """Every `place=` node in the carved extract, as coordinates."""
+
+    def __init__(self):
+        super().__init__()
+        self.places = []
+
+    def node(self, n):
+        if n.tags.get("place") and n.location.valid():
+            self.places.append((n.location.lat, n.location.lon))
+
+
+def load_catalogue(path):
+    """The place catalogue, for the sides the route set's places cannot reach.
+
+    The sweep's places are the ones the coverage search used as endpoints -- 745
+    of them, chosen to cover booths rather than to sit beside any particular
+    one. A side goes unobserved when nothing offered to it is best reached that
+    way, and a place far enough off is beaten by the motorway however the roads
+    lie: Péage de Thèze's free side is a slow local road against the A 65.
+
+    The extract holds every `place=` node instead, which is where Lalonquette
+    comes from -- a village of 257 people, 2.0 km up that local road, absent
+    from the route set and enough to settle the side at once.
+
+    Read only when a side is unobserved. On an inventory where every side
+    settles, the extract is never opened.
+    """
+    scan = PlaceCatalogue()
+    scan.apply_file(path)
+    return scan.places
 
 
 # --------------------------------------------------------------------------
@@ -304,6 +338,67 @@ def probe(router, adjacency, resolve, traversable, position, roles, places,
 # Verdicts
 # --------------------------------------------------------------------------
 
+def unobserved_sides(adjacency, seen):
+    """{booth: [side, ...]} for every side the sweep said nothing about."""
+    out = {}
+    for booth in sorted(adjacency):
+        missing = [node for node in sorted(adjacency[booth])
+                   if not seen.get(booth, {}).get(node)]
+        if missing:
+            out[booth] = missing
+    return out
+
+
+def retry_from_catalogue(router, booths, adjacency, resolve, traversable,
+                         position, roles, catalogue, seen):
+    """Offer the catalogue's places to the sides the sweep left unobserved.
+
+    Only those sides, and only those booths. A side the sweep settled keeps the
+    answer the sweep gave it, so widening the pool here cannot move anything
+    already established.
+
+    The targets are chosen by the sweep's own rule -- nearest per bearing
+    sector, within the same bounds -- so a side is offered a destination in its
+    own direction. Everything else is the sweep's: the same routes in both
+    directions, the same `observe`, the same `verdict`.
+    """
+    jobs = []
+    for booth in sorted(booths):
+        for kind, key, where in targets_for(booth, position, {}, catalogue):
+            jobs.append((booth, kind, key, where, True))
+            jobs.append((booth, kind, key, where, False))
+    print(f"    {len(jobs)} catalogue route(s) for"
+          f" {len(booths)} booth(s) the sweep left unobserved", flush=True)
+    if not jobs:
+        return {}
+
+    settled_here = collections.defaultdict(set)
+
+    def work(job):
+        booth, kind, key, where, outbound = job
+        here = position[booth]
+        nodes = router.nodes(here, where) if outbound else router.nodes(where, here)
+        side = observe(nodes, booth, key, adjacency, resolve, traversable, outbound)
+        if side is None:
+            return job, None
+        return job, (side, verdict(kind, roles.get(key), outbound), km(here, where))
+
+    with concurrent.futures.ThreadPoolExecutor(router.workers) as pool:
+        for job, found in pool.map(work, jobs):
+            router.made += 1
+            if not found:
+                continue
+            booth, kind, key, _, outbound = job
+            side, which, length = found
+            if side not in booths[booth]:
+                # The sweep already settled this side; the catalogue is here for
+                # the ones it did not, and must not add evidence to the rest.
+                continue
+            seen[booth][side][which].append((kind, key, outbound, length))
+            settled_here[booth].add(side)
+    return settled_here
+
+
 def settle(booth, adjacency, seen, gares, names):
     """(inside, outside, unobserved) or raise on a side witnessed both ways."""
     inside, outside, unobserved = [], [], []
@@ -369,6 +464,9 @@ def main() -> int:
                     help="price file YAML, read for enter/exit roles only")
     ap.add_argument("--gares", required=True, help="gare mapping YAML, for the report")
     ap.add_argument("--route-set", required=True, help="route set YAML, read for places")
+    ap.add_argument("--places", required=True,
+                    help="filtered extract, read for the place catalogue when a"
+                         " side the route set cannot reach is left unobserved")
     ap.add_argument("--out", required=True, help="booth sides YAML")
     ap.add_argument("--osrm", required=True, help="base URL of the OSRM instance")
     args = ap.parse_args()
@@ -402,6 +500,21 @@ def main() -> int:
     seen = probe(router, adjacency, resolve, traversable, position, roles,
                  places)
 
+    # A side the sweep said nothing about is offered the place catalogue. The
+    # route set's places cover booths rather than sit beside any one of them,
+    # and a side whose only destinations are far off loses every route to the
+    # motorway. See load_catalogue.
+    from_catalogue = {}
+    missing = unobserved_sides(adjacency, seen)
+    if missing:
+        print(f"\n    {len(missing)} booth(s) have a side the route set's places"
+              f" did not reach; reading {args.places}", flush=True)
+        catalogue = load_catalogue(args.places)
+        print(f"    {len(catalogue)} place(s) in the catalogue", flush=True)
+        from_catalogue = retry_from_catalogue(
+            router, missing, adjacency, resolve, traversable, position, roles,
+            catalogue, seen)
+
     settled, unresolved, conflicts = {}, {}, []
     for booth in sorted(adjacency):
         try:
@@ -434,6 +547,16 @@ def main() -> int:
           f" {kinds['barrier']} barrier, {kinds['not settled']} not settled")
     print(f"    {router.made} route(s),"
           f" {(time.monotonic() - started) / 60:.1f} min")
+
+    if from_catalogue:
+        print(f"\n    {sum(len(v) for v in from_catalogue.values())} side(s) over"
+              f" {len(from_catalogue)} booth(s) were settled from the place"
+              f" catalogue, not from the route set's places:")
+        rows = [(str(b), gares.get(b, "-"), names.get(b, "")[:24],
+                 ", ".join(str(n) for n in sorted(sides)))
+                for b, sides in sorted(from_catalogue.items())]
+        for line in bp.table(("booth", "gare", "name", "side"), rows):
+            print(line)
 
     if unresolved:
         print(f"\n    {len(unresolved)} booth(s) have a side no route reached."

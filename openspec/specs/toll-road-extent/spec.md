@@ -5,119 +5,231 @@ Finds where the tolled road actually begins and ends at each priced booth, so th
 
 ## Requirements
 
-### Requirement: The extent of the toll road is where routes stop agreeing
+### Requirement: The extent of the toll road is where the driver commits
 
-The tolled road at a booth SHALL be found by convergence. Every journey leaving an exit booth is on the same road until the network releases it, and only then do the journeys go to different places. So the last node they all share is the last node of the tolled road.
+The tolled road at a booth SHALL be found by commitment. The extent is the point at which the driver loses the choice not to pay, and that is a property of the road network rather than of any set of journeys over it.
 
-For an **exit** booth, the system SHALL route from the booth to each of its nearby places, take each route's node sequence from the booth node onward, and record the last node common to all of them as `last_toll_node_id`.
+For an **enter** booth, the system SHALL find the region of nodes from which every continuation reaches the booth, and record its free-side boundary as `first_toll_node_id`. A node belongs to the region when every road leaving it leads into the region; the booth's own lane nodes seed it.
 
-For an **enter** booth, the system SHALL route from each nearby place to the booth, take each route's node sequence up to the booth node, and record the first node common to all of them as `first_toll_node_id`.
+For an **exit** booth, the system SHALL find the region of nodes into which every arrival came from the booth, and record its free-side boundary as `last_toll_node_id`. A node belongs to the region when every road entering it comes from inside the region.
 
-Each recorded node SHALL be accompanied by its coordinates, as `first_toll_latlon` and `last_toll_latlon`. A node id alone cannot be routed to — the router takes coordinates — so an extent without them is an extent no consumer can measure between. They are taken from the same route's geometry, which carries one point per annotated node, so they cost no further request.
+A branch SHALL count as a way out only if it reaches the open network without crossing a toll point. Two kinds fail that test, and both ended a tolled road at its barrier:
 
-The sequence SHALL be taken from the booth node, not from the start of the annotation. The router snaps the query coordinate onto a lane and the returned sequence can begin a node before the booth, which belongs to no journey.
+- **A branch that leads nowhere.** Péage de Gye on the A 31 was ended by a two-node `motorway_link` stub off the junction before it; a driver taking it reaches the end of the road and can only turn round and pay. Its tolled road in fact begins 2.50 km back.
+- **A branch that leads further into the toll network.** ARGENTAN's exit has an on-ramp merging fifty metres past the barrier, and that ramp is fed seven metres back by a booth of its own, so its traffic has paid too. Its tolled road runs 9.13 km, not nothing.
 
-A booth whose routes share nothing beyond the booth node itself SHALL record that node. The tolled road ending at the barrier is an answer, not a failure.
+A booth the override file marks `type: ignore` SHALL still count as a toll point here. `ignore` states that no route passes that lane, which settles pricing and grouping and does not settle what stands on the ground: traffic that came past one has paid, and the road it merges onto is still tolled. ARGENTAN's ramp is fed by exactly such a booth.
+
+The closure that decides this SHALL be bounded. A toll pocket — a plaza's own roads, the ramp between two adjacent barriers — is a handful of nodes; a tolled carriageway is tens of kilometres, and admitting one as a pocket makes an exit's region run until the network releases it, past the edge of the extract for a quarter of all roles. Measured, a bound of 500 nodes separates the two.
+
+Whether a branch that leads nowhere is a mapping artefact or the edge of the extract cannot be told from inside the graph. A region that absorbed one more than 8 km from the barrier SHALL be re-derived over the wider carve; nearer than that, the extract reaches at least 11 km, so the road stops because the map says so.
+
+The published node SHALL be the region's own boundary: the node one segment inside it, which is the first node the driver reaches already committed. Where several roads meet the corridor at one point, the one nearest the booth by road distance SHALL be published.
+
+The free node just outside — the last node at which a choice still existed — names the same junction and sits a median of 19 m away, so neither is the better measurement. The inside node is published because a consumer routes between the published coordinates, and a junction is where a router's snapping is ambiguous: asked to start from one, the router may take a different arm and never traverse the node it was given. `builder/build_segment_weights.py` discards such a pair and falls back to barrier-to-barrier. Measured over the 23 410 priced pairs, publishing the free node discards 3 912 of them and publishing the inside node discards 326, against 3 100 before this change.
+
+A roundabout node SHALL never lie inside a region, because it always carries a road leaving it that does not reach the booth, and a road entering it that did not come from the booth. Where a slip road meets a roundabout the ring node is therefore the free node and the published extent is the slip road node beside it, so the tolled section stops at the junction instead of running around the ring. Measured over the 1 024 extents, 0 inside-region nodes lie on a roundabout.
+
+The region SHALL be computed over the drive classes — the through classes plus `unclassified`, `residential`, `living_street`, `service`, `winter_road` and `ice_road` — the set `builder/booth_groups.py` already uses to decide what lies beyond a booth. Any road a car profile can drive SHALL count as an escape.
+
+The test is what the driver can do, not what class the escape carries. A section a driver can leave by is a section the driver was not committed to, and charging a tariff over it would spread that tariff onto road the driver need not have paid for. Where a public rest area or access road joins a slip road, the region therefore stops at that junction. Measured, 109 of the 1 024 extents reach no further than the barrier's own neighbour for this reason.
+
+Direction SHALL be decided by `booth_groups.two_way`, so the graph an extent is derived from and the graph the booths were grouped on can never disagree.
+
+Each recorded node SHALL be accompanied by its coordinates, as `first_toll_latlon` and `last_toll_latlon`. A node id alone cannot be routed to — the consumer takes coordinates — so an extent without them is an extent no consumer can measure between.
+
+A booth whose region is bounded one segment from the barrier SHALL record that boundary. The tolled road ending at the barrier is an answer, not a failure, and 109 of the 1 024 extents are that answer.
 
 A `gantry` booth SHALL NOT be measured, whether or not it carries `prices`. It charges for a section travelled rather than closing someone else's ticket, so the road at it is not the end of anything a tariff is divided by. The gantries carrying prices SHALL be reported as deliberately unmeasured, and their pairs fall back to the booth node.
 
 A `passthrough` booth SHALL NOT be measured either. It carries a single amount for itself and no pair, so no distance divides it.
 
-#### Scenario: An exit booth's extent is found
+#### Scenario: An entrance booth's extent is the head of its slip road
 
-- **WHEN** AMBLAINVILLE, OSM node 288919803, is routed to its nearby places
-- **THEN** the routes share a prefix of 64 nodes ending at node 240997497, 8.11 km beyond the barrier, and that node is recorded as `last_toll_node_id`
+- **WHEN** the region of booth 142268 is computed
+- **THEN** its free node is 1320680243, the head of the slip road where the depot loop branches away, and the node inside beside it, 3011249583, is recorded as `first_toll_node_id` in place of ring node 142274
 
-#### Scenario: An entrance booth's extent is found
+#### Scenario: An exit booth's extent is where the slip meets the ring
 
-- **WHEN** the nearby places of MERU, OSM node 288926127, are routed to it
-- **THEN** the routes share a suffix beginning at node 5122294120, 0.41 km before the barrier, and that node is recorded as `first_toll_node_id`
+- **WHEN** the region of booth 137232 is computed
+- **THEN** its free node is 805520, the roundabout node its slip joins, and the node inside beside it, 8006502773, is recorded as `last_toll_node_id` in place of 805521 further around ring way 4270765
+
+#### Scenario: The extent never runs around a roundabout
+
+- **WHEN** any booth's extent is recorded
+- **THEN** no node inside its region lies on a way tagged `junction=roundabout`
+
+#### Scenario: A stub is not a way out
+
+- **WHEN** the junction before booth 1482474156 carries a `motorway_link` that stops after one node
+- **THEN** the region grows past that junction, and the extent is recorded 2.50 km from the barrier rather than at it
+
+#### Scenario: A branch into the toll network is not a way out
+
+- **WHEN** an on-ramp merges past booth 268212668's barrier and is itself fed by a booth the override marks `type: ignore`
+- **THEN** the region grows past the merge, and the extent is recorded 9.13 km from the barrier rather than at it
+
+#### Scenario: An open service branch ends the tolled road
+
+- **WHEN** a service road a car may drive, behind no gate and barred by no access tag, leaves a slip road inside a booth's region
+- **THEN** the region stops at that junction, because a driver reaching it can leave without paying
 
 #### Scenario: The extent carries its coordinates
 
 - **WHEN** an extent node is recorded
-- **THEN** its latitude and longitude are recorded beside it, taken from the geometry of the same route
+- **THEN** its latitude and longitude are recorded beside it
 
 #### Scenario: The extent ends at the barrier
 
-- **WHEN** every route from an exit booth diverges at the booth node itself
-- **THEN** the booth node is recorded as `last_toll_node_id`
+- **WHEN** a booth's region reaches a junction one segment from the barrier
+- **THEN** that junction is recorded as the extent, and the tolled road ending at the barrier is the answer
 
 #### Scenario: A gantry is not measured
 
 - **WHEN** a `gantry` booth carrying `prices` is reached
 - **THEN** no extent is recorded for it, and it is reported as deliberately unmeasured rather than as a gap
 
-#### Scenario: The snapped node before the booth is not counted
+### Requirement: The graph is the one the router drives
 
-- **WHEN** a route's node annotation begins one node before the booth node
-- **THEN** that node is not part of the shared sequence, and the extent is measured from the booth node
+The graph a region is grown over SHALL admit exactly what the routing profile admits. A road the router cannot take is not an escape, and treating it as one ends a tolled section at a fork the driver never sees.
 
-### Requirement: Nearby places come from the route set
+The system SHALL bar a way whose access the profile bars, resolving `motorcar`, `motor_vehicle`, `vehicle` and `access` in that order and taking the first that is present. Measured, 29 294 ways in the carved extract are barred to a car.
 
-The places a booth is routed against SHALL be taken from the `places` list in `data/route_set.yaml`, which already carries 771 towns and villages with their node ids and coordinates. No new input SHALL be introduced.
+The system SHALL treat a node carrying a `barrier` value the profile does not whitelist as impassable, and SHALL treat a `gate` or `lift_gate` as impassable unless an allowed highway class carries it — the rule `builder/patch_car_profile.py` compiles into the profile. Measured, the extract holds 27 163 barrier nodes and 15 735 gates, of which 15 729 are carried by an allowed class.
 
-The system SHALL use the nearest N by great-circle distance, N defaulting to 24 and settable. Twenty-four was measured to reach far enough in every direction that the routes genuinely diverge, while keeping the routing to about 30 000 queries over the whole inventory.
+The system SHALL treat every node of `data/nodes_blacklist.yaml` as impassable, for the same reason the profile does: the map is wrong about that connection, and a region that walks through one stops at a fork that is not there on the ground.
 
-A `bidirectional` booth SHALL use a multiple of N, defaulting to four times. Its routes are split between its two sides and only one side serves the role being measured, so N places yield well under N usable routes — measured, 64 of its 90 roles fell below the floor at N=24. Four times rescues about half of them; the rest have few reachable places on that side whatever N is, and are left unmeasured.
+Honouring all four leaves 9 031 nodes impassable in the carved extract. It changes 4 of the 1 024 extents, and where it does the looser graph is shorter by a median of 245 m, having found an escape the router does not have. The reason the rule is stated rather than left to chance is the coupling it protects: `builder/build_segment_weights.py` falls back to barrier-to-barrier whenever a pair's route does not traverse a recorded extent node, so an extent placed behind a locked gate would be discarded without any error being raised.
 
-A booth for which fewer than a configured minimum of those routes succeed SHALL be reported as a finding and left unmeasured, rather than having an extent derived from too few journeys to be a convergence at all.
+#### Scenario: A way the profile bars is not an escape
 
-#### Scenario: The nearest places are used
+- **WHEN** a service road tagged `access=private` leaves a slip road inside a booth's region
+- **THEN** the region continues past it, because a car may not take that road
 
-- **WHEN** a one-way booth is measured with the default N
-- **THEN** the 24 nearest entries of the route set's `places` are routed against it
+#### Scenario: A closed gate is not an escape
 
-#### Scenario: A two-way booth is given more places
+- **WHEN** a branch leaving a booth's region passes a `barrier=gate` node that no allowed highway class carries
+- **THEN** the region continues past that branch, because the profile treats the gate as shut
 
-- **WHEN** a `bidirectional` booth is measured with the default N and multiplier
-- **THEN** the 96 nearest places are routed against it, because the side filter discards those serving its other role
+#### Scenario: A blacklisted node is not an escape
 
-#### Scenario: Too few routes succeed
+- **WHEN** a branch leaving a booth's region passes a node listed in `data/nodes_blacklist.yaml`
+- **THEN** the region continues past that branch, because the router cannot cross that node either
 
-- **WHEN** fewer than the minimum number of a booth's place routes return a route
-- **THEN** the booth is reported as a finding, no extent is recorded for it, and the step continues
+#### Scenario: The extent node is reachable by the router
+
+- **WHEN** the pairs of a rebuilt price file are routed extent to extent
+- **THEN** no pair falls back for "extent node not on the route" that did not fall back before
+
+### Requirement: The graph reaches further than the answer
+
+The system SHALL derive every region from an extract that reaches at least 11 km beyond every booth, and from a second, wider one where that is not enough. It SHALL read no route set and SHALL issue no routing request.
+
+The distance is what the answers demand: a tolled slip road runs 8.11 km past AMBLAINVILLE, and the 2 km cells `builder/booth_groups.py` carves for grouping end inside it. A region that runs out of data does not stop at a junction — it stops at nothing, which reads as "the tolled road ends here" and is a fabrication. Reusing the grouping carve produced exactly that for 15 extents, AMBLAINVILLE among them, and drove its pair from 0.19 to 1.03 EUR/km.
+
+The extract SHALL be cut from the source extract in two cached stages, as the pipeline's other extracts are: the drive classes of the whole country, then cells around the booths. The second stage is what makes the graph fit in memory — the country's drive network is 40.8 million nodes and the carve is 18.2 million.
+
+A region that reaches a node the graph stops at, or that finds no free side at all, SHALL NOT be published from that extract. A cul-de-sac and the edge of the carve are indistinguishable from inside the graph, and the second means the answer was not established by the road.
+
+Such a booth SHALL be re-derived over a second carve, cut around those booths alone and reaching at least three times as far. Cutting it around the whole inventory would cost the memory of a country to answer for a handful of booths: measured, 18 roles over 18 booths needed it, and the carve was 84 cells and 71 MB. RESTIGNE's tolled road is 19.05 km, the longest in the inventory and genuine — the A 85 has no junction for that distance — and the first carve cannot see the end of it.
+
+The second carve SHALL NOT be cached. Its booth set is the first pass's finding rather than an input, and a file kept from an earlier set would answer for the wrong booths.
+
+A region the second carve cannot bound either SHALL be reported and left unmeasured. The consumer already falls back to the booth node for an absent extent, and recording that node here would state as a measurement what is in fact a gap. Measured, none remains.
+
+The system SHALL bound each region at a stated maximum size and SHALL report a booth that reaches it, so a defect in the class filter cannot produce an unbounded walk.
+
+#### Scenario: No route set is read
+
+- **WHEN** the step runs
+- **THEN** it opens no route set and issues no routing request
+
+#### Scenario: The same road gives the same answer
+
+- **WHEN** the step is run twice against one extract
+- **THEN** every extent is identical, including booths whose extents differed between two published route sets
+
+#### Scenario: A region that cannot be bounded is reported
+
+- **WHEN** a region reaches the stated maximum size
+- **THEN** the booth is reported and no extent is derived for it
+
+#### Scenario: A region that runs out of data is given a wider carve
+
+- **WHEN** a region reaches a node the graph stops at, or finds no free side
+- **THEN** the booth is re-derived over a carve cut around it alone and reaching three times as far, and only a region that carve cannot bound either is left unmeasured
+
+#### Scenario: The wider carve bounds the longest extent
+
+- **WHEN** RESTIGNE's region, which runs 17.5 km past the first carve's edge, is re-derived
+- **THEN** it is bounded at 19.05 km by a junction on the A 85
+
+#### Scenario: The extract reaches past the longest extent
+
+- **WHEN** AMBLAINVILLE's exit region is derived
+- **THEN** the extract still carries road beyond its 8.11 km of tolled slip road, and the region is bounded by a junction rather than by the edge of the data
 
 ### Requirement: The extent stops at the next booth
 
-A shared sequence SHALL be truncated where it reaches another booth group, and the node before that booth SHALL be the extent.
+A region SHALL NOT grow through another booth group. Where the region reaches a node belonging to another group, that node SHALL bound it, and the extent SHALL be the free node on that side.
 
-Beyond another booth is another ticket. A corridor whose nearby places all lie past a second barrier would otherwise produce a shared prefix running into a section this tariff does not pay for, and the distance would be too long instead of too short.
+Beyond another booth is another ticket. A corridor that ran on through a second barrier would carry a section this tariff does not pay for, and the distance would be too long instead of too short.
 
-Booth identity SHALL be decided the way the rest of the pipeline decides it: a node in `data/osm_toll_booths.yaml` under `toll_booths` or `aliases`, resolved through `parent_id`.
+Booth identity SHALL be decided the way the rest of the pipeline decides it: a node in `data/osm_toll_booths.yaml` under `toll_booths` or `aliases`, resolved through `parent_id`. A booth's own lanes and aliases SHALL seed its region rather than bound it, so a plaza's parallel lanes do not read as a choice.
 
 #### Scenario: A second barrier bounds the extent
 
-- **WHEN** every route from an exit booth passes a second booth group before diverging
-- **THEN** the extent is the node before that second booth, and the step says which booth bounded it
+- **WHEN** a booth's region reaches a node belonging to another booth group
+- **THEN** the region stops there, and the step says which booth bounded it
 
 #### Scenario: An alias counts as its group
 
-- **WHEN** a shared sequence reaches a lane recorded as an alias of another booth group
-- **THEN** it is treated as that group and bounds the extent
+- **WHEN** a region reaches a lane recorded as an alias of another booth group
+- **THEN** it is treated as that group and bounds the region
 
-### Requirement: A two-way booth is measured in both roles
+#### Scenario: A plaza's own lanes do not bound it
+
+- **WHEN** a booth group's lanes fork upstream of the barrier
+- **THEN** the fork node lies inside the region, because every road leaving it reaches a lane of the same group
+
+### Requirement: A two-way booth is measured in both roles from its free side
 
 A `bidirectional` booth that carries `prices` SHALL record both `first_toll_node_id` and `last_toll_node_id`, because it is an entrance to a journey driven one way and an exit to the same journey driven the other.
 
-The two roles SHALL be told apart by the sides `data/bidirectional_booth_sides.yaml` already records. A route used for the exit role SHALL leave the booth by a node that is not in the booth's `inside_nodes`; a route used for the entrance role SHALL arrive at the booth from a node that is not in its `inside_nodes`. A route on the wrong side is measuring the other role's road and SHALL be discarded.
+The two roles SHALL be told apart by the sides `data/bidirectional_booth_sides.yaml` already records. A region SHALL leave the booth only by a node that is not in the booth's `inside_nodes`: the entrance's region grows back from the free side, and the exit's region forward onto it. A region grown through the inside nodes is the other role's road.
+
+A two-way booth whose sides did not settle SHALL be left unmeasured and reported. Its `inside_nodes` are incomplete, so the side restriction that tells its two roles apart cannot be applied, and a region grown without one runs through the toll side and answers for the wrong role. An absent extent falls back to the booth node, which is a gap; a region grown through the wrong side is a wrong measurement.
+
+A booth did not settle when the inventory records an adjacent node that appears in neither of its lists — the test `bidirectional-booth-sides` prescribes.
 
 A `bidirectional` booth carrying no `prices` SHALL be skipped. It is a barrier: no journey has it as an end, so no tariff is divided by a distance from it.
+
+A two-way booth SHALL NOT be given a larger sample than a one-way one, because no sample is taken. The 64 roles that fell below the convergence floor at N=24, and the 33 that stayed unmeasured at four times that, SHALL be measured like any other.
 
 #### Scenario: Both roles are recorded
 
 - **WHEN** a `bidirectional` booth carrying `prices` is measured
-- **THEN** its entry carries both `first_toll_node_id` and `last_toll_node_id`
+- **THEN** its entry carries both `first_toll_node_id` and `last_toll_node_id`, each on the free side
 
-#### Scenario: A route on the free side is discarded
+#### Scenario: The toll side is not entered
 
-- **WHEN** a route leaves a two-way booth by a node in its `inside_nodes` while the exit role is being measured
-- **THEN** that route is not part of the convergence
+- **WHEN** a two-way booth's region is grown for its exit role
+- **THEN** no node of its `inside_nodes` is used to leave the booth
+
+#### Scenario: An unsettled two-way booth is not measured
+
+- **WHEN** a `bidirectional` booth has an adjacent node in neither of its side lists
+- **THEN** no extent is derived for it and it is reported, rather than a region being grown with no side restriction
 
 #### Scenario: A barrier is skipped
 
 - **WHEN** a `bidirectional` booth carries no `prices`
 - **THEN** no extent is recorded for it and it is not reported as a gap
+
+#### Scenario: A booth with few reachable places is still measured
+
+- **WHEN** a two-way booth whose free side reaches few places is measured
+- **THEN** its extent is derived from its region like any other booth's
 
 ### Requirement: An overridden booth is not measured
 
@@ -162,9 +274,9 @@ Where either end has no recorded extent, the booth node and its own coordinates 
 
 The step SHALL always execute and SHALL read `data/vinci_price.yaml` to determine which booths it has already measured, measuring only the rest. Its unit of work is one booth, and it SHALL record a booth's extent before moving to the next, so an interrupted run repeats at most one booth.
 
-A run against a complete file SHALL do no routing.
+A run against a complete file SHALL do no work beyond reading the extract.
 
-The step SHALL contact no external service and SHALL need no subscription key or tariff date. It asks only the router.
+The step SHALL contact no external service and SHALL need no subscription key, no tariff date, and no routing service. It reads an extract and the artefacts the pipeline has already published.
 
 #### Scenario: The step resumes
 
@@ -174,18 +286,25 @@ The step SHALL contact no external service and SHALL need no subscription key or
 #### Scenario: A complete file is a no-op
 
 - **WHEN** every priced booth already carries its extent
-- **THEN** the step executes, finds nothing outstanding, and issues no route request
+- **THEN** the step executes and derives no region
 
 #### Scenario: No operator credentials are needed
 
 - **WHEN** the step runs with no subscription key, no tariff date and no network
 - **THEN** it completes normally
 
+#### Scenario: No router is needed
+
+- **WHEN** the step runs with no routing service reachable
+- **THEN** it completes normally
+
 ### Requirement: The extents are reported
 
-The step SHALL report, for every booth it measured, the distance from the barrier to the extent node, and SHALL list the largest first. It SHALL report how many booths were bounded by a second barrier and how many were left unmeasured, with the reason.
+The step SHALL report, for every booth it measured, the road distance from the barrier to the extent node, and SHALL list the largest first. It SHALL report how many regions were bounded by a second barrier, how many booths recorded the booth node for want of a boundary, and how many had an ambiguous boundary.
 
-An extent of many kilometres is either a real slip road or a convergence that ran too far, and the two are told apart by looking. A report that shows only a count hides which it was.
+A region with several boundary nodes — two roads meeting the corridor at one point — SHALL publish the one nearest the booth by road distance, and SHALL be counted as ambiguous. Measured, 292 of 1 024 extents have more than one.
+
+An extent of many kilometres is either a real approach road or a region the class filter has made too generous, and the two are told apart by looking. The step SHALL name every extent beyond a stated distance rather than only counting it.
 
 #### Scenario: The extents are listed
 
@@ -195,4 +314,14 @@ An extent of many kilometres is either a real slip road or a convergence that ra
 #### Scenario: The bounded and the unmeasured are counted
 
 - **WHEN** the step completes
-- **THEN** it reports how many extents were truncated at a second booth and how many booths went unmeasured, by reason
+- **THEN** it reports how many regions were truncated at a second booth and how many booths went unmeasured, by reason
+
+#### Scenario: An ambiguous boundary is resolved and reported
+
+- **WHEN** a booth's region has two free-side boundary nodes
+- **THEN** the nearer by road distance is published, and the booth is counted as ambiguous
+
+#### Scenario: A long extent is named
+
+- **WHEN** a booth's extent lies further from the barrier than the reporting threshold
+- **THEN** the step names that booth and its distance rather than only counting it

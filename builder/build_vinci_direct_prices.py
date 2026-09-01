@@ -110,18 +110,32 @@ def load_inventory(path):
     return traversable, resolve, position
 
 
-def load_sides(path, bidirectional):
-    """(booth -> inside nodes, the barriers).
+def load_sides(path, bidirectional, adjacent=None):
+    """(booth -> inside nodes, the barriers, the booths that did not settle).
 
     A booth whose sides all agree is a barrier: you pay passing it and your
     ticket state does not change, so no journey has it as an entrance or an
     exit. Everything else carries a toll side, and that is the side a route has
     to use for the booth to be acting as the end a pair needs.
+
+    A booth is a barrier only when every node the inventory records as adjacent
+    to it appears in one of the two lists. One with a node in neither did not
+    settle, and the two mean opposite things: a barrier is a fact about the
+    road, an unsettled booth is an absence of evidence. `build_booth_sides`
+    records the difference exactly that way -- an unobserved node is in neither
+    list -- and testing only whether one list is empty cannot tell them apart.
+    Péage de Thèze had one of its two adjacent nodes in neither list and was
+    read as a barrier, which discarded every pair naming it before a single
+    route was issued.
+
+    `adjacent` is that inventory record. Without it the check cannot be made,
+    and the caller gets no unsettled booths -- the old behaviour, kept only so
+    that a caller with no inventory to hand still runs.
     """
     with open(path, encoding="utf-8") as fh:
         doc = yaml.safe_load(fh) or {}
     entries = doc.get("toll_booths") or {}
-    inside, barriers = {}, set()
+    inside, barriers, unsettled = {}, set(), set()
     missing = sorted(b for b in bidirectional if int(b) not in
                      {int(g) for g in entries})
     if missing:
@@ -134,11 +148,22 @@ def load_sides(path, bidirectional):
         group = int(group)
         ins = set((entry or {}).get("inside_nodes") or [])
         out = set((entry or {}).get("outside_nodes") or [])
-        if not ins or not out:
+        if (adjacent or {}).get(group) and (adjacent[group] - (ins | out)):
+            unsettled.add(group)
+        elif not ins or not out:
             barriers.add(group)
         else:
             inside[group] = ins
-    return inside, barriers
+    return inside, barriers, unsettled
+
+
+def load_adjacent(path):
+    """booth -> the nodes the inventory records beside it, for the settled test."""
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh) or {}
+    return {int(g): {int(n) for n in ((e or {}).get("adjacent_nodes") or {})}
+            for g, e in (doc.get("toll_booths") or {}).items()
+            if (e or {}).get("adjacent_nodes")}
 
 
 def load_gare_names(path):
@@ -639,7 +664,8 @@ def main() -> int:
         sources = endpoints(booths, gares, position, SOURCE_TYPES, "source")
         targets = endpoints(booths, gares, position, TARGET_TYPES, "target")
         two_way = {g for g, r in booths.items() if r["type"] == BIDIRECTIONAL}
-        inside, barriers = load_sides(args.sides, two_way)
+        inside, barriers, unsettled = load_sides(
+            args.sides, two_way, load_adjacent(args.booths))
     except Abort as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
@@ -677,6 +703,12 @@ def main() -> int:
         return 1
     rejected = rejections.load()
 
+    if unsettled:
+        print(f"    {len(unsettled)} two-way booth(s) did not settle and are"
+              f" excluded like a barrier, but are not one: {sorted(unsettled)}")
+        print(f"    A side of each is in neither list, so step 7 reached it with"
+              f" no route. Run build_booth_sides again before trusting a price"
+              f" that names one.")
     print(f"==> {len(sources)} source booth(s), {len(targets)} target booth(s),"
           f" {len(traversable)} blocker node(s)")
     print(f"    {len(set(gares[t] for t in targets))} target gare(s),"
@@ -686,8 +718,12 @@ def main() -> int:
     print(f"    {len(inside)} two-way booth(s) with a toll side,"
           f" {len(barriers)} barrier(s) excluded from both ends")
 
+    # An unsettled booth leaves the grid exactly as a barrier does. What it is
+    # not is a barrier, and the report above says so: this is a gap in what
+    # step 7 reached, not a fact about the road.
+    excluded = barriers | unsettled
     plan = {src: outstanding_for(src, targets, gares, booths, rejected,
-                                 ov.prohibited_gare_pairs, barriers)
+                                 ov.prohibited_gare_pairs, excluded)
             for src in sources}
     plan = {src: rest for src, rest in plan.items() if rest}
     grid = sum(len(rest) for rest in plan.values())

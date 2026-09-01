@@ -1540,7 +1540,7 @@ def run(args):
     traversable, resolve, position = bd.load_inventory(args.booths)
     gares = load_gares(args.gares)
     bidirectional = {g for g, r in priced.items() if r["type"] == BIDIRECTIONAL}
-    inside, _barriers = bd.load_sides(args.sides, bidirectional)
+    inside, _barriers, _unsettled = bd.load_sides(args.sides, bidirectional)
 
     sources = sorted(g for g, r in priced.items() if r.get("prices"))
     pairs, rows, unresolved = enumerate_pairs(priced, gares)
