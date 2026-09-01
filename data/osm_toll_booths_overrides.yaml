@@ -41,15 +41,6 @@ toll_booths:
     price: 1.4
   1838205657:
     type: absent_exit
-  # Three free-flow points on the A13 that charge for passing them and carry no
-  # stated tariff, so `build_vinci_prices` writes them no entry and step 10 has
-  # nothing to charge for. They are free on the toll-weighted graph, and a
-  # `price` here is what would fix that -- see the change
-  # `price-booths-that-charge-at-a-point`. Each is its own charging point, not
-  # another lane of one already priced: Rosny-sur-Seine is 3.25 km from
-  # BUCHELAY FL, Cagny 255 m from CAGNY FL and Beuzeville 354 m from
-  # BEUZEVILLE FL ECH CAEN. The tariffs have to be read off the operator's own
-  # table; nothing in this pipeline can derive them.
   # Rosny-sur-Seine
   12636038010:
     type: absent_passthrough
@@ -118,13 +109,8 @@ toll_booths:
   1581498325:
     type: enter
 
-# Nodes the extract does not tag barrier=toll_booth and should. A plaza is
-# several parallel lanes; where OSM tags the booth on one lane and not on the
-# next, the untagged lane is a way past the barrier that costs nothing.
 missing_toll_booth:
-  # Tonnay-Charente, A 837, gare 04545. Ways 826223989 and 1419952091 run
-  # 354 m from node 1404370113 to node 7714272796, 22.5 m beside the lane
-  # carrying booth 1116803670 and the same length, with no booth node on them.
+  # Tonnay-Charente
   - 13048100170
 
 # It is allowed to go through these gares twice
