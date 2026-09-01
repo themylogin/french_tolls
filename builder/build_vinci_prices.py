@@ -43,6 +43,7 @@ Outputs:
 import argparse
 import collections
 import decimal
+import filecmp
 import json
 import os
 import sys
@@ -310,6 +311,13 @@ def write_state(path, booths, done):
         with open(tmp, "w", encoding="utf-8") as fh:
             yaml.safe_dump(doc, fh, default_flow_style=False, sort_keys=False,
                            width=100, allow_unicode=True)
+        # A run that learns nothing leaves the file alone, modification time
+        # included. The segment weights are keyed to this file's timestamp, so
+        # restamping it with identical bytes would order half an hour of graph
+        # work that changes nothing -- and every `make all` would order it.
+        if os.path.exists(path) and filecmp.cmp(tmp, path, shallow=False):
+            os.unlink(tmp)
+            return
         os.replace(tmp, path)
     except BaseException:
         if os.path.exists(tmp):

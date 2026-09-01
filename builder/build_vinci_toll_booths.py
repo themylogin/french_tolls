@@ -31,6 +31,7 @@ Outputs:
 
 import argparse
 import collections
+import filecmp
 import json
 import math
 import os
@@ -261,6 +262,12 @@ def write_state(path, booths, done):
     with open(tmp, "w", encoding="utf-8") as fh:
         yaml.safe_dump(doc, fh, default_flow_style=False, sort_keys=False, width=100,
                        allow_unicode=True)
+    # A run that learns nothing leaves the file alone, modification time
+    # included. The segment weights are keyed to this file's timestamp; see the
+    # same guard in build_vinci_prices.write_state.
+    if os.path.exists(path) and filecmp.cmp(tmp, path, shallow=False):
+        os.unlink(tmp)
+        return
     os.replace(tmp, path)
 
 

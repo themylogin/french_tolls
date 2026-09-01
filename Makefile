@@ -480,10 +480,21 @@ build_toll_extent: guard-osrm-path | $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) \
 # routing.
 #
 # It needs the untouched graph and nothing else -- no key, no date, no network.
+#
+# The four artefacts it reads are real prerequisites, not order-only, for the
+# same reason $(BLACKLIST) is one of $(OSRM_STAMP): this file *is* those prices
+# spread over the road, so a rebuilt price file that left it alone would weight
+# the graph by tariffs that no longer exist -- and nothing downstream could tell.
+# That is what a `make clean; make all` did: it repriced every booth, then
+# skipped this step and the next one, and reported success.
+#
+# Keying this to their timestamps is safe because the steps that write them
+# leave them untouched when they learn nothing (see write_state in
+# build_vinci_prices.py), so a `make all` with nothing to do still skips here.
 build_segment_weights: guard-osrm-path build_toll_extent $(SEGMENTS)
 	@echo "==> build_segment_weights: $(SEGMENTS)"
 
-$(SEGMENTS): $(OSRM_STAMP) | $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) $(PBF) $(BUILDER_STAMP)
+$(SEGMENTS): $(OSRM_STAMP) $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) | $(PBF) $(BUILDER_STAMP)
 	@echo "==> build_segment_weights: starting osrm-toll"
 	$(COMPOSE) up -d osrm-toll
 	$(RUN_BUILDER) python3 build_segment_weights.py \
