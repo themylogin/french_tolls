@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-pyosmium \
         python3-yaml \
         python3-requests \
+        python3-pytest \
         curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -21,6 +22,7 @@ COPY build_osm_toll_booths.py build_route_set.py booth_groups.py \
      build_booth_sides.py build_vinci_direct_prices.py \
      build_toll_extent.py build_segment_weights.py \
      patch_car_profile.py overrides.py osmurl.py /work/
+COPY tests/ /work/tests/
 
 # Unbuffered so progress lines appear as the step runs rather than at exit.
 ENV PYTHONUNBUFFERED=1

@@ -46,9 +46,17 @@ import yaml
 #
 # The `absent_*` family says the opposite -- the booth is real and a route does
 # drive through it, but the operator's placemark layer does not carry it. Such a
-# booth stays in the inventory and in the route set; only the requirement that
-# the gare mapping find a gare for it is waived. The suffix records how a route
-# meets it, which nothing consumes yet.
+# booth stays in the inventory, and the requirement that the gare mapping find a
+# gare for it is waived.
+#
+# The suffix records how a route meets it, and it decides whether a route may
+# cross the booth at all. A barrier is a whole item on its own, so an
+# `absent_passthrough` drops out of a passage list and its route is priced
+# normally. The two halves of a pair are not: leaving one out hands the other to
+# a partner nobody drove to, and the operator would answer with a real tariff for
+# a journey that never happened. So a route crossing an `absent_enter` or an
+# `absent_exit` cannot be asked about, and `BLOCKING` below is what both the
+# route search and the pricing step read to say so.
 #
 # The bare `enter`/`exit`/`passthrough` say the booth is a plain one-way lane of
 # that role, whatever the extract's tags say. They exist for the booths at a
@@ -76,6 +84,13 @@ TYPES = (IGNORE, *ABSENT, *BORDER)
 # a passthrough has a single price to state: an enter or an exit is one half of a
 # journey whose charge depends on where the other half was.
 PRICED_TYPES = ("absent_passthrough",)
+
+# The `absent_*` values that make a whole route unaskable. Named once and read by
+# two steps: the route search, which will not select a route that crosses one,
+# and the pricing step, which refuses such a route if one reaches it anyway. A
+# copy of this tuple in either step would be a second source of truth, and the
+# two disagreeing is exactly the failure it exists to prevent.
+BLOCKING = ("absent_enter", "absent_exit")
 
 KEYS = ("type", "parent_id", "vinci", "price",
         "first_toll_node_id", "last_toll_node_id")
@@ -133,6 +148,15 @@ class Overrides:
         # collected, so the grouping joins it to the lane beside it and every
         # step after treats the two alike.
         self.missing_toll_booth = missing_toll_booth or set()
+
+    def blocking(self):
+        """Booths that make any route crossing them unaskable.
+
+        Derived rather than stored, so it cannot drift from `absent`: there is
+        one record of what the override file said, and this is a reading of it.
+        """
+        return {node_id for node_id, kind in self.absent.items()
+                if kind in BLOCKING}
 
     def __bool__(self):
         return bool(self.ignored or self.forced or self.vinci or self.absent

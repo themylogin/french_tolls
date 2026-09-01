@@ -368,9 +368,11 @@ It SHALL be recorded in `data/excluded_booths.json` with a reason naming the ove
 
 ### Requirement: A booth the operator does not carry
 
-A booth whose override is one of the `absent_*` types SHALL stay in the inventory and remain a coverage target: it is a real booth on a real road that a route drives through. Only the requirement that the gare mapping find a gare for it SHALL be waived, because the operator's placemark layer does not carry it and there is no gare to find.
+A booth whose override is one of the `absent_*` types SHALL stay in the inventory: it is a real booth on a real road that a route drives through. The requirement that the gare mapping find a gare for it SHALL be waived, because the operator's placemark layer does not carry it and there is no gare to find.
 
-The accepted values SHALL be `absent_enter`, `absent_exit`, and `absent_passthrough`, recording how a route meets the booth. Nothing consumes that distinction yet.
+The accepted values SHALL be `absent_enter`, `absent_exit`, and `absent_passthrough`, recording how a route meets the booth.
+
+Whether such a booth is a coverage target follows from that distinction, and `route-set-generation` settles it. An `absent_passthrough` drops out of a passage list harmlessly, so it remains a target. An `absent_enter` or `absent_exit` makes its whole route unaskable, so it is not a target and no route may be selected that traverses it.
 
 An `absent_*` override SHALL NOT be combined with a `vinci` entry: stating that the operator does not carry the booth and then naming its gare is a contradiction.
 
@@ -380,6 +382,11 @@ An `absent_*` override SHALL NOT be combined with a `vinci` entry: stating that 
 
 - **WHEN** a booth carries `type: absent_passthrough`
 - **THEN** it appears in the inventory and remains a coverage target, unlike an ignored booth
+
+#### Scenario: An absent half-pair stays in the inventory and stops being a target
+
+- **WHEN** a booth carries `type: absent_enter` or `type: absent_exit`
+- **THEN** it appears in the inventory, unlike an ignored booth, and is not a coverage target
 
 #### Scenario: An absent booth needs no gare
 

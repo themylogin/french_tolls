@@ -90,6 +90,11 @@ services:
     command: python3 -m pytest -q -p no:cacheprovider /app/french_tolls/tests
     profiles: ["test"]
 
+  builder-tests:
+    build: ./builder
+    command: python3 -m pytest -q -p no:cacheprovider /work/tests
+    profiles: ["test"]
+
   integration:
     build: .
     command: python3 -m pytest -q -p no:cacheprovider /app/french_tolls/integration
@@ -99,9 +104,6 @@ services:
       - /cache
     env_file: .env
     environment:
-      # The suite spends nothing by construction. The flow posts to the replay
-      # server the suite starts, so a real key in .env buys nothing, and the
-      # chat is built on a token of the suite's own.
       GOOGLE_ROUTES_ENDPOINT: "http://127.0.0.1:8099/directions/v2:computeRoutes"
       TELEGRAM_BOT_TOKEN: ""
     profiles: ["test"]

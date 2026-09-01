@@ -351,8 +351,9 @@ class Osrm:
             return None
         return payload.get("durations")
 
-    def cover_many(self, pairs, places, traversable, resolve, bidirectional):
-        """Route each (from, to) pair; return {pair: (targets hit, in order)}.
+    def cover_many(self, pairs, places, traversable, resolve, bidirectional,
+                   blocking):
+        """Route each pair; return ({pair: targets hit, in order}, [unaskable]).
 
         A target is (representative, approach). `approach` is the node the route
         arrived from for a booth a car can drive through either way, and None
@@ -364,8 +365,20 @@ class Osrm:
         router already reports its nodes in order -- a set would discard that
         for nothing. A target met twice keeps its first position.
 
+        A pair that crosses a booth in `blocking` is withheld and returned
+        separately. The pricing step refuses such a route outright, so selecting
+        one covers nothing and strands every priceable booth it carries. Every
+        route this module emits -- candidate or resumed -- passes through here
+        exactly once, which is why the test lives here rather than at each of the
+        four call sites: a fifth added later would otherwise reopen the hole, and
+        the resume path is the one an author is likeliest to forget.
+
+        The test runs on the resolved representatives, which is what the pricing
+        step tests. A wider test on the traversed node ids would withhold routes
+        that step would submit, and the two disagreeing is the failure this is
+        for.
         """
-        results = {}
+        results, blocked = {}, []
 
         def work(pair):
             nodes = self.route_nodes(places[pair[0]], places[pair[1]])
@@ -390,9 +403,13 @@ class Osrm:
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as pool:
             for pair, covered in pool.map(work, pairs):
                 # None is "unroutable", () is "no booths".
-                if covered:
-                    results[pair] = covered
-        return results
+                if not covered:
+                    continue
+                if any(rep in blocking for rep, _ in covered):
+                    blocked.append(pair)
+                    continue
+                results[pair] = covered
+        return results, blocked
 
 
 # --------------------------------------------------------------------------
@@ -777,7 +794,7 @@ def yaml_scalar(value):
     return json.dumps(value, ensure_ascii=False)
 
 
-def coverage_targets(booths, bidirectional, plaza_pbf):
+def coverage_targets(booths, bidirectional, plaza_pbf, blocking):
     """Every (representative, approach) pair the route set has to cover.
 
     A one-way booth is one target. A booth a car can drive through either way is
@@ -785,8 +802,20 @@ def coverage_targets(booths, bidirectional, plaza_pbf):
     approaches come from the same through-road graph the grouping step uses, so
     the targets and the `prev_node_id` values a route reports are drawn from one
     definition of the road network.
+
+    A booth in `blocking` is no target at all. Every route that reaches one is
+    refused by the pricing step, so a route bought to cover it buys nothing --
+    and the priceable booths it happened to carry alongside are thrown away with
+    it. The booth stays in the inventory and is still recorded in `covers` when a
+    selected route traverses it; it is only removed from what the search sets out
+    to reach.
     """
-    targets = {(b, None) for b in booths if b not in bidirectional}
+    withheld = sorted(b for b in booths if b in blocking)
+    if withheld:
+        print(f"==> {len(withheld)} booth(s) the operator does not carry as half"
+              f" a pair are not coverage targets: {withheld}")
+    targets = {(b, None) for b in booths
+               if b not in bidirectional and b not in blocking}
     if not bidirectional:
         return targets
     print(f"==> reading approaches for {len(bidirectional)} two-way booth(s)")
@@ -794,6 +823,8 @@ def coverage_targets(booths, bidirectional, plaza_pbf):
     graph.apply_file(plaza_pbf, locations=True, idx="flex_mem")
     counts = collections.Counter()
     for b in sorted(bidirectional):
+        if b in blocking:
+            continue
         approaches = sorted(graph.rev.get(b, {}))
         counts[len(approaches)] += 1
         # A booth with no approach at all is still a target, so it is reported
@@ -890,6 +921,7 @@ def main() -> int:
     except overrides.OverrideError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    blocking = ov.blocking()
 
     with open(args.booths, encoding="utf-8") as fh:
         inventory = yaml.safe_load(fh)
@@ -932,7 +964,7 @@ def main() -> int:
               f" {MAX_SNAP_M:.0f} m", file=sys.stderr)
         return 1
 
-    targets = coverage_targets(booths, bidirectional, args.plazas)
+    targets = coverage_targets(booths, bidirectional, args.plazas, blocking)
     print(f"    {len(targets)} coverage target(s) over {len(booths)} group(s)")
 
     index = PlaceIndex(places)
@@ -949,16 +981,26 @@ def main() -> int:
     # is cheap next to a wave of candidate generation, and it keeps every
     # `covers` list reproducible against the inventory actually in hand.
     existing = load_existing(args.out, places)
+    unaskable = unaskable_resumed = 0
     if existing:
         print(f"==> resuming from {len(existing)} existing route(s)")
-        for pair, covered in osrm.cover_many(
-                existing, places, traversable, resolve, bidirectional).items():
+        kept, blocked = osrm.cover_many(existing, places, traversable, resolve,
+                                        bidirectional, blocking)
+        for pair, covered in kept.items():
             selected[pair] = covered
             uncovered.difference_update(covered)
         tried.update(existing)
-        dropped = len(existing) - len(selected)
+        # A route already on disk is no evidence that it can be priced. It is
+        # dropped for the same reason as one whose endpoint became ineligible:
+        # the greedy pass never revisits a route it has accepted, so one kept now
+        # would survive every rebuild. The targets it held return to `uncovered`
+        # by never having been removed, and the waves below search for them again.
+        unaskable = unaskable_resumed = len(blocked)
+        dropped = len(existing) - len(selected) - unaskable
         print(f"    kept {len(selected)}"
               + (f", dropped {dropped} that no longer cover anything" if dropped else "")
+              + (f", dropped {unaskable} that cross a booth the operator does"
+                 f" not carry" if unaskable else "")
               + f", {len(targets) - len(uncovered)}/{len(targets)} covered")
 
     print(f"==> wave A: {WAVE_A_SIZE} dispersed cities")
@@ -966,7 +1008,9 @@ def main() -> int:
     pairs = wave_a_pairs(seeds)
     tried.update(pairs)
     print(f"    routing {len(pairs)} ordered pairs")
-    candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional)
+    candidates, blocked = osrm.cover_many(pairs, places, traversable, resolve,
+                                          bidirectional, blocking)
+    unaskable += len(blocked)
     added = greedy_select(candidates, uncovered, selected)
     print(f"    +{added} routes, {len(targets) - len(uncovered)}/{len(targets)} covered")
 
@@ -1000,7 +1044,9 @@ def main() -> int:
             tried.update(pairs)
             print(f"==> wave B {label(strategy)} round {rnd}: "
                   f"{len(batch)} groups, {len(pairs)} pairs ({len(pending)} pending)")
-            candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional)
+            candidates, blocked = osrm.cover_many(pairs, places, traversable,
+                                                  resolve, bidirectional, blocking)
+            unaskable += len(blocked)
             added = greedy_select(candidates, uncovered, selected)
             print(f"    +{added} routes, {len(targets) - len(uncovered)}/{len(targets)} covered")
         print(f"==> wave B {label(strategy)} exhausted; "
@@ -1030,7 +1076,9 @@ def main() -> int:
                 break
             tried.update(pairs)
             print(f"    round {rnd}: {len(batch)} groups, {len(pairs)} solved pair(s)")
-            candidates = osrm.cover_many(pairs, places, traversable, resolve, bidirectional)
+            candidates, blocked = osrm.cover_many(pairs, places, traversable,
+                                                  resolve, bidirectional, blocking)
+            unaskable += len(blocked)
             added = greedy_select(candidates, uncovered, selected)
             print(f"    +{added} routes, {len(targets) - len(uncovered)}/{len(targets)} covered")
             if added == 0:
@@ -1064,6 +1112,13 @@ def main() -> int:
     print(f"    covered:   {len(union)}")
     print(f"    uncovered: {len(missing)}")
     print(f"    total:     {len(targets)} target(s)")
+    # Never-selected routes, not routes removed from the count above: mostly
+    # candidates the waves generated and threw away. The resumed share is called
+    # out because that one is a change to the file, and the rest is not.
+    print(f"    withheld:  {unaskable} route(s) never selected -- they cross a"
+          f" booth the operator does not carry"
+          + (f" ({unaskable_resumed} of them were in the route set on disk)"
+             if unaskable_resumed else ""))
     if missing:
         one_way = sum(1 for _, a in missing if a is None)
         print(f"    !! {len(missing)} target(s) NOT covered -- see {args.uncovered}"

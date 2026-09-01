@@ -669,6 +669,7 @@ app-down:
 # exit status is pytest's, so a failing suite fails the target.
 test:
 	$(COMPOSE) --profile test run --rm --no-TTY tests
+	$(COMPOSE) --profile test run --rm --no-TTY builder-tests
 
 # Drops the store: the autocomplete answers and the month's request count.
 #

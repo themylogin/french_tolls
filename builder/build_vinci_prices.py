@@ -116,11 +116,11 @@ BIDIRECTIONAL, GANTRY = "bidirectional", "gantry"
 ROLE_FREE = (BIDIRECTIONAL, GANTRY)
 TYPES = (PASSTHROUGH, ENTER, EXIT, *ROLE_FREE)
 
-# The two that make a route unaskable. Half a pair cannot be submitted, and
-# leaving it out would hand the other half to a partner nobody drove to -- the
-# service would answer, and the answer would be a real tariff for a journey that
-# never happened. A barrier is a whole item on its own and drops out harmlessly.
-BLOCKING_ABSENT = ("absent_enter", "absent_exit")
+# The two that make a route unaskable, defined beside the other override values
+# because the route search reads them too: it will not select a route that
+# crosses one, so the guard below should never fire. It stays as the check that
+# the two steps agree.
+BLOCKING_ABSENT = overrides.BLOCKING
 
 CENTS = decimal.Decimal(100)
 
