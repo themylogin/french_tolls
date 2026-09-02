@@ -14,10 +14,17 @@ rather than of any journey over it:
     the extent is the node just outside that region, on the free side
 
 Grown backwards from the booth, a predecessor joins the region when every road
-leaving it is already inside. A roundabout node therefore never joins one: it
-always carries an arm that goes somewhere else. So the tolled section stops
-where the slip road meets the ring instead of running around it, which is what
-the previous derivation did for 753 of 990 extents, 436 of them onto a ring.
+leaving it is already inside. A public roundabout node therefore never joins
+one: it always carries an arm that goes somewhere else. So the tolled section
+stops where the slip road meets the ring instead of running around it, which is
+what the previous derivation did for 753 of 990 extents, 436 of them onto a ring.
+
+A `highway=service` roundabout is the exception, and the rest area is why. Its
+arms lead to the pumps, the parking and the restaurant, and every one of them
+comes back to the carriageway -- so it *is* a place every path out of which
+reaches the booth, and it belongs inside the region. Saint-Arnoult's exit runs
+through the Aire de Limours - Briis-sous-Forges nineteen kilometres up the A10,
+and treating that ring as an escape stopped the step on a region that was right.
 
 The graph has to admit exactly what the router admits, or a region stops at a
 fork the driver never sees. Access tags, the barrier whitelist and the gate
@@ -272,7 +279,10 @@ class Graph(osmium.SimpleHandler):
             if not node.location.valid():
                 return
             points.append((node.ref, (node.location.lat, node.location.lon)))
-        if junction == "roundabout":
+        # A service roundabout is a rest area's own ring, not a way out of the
+        # tolled road: every arm returns to the carriageway. See the module
+        # docstring -- it belongs inside a region rather than bounding one.
+        if junction == "roundabout" and highway != "service":
             self.roundabout.update(ref for ref, _ in points)
         both = booth_groups.two_way(highway, tags.get("oneway"), junction)
         self.nodes_seen += len(points)
