@@ -18,6 +18,8 @@ services:
     build: ./www
     depends_on:
       - web
+    volumes:
+      - "${DOWNLOAD_PATH:-./download}:/download:ro"
     restart: unless-stopped
     profiles: ["app"]
 
