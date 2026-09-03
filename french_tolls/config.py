@@ -34,6 +34,9 @@ class Config:
     # predicts x0.9333 of OSRM's time for the same road; 1 serves it unchanged.
     time_multiplier: float = float(getenv("TIME_MULTIPLIER", "1"))
 
+    # What a driver's hour is worth.
+    eur_per_hour: float = float(getenv("EUR_PER_HOUR", "20"))
+
     # Debug mode. The effects:
     #   - the page draws Google's route in orange under ours, and a dot per waypoint:
     #     orange for one added while comparing the optimal route with the fastest one,

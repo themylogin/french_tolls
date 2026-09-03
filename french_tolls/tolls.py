@@ -8,7 +8,7 @@ from .booths import Booth, BoothData
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Journey", "Passage", "account", "booths_crossed"]
+__all__ = ["Journey", "Passage", "account", "booths_crossed", "closed_sections"]
 
 
 @dataclass
@@ -101,6 +101,26 @@ def booths_crossed(data: BoothData, node_ids) -> frozenset[int]:
     """Which booths a node sequence crosses.
     """
     return frozenset(booth.node_id for _index, booth, _prev, _next in _crossings(data, node_ids))
+
+
+def closed_sections(data: BoothData, node_ids):
+    """The ticketed sections a route drives, as `(entrance, exit)` booths."""
+    out = []
+    open_entrance = None
+
+    for _index, booth, previous_node, next_node in _crossings(data, node_ids):
+        kind = booth.type
+        if kind == "bidirectional":
+            kind = _sense_of_bidirectional(booth, previous_node, next_node)
+
+        if kind == "enter":
+            open_entrance = booth
+        elif kind == "exit":
+            if open_entrance is not None:
+                out.append((open_entrance, booth))
+            open_entrance = None
+
+    return out
 
 
 def account(data: BoothData, node_ids) -> Journey:

@@ -21,7 +21,8 @@ COPY build_osm_toll_booths.py build_route_set.py booth_groups.py \
      build_vinci_toll_booths.py build_vinci_prices.py \
      build_booth_sides.py build_vinci_direct_prices.py \
      build_toll_extent.py build_segment_weights.py \
-     patch_car_profile.py overrides.py osmurl.py /work/
+     patch_car_profile.py overrides.py osmurl.py \
+     build_cost_cutting.py /work/
 COPY tests/ /work/tests/
 
 # Unbuffered so progress lines appear as the step runs rather than at exit.

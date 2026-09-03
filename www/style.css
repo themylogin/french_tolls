@@ -60,3 +60,14 @@ body {
 .show-google {
     cursor: pointer;
 }
+
+/* The Maps link beside a route's title. */
+.maps-link {
+    display: inline-block;
+    margin-left: 6px;
+    vertical-align: -3px;
+    line-height: 0;
+}
+.maps-link img {
+    display: block;
+}

@@ -216,6 +216,25 @@ class Routers:
 
         return _read_route(body)
 
+    async def route_via(self, base: str, start: Snap, vias, end: Snap) -> Route:
+        """One route forced through intermediate points, returned as one leg.
+        """
+        if not vias:
+            return await self.route(base, start, end)
+
+        points = [start.location, *vias, end.location]
+        coords = ";".join(f"{lon:.6f},{lat:.6f}" for lon, lat in points)
+        params = {
+            "annotations": "nodes,distance,duration",
+            "geometries": "geojson",
+            "overview": "full",
+            "steps": "false",
+        }
+
+        body = await self._get(base, f"/route/v1/driving/{coords}", params)
+
+        return _read_route_legs(body)
+
     async def match(self, coordinates) -> Match:
         """Place a foreign geometry on the graph, as node ids.
         """
@@ -276,6 +295,66 @@ def _read_route(body: dict) -> Route:
         coordinates=coordinates,
         segment_distance=distance,
         segment_duration=duration,
+        distance=route["distance"],
+        duration=route["duration"],
+        weight=route["weight"],
+    )
+
+
+def _read_route_legs(body: dict) -> Route:
+    """A multi-leg route flattened into one, with the seam repetition removed.
+
+    Each leg's node annotation begins with the node the leg starts at, which is
+    the node the previous leg ended on. Left in place that node would be crossed
+    twice, and the pricing counts a booth once per appearance -- a waypoint put
+    on a booth would be charged twice for one passage. The geometry repeats the
+    same point, and the two per-segment arrays have one fewer entry than nodes
+    *per leg*, so they concatenate without a seam of their own.
+    """
+    routes = body.get("routes") or []
+    if not routes:
+        raise NoRoute("the router returned no route")
+
+    route = routes[0]
+    legs = route.get("legs") or []
+    if not legs:
+        raise RouterUnavailable("the router returned a route with no legs")
+
+    node_ids, distance, duration = [], [], []
+    for n, leg in enumerate(legs):
+        annotation = leg["annotation"]
+        nodes = list(annotation["nodes"])
+        # A waypoint snaps onto a segment, so the leg that ends there and the
+        # leg that starts there each name a node for it and the geometry carries
+        # the point once. Dropping the *earlier* leg's last node is what keeps
+        # the counts equal, and it is the safe end to drop: the node the waypoint
+        # snapped to is the next leg's first, and here that node is the booth
+        # the journey was routed through. Dropping that would lose the passage
+        # the whole split exists to buy.
+        if n < len(legs) - 1:
+            nodes = nodes[:-1]
+        node_ids += nodes
+        distance += list(annotation["distance"])
+        duration += list(annotation["duration"])
+
+    coordinates = [tuple(c) for c in route["geometry"]["coordinates"]]
+
+    if len(coordinates) != len(node_ids):
+        raise RouterUnavailable(
+            f"{len(node_ids)} annotated nodes but {len(coordinates)} geometry"
+            f" points across {len(legs)} legs"
+        )
+    if len(distance) != len(node_ids) - 1:
+        raise RouterUnavailable(
+            f"{len(node_ids)} nodes but {len(distance)} segments across"
+            f" {len(legs)} legs; expected {len(node_ids) - 1}"
+        )
+
+    return Route(
+        node_ids=tuple(node_ids),
+        coordinates=tuple(coordinates),
+        segment_distance=tuple(distance),
+        segment_duration=tuple(duration),
         distance=route["distance"],
         duration=route["duration"],
         weight=route["weight"],

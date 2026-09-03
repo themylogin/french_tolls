@@ -1272,8 +1272,7 @@ def summary(segments, records, unusable, over, single, ways,
     return lines
 
 
-def write_report(path, segments, records, unusable, mean, ways, flat=None,
-                 wage=20.0):
+def write_report(path, segments, records, unusable, mean, ways, flat, wage):
     """Every segment and every pair, whatever the tables had room for."""
     doc = {
         # `lo_pair` and `hi_pair` index into `pairs` below. Without them a
@@ -1789,9 +1788,13 @@ def main():
                     help=f"drop a pair whose barrier-to-barrier route is more"
                          f" than this many times the straight line between the"
                          f" barriers (default {MAX_DETOUR})")
-    ap.add_argument("--wage-eur-per-hour", type=float, default=20.0,
+    # Required, with no default here. It is EUR_PER_HOUR in .env, passed by the
+    # Makefile, and the route service reads the same setting: a default in this
+    # file would be a second answer to "what is an hour worth", and a graph
+    # weighted at one rate while the advice is offered at another.
+    ap.add_argument("--wage-eur-per-hour", type=float, required=True,
                     dest="wage", metavar="EUR",
-                    help="what a driver's hour is worth (default 20)")
+                    help="what a driver's hour is worth; set EUR_PER_HOUR in .env")
     ap.add_argument("--tolerance", type=float, default=0.20, metavar="F",
                     help="acceptance check tolerance on the weight difference")
     ap.add_argument("--workers", type=int, default=ROUTE_WORKERS, metavar="N")

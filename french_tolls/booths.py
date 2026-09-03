@@ -55,11 +55,14 @@ class BoothData:
         return self.booths[owner] if owner is not None else None
 
 
+LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)  # 5x load time decrease (if available)
+
+
 def load_file(name: str) -> dict:
     # The open file rather than its bytes, so a YAML error names the path it is
     # in. Read at import by `route`, so either failure stops the service.
     with open(os.path.join(DATA_DIR, name), "rb") as f:
-        return yaml.safe_load(f)
+        return yaml.load(f, Loader=LOADER)
 
 
 def load() -> BoothData:

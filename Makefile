@@ -5,6 +5,7 @@
 #                 -> build_vinci_prices -> build_booth_sides
 #                 -> build_vinci_direct_prices -> build_toll_extent
 #                 -> build_segment_weights -> apply_segment_weights
+#                 -> build_cost_cutting
 #
 # The first four steps are skipped when their output is already in place.
 # Skipping is existence-based, not timestamp-based: prerequisites are declared
@@ -19,6 +20,7 @@
 # The sixth needs no OSRM graph at all. The seventh needs the graph and no key;
 # the eighth needs both. The ninth and tenth need the graph and no key; the
 # eleventh needs neither -- it copies files and runs one preprocessing container.
+# The twelfth needs the untouched graph and no key.
 #
 # There are two graphs. $(OSRM_TOLL_PATH) holds the untouched one, served as
 # `osrm-toll`, and every step above queries it. $(OSRM_OPTIMAL_PATH) holds the
@@ -55,6 +57,7 @@ PRICES       := $(DATA_DIR)/vinci_price.yaml
 SIDES        := $(DATA_DIR)/bidirectional_booth_sides.yaml
 REJECTED     := $(DATA_DIR)/vinci_routes_rejected.sqlite3
 SEGMENTS     := $(DATA_DIR)/segment_weights.csv
+CUTTING      := $(DATA_DIR)/cost-cutting.yaml
 SEG_REPORT   := $(DATA_DIR)/segment_weights_report.json
 TEST_CITIES  := $(DATA_DIR)/test_cities.yaml
 GOOGLE_DIR   := $(DATA_DIR)/google_routes
@@ -107,9 +110,9 @@ RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-toll-tools
 .PHONY: all download_pbf setup_osrm build_osm_toll_booths build_route_set \
         build_vinci_toll_booths build_vinci_prices build_booth_sides \
         build_vinci_direct_prices build_toll_extent \
-        build_segment_weights apply_segment_weights \
+        build_segment_weights apply_segment_weights build_cost_cutting \
         guard-osrm-path guard-osrm-optimal-path guard-osrm-paths-differ \
-        guard-ulys-key guard-ulys-passage-date \
+        guard-ulys-key guard-ulys-passage-date guard-eur-per-hour \
         update_route_set clean clean-osrm \
         web bot app app-down test clean-cache requirements \
         test_cities test_google_routes test_google
@@ -117,7 +120,7 @@ RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-toll-tools
 all: download_pbf setup_osrm build_osm_toll_booths build_route_set \
      build_vinci_toll_booths build_vinci_prices build_booth_sides \
      build_vinci_direct_prices build_toll_extent \
-     build_segment_weights apply_segment_weights
+     build_segment_weights apply_segment_weights build_cost_cutting
 
 # --------------------------------------------------------------------------
 # Configuration guard
@@ -174,6 +177,18 @@ guard-osrm-paths-differ: guard-osrm-path guard-osrm-optimal-path
 # Checked before step 5 does any work: the route search that precedes the first
 # request takes minutes, and finding out afterwards that the key is missing
 # wastes all of it.
+# What a driver's hour is worth. No default here on purpose: the number lives in
+# .env and nowhere else, and a fallback in this file would weight the graph at a
+# rate the route service does not share.
+guard-eur-per-hour:
+	@if [ -z "$(strip $(EUR_PER_HOUR))" ]; then \
+	    echo "ERROR: EUR_PER_HOUR is unset or empty."; \
+	    echo "       Copy .env.example to .env and set it. Step 10 weights the"; \
+	    echo "       toll-weighted graph with it and the route service reads the"; \
+	    echo "       same setting, so there is no default anywhere else."; \
+	    exit 1; \
+	fi
+
 guard-ulys-key:
 	@if [ -z "$(strip $(ULYS_SUBSCRIPTION_KEY))" ]; then \
 	    echo "ERROR: ULYS_SUBSCRIPTION_KEY is unset or empty."; \
@@ -508,10 +523,10 @@ build_toll_extent: guard-osrm-path | $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) \
 # Keying this to their timestamps is safe because the steps that write them
 # leave them untouched when they learn nothing (see write_state in
 # build_vinci_prices.py), so a `make all` with nothing to do still skips here.
-build_segment_weights: guard-osrm-path build_toll_extent $(SEGMENTS)
+build_segment_weights: guard-osrm-path guard-eur-per-hour build_toll_extent $(SEGMENTS)
 	@echo "==> build_segment_weights: $(SEGMENTS)"
 
-$(SEGMENTS): $(OSRM_STAMP) $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) | $(PBF) $(BUILDER_STAMP)
+$(SEGMENTS): guard-eur-per-hour $(OSRM_STAMP) $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) | $(PBF) $(BUILDER_STAMP)
 	@echo "==> build_segment_weights: starting osrm-toll"
 	$(COMPOSE) up -d osrm-toll
 	$(RUN_BUILDER) python3 build_segment_weights.py \
@@ -523,6 +538,7 @@ $(SEGMENTS): $(OSRM_STAMP) $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) | $(PBF) $(BUIL
 	    --report /data/segment_weights_report.json \
 	    --ways /data/france-latest.osm.pbf \
 	    --osrm http://osrm-toll:5000 \
+	    --wage-eur-per-hour $(EUR_PER_HOUR) \
 	    $(SEGMENT_ARGS)
 
 # --------------------------------------------------------------------------
@@ -539,7 +555,7 @@ $(SEGMENTS): $(OSRM_STAMP) $(PRICES) $(VINCI) $(BOOTHS) $(SIDES) | $(PBF) $(BUIL
 # Hardlinking the files osrm-customize does not write was considered and
 # rejected: which files those are is not documented, and a wrong guess corrupts
 # the untouched graph through the link.
-apply_segment_weights: guard-osrm-paths-differ $(OPT_STAMP)
+apply_segment_weights: guard-osrm-paths-differ guard-eur-per-hour $(OPT_STAMP)
 	@echo "==> apply_segment_weights: $(OPT_STAMP)"
 
 $(OPT_STAMP): $(SEGMENTS) $(OSRM_STAMP) | $(BUILDER_STAMP)
@@ -581,8 +597,43 @@ $(OPT_STAMP): $(SEGMENTS) $(OSRM_STAMP) | $(BUILDER_STAMP)
 	    --out /data/segment_weights.csv \
 	    --report /data/segment_weights_report.json \
 	    --osrm http://osrm-toll:5000 \
-	    --osrm-optimal http://osrm-optimal:5000
+	    --osrm-optimal http://osrm-optimal:5000 \
+	    --wage-eur-per-hour $(EUR_PER_HOUR)
 	@touch $@
+
+# --------------------------------------------------------------------------
+# Step 12 -- build_cost_cutting
+# --------------------------------------------------------------------------
+# Where leaving the motorway and rejoining it buys two cheaper tickets than the
+# one the operator sells for the whole run.
+#
+# Checkpointed on the file itself, like step 10, and for the same reason: the
+# search is over all pairs at once, so a partial file is a wrong file rather
+# than an incomplete one.
+#
+# The three artefacts it reads are real prerequisites, not order-only ones. This
+# file *is* those tariffs read as arbitrage, so a repriced booth that left it
+# alone would advise splits at prices the operator no longer charges, and
+# nothing downstream could tell -- the same trap $(SEGMENTS) was in.
+#
+# It needs the untouched graph and nothing else: no key, no date, no network,
+# and not the toll-weighted graph. What it measures is how the road runs, not
+# what the graph has been made to charge for it. So it is ordered last for
+# convenience rather than necessity and may be run any time after step 9.
+build_cost_cutting: guard-osrm-path $(CUTTING)
+	@echo "==> build_cost_cutting: $(CUTTING)"
+
+$(CUTTING): $(PRICES) $(VINCI) $(BOOTHS) | $(OSRM_STAMP) $(BUILDER_STAMP)
+	@echo "==> build_cost_cutting: starting osrm-toll"
+	$(COMPOSE) up -d osrm-toll
+	$(RUN_BUILDER) python3 build_cost_cutting.py \
+	    --prices /data/vinci_price.yaml \
+	    --gares /data/vinci_toll_booth.yaml \
+	    --booths /data/osm_toll_booths.yaml \
+	    --overrides /data/osm_toll_booths_overrides.yaml \
+	    --out /data/cost-cutting.yaml \
+	    --osrm http://osrm-toll:5000 \
+	    $(CUTTING_ARGS)
 
 # Step 5 is phony and resumable, so it has no file target for step 6 to depend
 # on. This rule supplies one. It fires only when the mapping is absent, so a
@@ -603,7 +654,7 @@ $(PRICES):
 # --------------------------------------------------------------------------
 # Builder image (internal prerequisite -- not one of the six steps)
 # --------------------------------------------------------------------------
-$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py builder/build_vinci_prices.py builder/build_booth_sides.py builder/build_vinci_direct_prices.py builder/build_toll_extent.py builder/build_segment_weights.py builder/patch_car_profile.py builder/overrides.py builder/osmurl.py
+$(BUILDER_STAMP): builder/Dockerfile builder/build_osm_toll_booths.py builder/build_route_set.py builder/booth_groups.py builder/build_vinci_toll_booths.py builder/build_vinci_prices.py builder/build_booth_sides.py builder/build_vinci_direct_prices.py builder/build_toll_extent.py builder/build_segment_weights.py builder/patch_car_profile.py builder/overrides.py builder/osmurl.py builder/build_cost_cutting.py
 	@mkdir -p $(DATA_DIR)
 	$(COMPOSE) build builder
 	@touch $@

@@ -7,10 +7,21 @@ let from = null;
 let to = null;
 let fastPath = null;
 let optimalPath = null;
+let superOptimalPath = null;
+let superOptimalStopMarkers = [];
 let googlePath = null;
 let googleWaypointMarkers = [];
 let startMarker = null;
 let endMarker = null;
+
+const Z_FAST = 1;
+const Z_GOOGLE = 2;
+const Z_SUPER_OPTIMAL = 3;
+const Z_OPTIMAL = 4;
+
+const COLOR_OPTIMAL = "#188038";
+const COLOR_FAST = "#0f53ff";
+const COLOR_SUPER_OPTIMAL = "#d93025";
 
 
 function encodeHTML(str) {
@@ -69,7 +80,7 @@ function peageCost(peage) {
         .format(peage.cost);
 }
 
-function showRoute(title, color, route) {
+function showRoute(title, color, route, withMapsLink) {
     let html = ['<div class="route">'];
 
     html.push('<div class="info">');
@@ -93,7 +104,15 @@ function showRoute(title, color, route) {
 
     html.push('</div>');
 
-    html.push('<div class="title" style="color: ' + color + ';">' + title + '</div>');
+    html.push('<div class="title" style="color: ' + color + ';">' + title);
+    if (withMapsLink && route.google_url) {
+        html.push(
+            '<a class="maps-link" href="' + encodeHTML(route.google_url) + '"' +
+            ' target="_blank" rel="noopener" title="Open in Google Maps">' +
+            '<img src="https://www.google.com/images/branding/product/1x/maps_32dp.png"' +
+            ' alt="Google Maps" width="16" height="16"></a>');
+    }
+    html.push('</div>');
 
     html.push('<div style="clear: both;"></div>');
 
@@ -112,13 +131,29 @@ function showRoute(title, color, route) {
     return html.join("");
 }
 
+// Draw the split route beneath the optimal one, and mark where it stops.
+function drawSplitRoute(route) {
+    if (!route || !route.nodes || !route.nodes.length) {
+        return;
+    }
+
+    superOptimalPath = showPath(route, COLOR_SUPER_OPTIMAL, 8, Z_SUPER_OPTIMAL);
+
+    superOptimalStopMarkers = (route.stops || []).map(stop =>
+        new AdvancedMarkerElement({
+            position: { lat: stop.latlon[0], lng: stop.latlon[1] },
+            map: map,
+            content: waypointDot(COLOR_SUPER_OPTIMAL),
+        }));
+}
+
 // Draw what Google actually drove, from the key the answer carried.
 function drawGoogleRoute(google) {
     if (!google || !google.nodes || !google.nodes.length) {
         return;
     }
 
-    googlePath = showPath(google, "#ff8c00", 16, 2);
+    googlePath = showPath(google, "#ff8c00", 16, Z_GOOGLE);
 
     const added = (google.added || []).map(w => w.join(","));
     googleWaypointMarkers = (google.waypoints || []).map(w => {
@@ -149,6 +184,12 @@ function calculate() {
     if (optimalPath) {
         optimalPath.setMap(null);
     }
+    if (superOptimalPath) {
+        superOptimalPath.setMap(null);
+        superOptimalPath = null;
+    }
+    superOptimalStopMarkers.forEach(m => { m.map = null; });
+    superOptimalStopMarkers = [];
     if (startMarker) {
         startMarker.map = null;
     }
@@ -185,8 +226,10 @@ function calculate() {
             map: map,
             content: markerIcon("https://maps.google.com/mapfiles/ms/icons/red-dot.png"),
         });
-        fastPath = showPath(data.fast, "#0f53ff", 8, 1);
-        optimalPath = showPath(data.optimal, "#188038", 8, 3);
+        fastPath = showPath(data.fast, COLOR_FAST, 8, Z_FAST);
+        // Red first so it is under the green even before the z-index is read.
+        drawSplitRoute(data.super_optimal);
+        optimalPath = showPath(data.optimal, COLOR_OPTIMAL, 8, Z_OPTIMAL);
 
         const bounds = new google.maps.LatLngBounds();
         data.fast.nodes.map(nodeLatLon).forEach(coord => {
@@ -199,9 +242,16 @@ function calculate() {
 
         const from_name = from["name"].replace(", France", "");
         const to_name = to["name"].replace(", France", "");
+        // The split route is listed first where there is one: it is the
+        // cheapest thing on offer, and the panel under it says what it costs.
+        const split = data.super_optimal
+            ? showRoute("Superoptimal route", COLOR_SUPER_OPTIMAL,
+                        data.super_optimal, true)
+            : "";
         document.getElementById("routes").innerHTML = (
-            showRoute("Optimal route", "#188038", data.optimal) +
-            showRoute("Fastest route", "#0f53ff", data.fast)
+            split +
+            showRoute("Optimal route", COLOR_OPTIMAL, data.optimal, true) +
+            showRoute("Fastest route", COLOR_FAST, data.fast, false)
         );
 
         drawGoogleRoute(data.google);
