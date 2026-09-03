@@ -10,7 +10,7 @@ from .config import config
 from .booths import load
 from .osrm import NoRoute, RouterUnavailable, Routers, TooFarFromNetwork
 from .waypoints import MAX_WAYPOINTS, plan_waypoints
-from .tolls import account, booths_crossed, closed_sections
+from .tolls import account, booths_crossed, closed_sections, fare
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ def _ticket_price(entrance_node: int, exit_node: int):
     exit_booth = BOOTHS.at(exit_node)
     if entrance is None or exit_booth is None or exit_booth.gare is None:
         return None
-    price = entrance.prices.get(exit_booth.gare)
+    price = fare(BOOTHS, entrance, exit_booth)
     return None if price is None else float(price)
 
 
@@ -129,7 +129,7 @@ def _plan_split(optimal):
     for entrance, exit_booth in closed_sections(BOOTHS, optimal.node_ids):
         if entrance.gare is None or exit_booth.gare is None:
             continue
-        direct = entrance.prices.get(exit_booth.gare)
+        direct = fare(BOOTHS, entrance, exit_booth)
         if direct is None:
             continue
         chosen = ADVICE.best(

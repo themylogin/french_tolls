@@ -54,6 +54,20 @@ class BoothData:
         owner = self.booth_of_node.get(node_id)
         return self.booths[owner] if owner is not None else None
 
+    def __post_init__(self):
+        # This is only used by `tolls.fare`, and only for ticketless entry gantries.
+        merged: dict[str, dict[str, float]] = {}
+        for booth in self.booths.values():
+            if booth.gare is not None and booth.prices:
+                merged.setdefault(booth.gare, {}).update(booth.prices)
+        object.__setattr__(self, "_tariffs_by_gare", merged)
+
+    def tariffs_of(self, gare: str | None) -> dict[str, float]:
+        """Every tariff any booth of this gare records, keyed by exit gare."""
+        if gare is None:
+            return {}
+        return self._tariffs_by_gare.get(gare, {})
+
 
 LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)  # 5x load time decrease (if available)
 

@@ -10,8 +10,8 @@ import pytest
 
 from .. import splits
 from ..splits import Advice, Candidate, Stop
-from ..tolls import closed_sections
-from .booths import build_booths, entrance, exit_, node, two_way
+from ..tolls import account, closed_sections, fare
+from .booths import build_booths, entrance, exit_, gantry, node, two_way
 
 
 def candidate(exit_node, enter_node, extra_time):
@@ -65,6 +65,58 @@ def test_a_two_way_barrier_is_read_by_the_side_it_is_crossed_from():
     )
     sections = closed_sections(b.data, b.route(node(1), "T", node(2), "B"))
     assert [(x.label, z.label) for x, z in sections] == [("T", "B")]
+
+
+def test_a_section_opened_at_a_gantry_is_reported():
+    """Both walks must report the same sections.
+
+    `account` charges a section that starts at a gantry. If this walk missed
+    that section, the advice would offer a split against a fare that nobody is
+    charged, or skip a real one.
+    """
+    b = build_booths(
+        gantry("CHAMBERY NORD", gare="03008", prices={"03012": 5.60}),
+        exit_("ANNECY CENTRE", gare="03012"),
+    )
+    sections = closed_sections(b.data, b.route("CHAMBERY NORD", node(1), "ANNECY CENTRE"))
+    assert [(x.label, z.label) for x, z in sections] == [
+        ("CHAMBERY NORD", "ANNECY CENTRE")]
+
+
+def test_every_reported_section_has_a_fare():
+    """`closed_sections` and `fare` must agree on every section.
+
+    They are read together: `route` takes each reported section and asks what it
+    costs, then looks for a cheaper split. A section it reports but cannot price
+    is skipped in silence, and the split for it is never offered -- even though
+    `account` charges the driver for it.
+
+    The gantry here is the case that failed. Its own map does not price the
+    exit; the booth beside it, of the same gare, does.
+    """
+    b = build_booths(
+        gantry("CHAMBERY NORD gantry", gare="03008", prices={"03011": 3.60}),
+        entrance("CHAMBERY NORD", gare="03008", prices={"03012": 5.60}),
+        exit_("ANNECY CENTRE", gare="03012"),
+    )
+    route = b.route("CHAMBERY NORD gantry", node(1), "ANNECY CENTRE")
+
+    sections = closed_sections(b.data, route)
+    assert [(x.label, z.label) for x, z in sections] == [
+        ("CHAMBERY NORD gantry", "ANNECY CENTRE")]
+
+    assert [fare(b.data, x, z) for x, z in sections] == [5.60]
+    assert [p.cost for p in account(b.data, route).passages] == [5.60]
+
+
+def test_a_flat_gantry_opens_no_section():
+    b = build_booths(
+        entrance("A", gare="0001", prices={"0002": 10.0}),
+        gantry("FLAT", gare="0009", price=0.90),
+        exit_("B", gare="0002"),
+    )
+    sections = closed_sections(b.data, b.route("A", node(1), "FLAT", node(2), "B"))
+    assert [(x.label, z.label) for x, z in sections] == [("A", "B")]
 
 
 # --------------------------------------------------------------------------

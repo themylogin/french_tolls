@@ -419,3 +419,117 @@ def test_no_unpriceable_passage_is_charged_zero_and_every_reason_is_distinct():
         "neither neighbour is a recorded side of this barrier",
     }
 
+
+
+# --------------------------------------------------------------------------
+# An exit reached without crossing an entrance
+# --------------------------------------------------------------------------
+# Some gantries are ticketless entrances. The portal reads the plate, and the
+# barrier at the far end takes the money. The vehicle crosses nothing that looks
+# like an entrance. So when an exit is reached with no ticket open, the
+# accounting looks back at the last gantry. If that gantry has a fare to this
+# exit, it was the entrance. A real Chambéry Nord to Annecy Centre journey
+# needed this, and was answered with an unpriced passage instead.
+
+def test_an_exit_with_no_entrance_looks_back_at_a_gantry_that_prices_it():
+    b = build_booths(
+        gantry("CHAMBERY NORD", gare="03008", prices={"03012": 5.60}),
+        exit_("ANNECY CENTRE", gare="03012"),
+    )
+
+    journey = account(b.data, b.route("CHAMBERY NORD", 1, "ANNECY CENTRE"))
+
+    assert costs(journey) == [("CHAMBERY NORD → ANNECY CENTRE", 5.60)]
+    assert journey.unpriced == 0
+
+
+def test_the_look_back_reads_the_tariff_by_gare_not_by_node():
+    """The gantry's own map is thin. The booth beside it holds the fare.
+
+    Both booths are gare `03008`. A rate request names two gare codes, so both
+    booths charge the same. They hold different numbers of tariffs because
+    direct pricing never asks about a gantry: it takes its sources from `enter`
+    and `bidirectional` booths only. A gantry is priced by the routes that
+    happen to cross it, and nothing else. In the real file the gantry holds
+    three tariffs and the `enter` booth beside it holds twenty-seven.
+    """
+    b = build_booths(
+        gantry("CHAMBERY NORD gantry", gare="03008", prices={"03011": 3.60}),
+        entrance("CHAMBERY NORD", gare="03008", prices={"03012": 5.60}),
+        exit_("ANNECY CENTRE", gare="03012"),
+    )
+
+    journey = account(b.data, b.route("CHAMBERY NORD gantry", 1, "ANNECY CENTRE"))
+
+    assert costs(journey) == [("CHAMBERY NORD gantry → ANNECY CENTRE", 5.60)]
+    assert journey.unpriced == 0
+
+
+def test_an_exit_with_no_entrance_and_no_gantry_behind_it_is_unpriced():
+    """The look-back adds a fare where one exists. It invents none."""
+    b = build_booths(exit_("Z", gare="00002"))
+
+    journey = account(b.data, b.route(1, "Z"))
+
+    assert reasons(journey) == [("Z", "exit without an entrance")]
+
+
+def test_a_gantry_that_charges_flat_is_not_also_billed_as_a_section():
+    """It takes its money at the portal, so it is not a ticketless entrance.
+
+    One booth in the country holds both a flat price and tariffs: Montbeugny Est
+    Sens 2. Charging the flat amount and then a section for the same crossing
+    would bill it twice.
+    """
+    b = build_booths(
+        gantry("MONTBEUGNY EST", gare="22545", price=0.90, prices={"00002": 1.90}),
+        exit_("Z", gare="00002"),
+    )
+
+    journey = account(b.data, b.route("MONTBEUGNY EST", 1, "Z"))
+
+    assert costs(journey) == [("MONTBEUGNY EST", 0.90), ("Z", None)]
+    assert reasons(journey) == [
+        ("MONTBEUGNY EST", None),
+        ("Z", "exit without an entrance"),
+    ]
+
+
+def test_a_flat_gantry_inside_a_section_still_leaves_the_ticket_alone():
+    """This regression would lose money instead of showing a gap.
+
+    A gantry with no tariffs must still fall through to the flat charge. Reading
+    it as the start of a section would close A's ticket in the wrong place.
+    """
+    b = build_booths(
+        entrance("A", gare="00001", prices={"00002": 13.70}),
+        gantry("FLAT", gare="00009", price=0.90),
+        exit_("B", gare="00002"),
+    )
+
+    journey = account(b.data, b.route("A", 1, "FLAT", 2, "B"))
+
+    assert costs(journey) == [("FLAT", 0.90), ("A → B", 13.70)]
+    assert journey.unpriced == 0
+
+
+def test_a_crossed_entrance_still_reads_only_its_own_tariffs():
+    """The gare-wide reading belongs to the look-back and nowhere else.
+
+    An entrance that was actually crossed already answers for itself, and
+    widening it would move fares that are being quoted correctly today. The
+    look-back only fires where the passage is unpriced, so it can replace a gap
+    with an amount and can never change one.
+    """
+    b = build_booths(
+        entrance("NORTHBOUND", gare="04784", prices={"00009": 3.00}),
+        entrance("SOUTHBOUND", gare="04784", prices={"00002": 29.00}),
+        exit_("B", gare="00002"),
+    )
+
+    journey = account(b.data, b.route("NORTHBOUND", 1, "B"))
+
+    assert costs(journey) == [("NORTHBOUND → B", None)]
+    assert reasons(journey) == [
+        ("NORTHBOUND → B", "the entrance does not price this exit"),
+    ]

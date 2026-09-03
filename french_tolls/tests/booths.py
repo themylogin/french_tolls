@@ -57,9 +57,15 @@ def passthrough(name, *, price=None, gare=None):
     return Spec(name, type="passthrough", price=price, gare=gare)
 
 
-def gantry(name, *, price=None, gare=None):
-    """A free-flow gantry, charged for the section travelled."""
-    return Spec(name, type="gantry", price=price, gare=gare)
+def gantry(name, *, price=None, gare=None, prices=None):
+    """A free-flow gantry.
+
+    The type comes from `highway=toll_gantry`, which names the portal and not
+    the charge. Three different charges wear it. What is passed here says which
+    one: `prices` for a gantry that starts a section, `price` for one that
+    charges a fixed amount for passing it, and both for one that can do either.
+    """
+    return Spec(name, type="gantry", price=price, gare=gare, prices=prices or {})
 
 
 def two_way(name, *, gare=None, prices=None, inside=(), outside=()):

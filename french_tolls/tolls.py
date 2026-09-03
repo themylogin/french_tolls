@@ -8,7 +8,7 @@ from .booths import Booth, BoothData
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Journey", "Passage", "account", "booths_crossed", "closed_sections"]
+__all__ = ["Journey", "Passage", "account", "booths_crossed", "closed_sections", "fare"]
 
 
 @dataclass
@@ -103,10 +103,20 @@ def booths_crossed(data: BoothData, node_ids) -> frozenset[int]:
     return frozenset(booth.node_id for _index, booth, _prev, _next in _crossings(data, node_ids))
 
 
+def fare(data: BoothData, entrance: Booth | None, exit_booth: Booth) -> float | None:
+    """What the operator charges for this section, or None."""
+    if entrance is None or exit_booth.gare is None:
+        return None
+    if entrance.type == "gantry":
+        return data.tariffs_of(entrance.gare).get(exit_booth.gare)
+    return entrance.prices.get(exit_booth.gare)
+
+
 def closed_sections(data: BoothData, node_ids):
     """The ticketed sections a route drives, as `(entrance, exit)` booths."""
     out = []
     open_entrance = None
+    last_gantry = None
 
     for _index, booth, previous_node, next_node in _crossings(data, node_ids):
         kind = booth.type
@@ -114,11 +124,19 @@ def closed_sections(data: BoothData, node_ids):
             kind = _sense_of_bidirectional(booth, previous_node, next_node)
 
         if kind == "enter":
-            open_entrance = booth
+            open_entrance, last_gantry = booth, None
         elif kind == "exit":
-            if open_entrance is not None:
-                out.append((open_entrance, booth))
-            open_entrance = None
+            # The same rule `account` uses. Both walks must report the same
+            # sections. If they do not, the split advice trades against a fare
+            # that nobody is charged.
+            entrance = open_entrance
+            if entrance is None and fare(data, last_gantry, booth) is not None:
+                entrance = last_gantry
+            if entrance is not None:
+                out.append((entrance, booth))
+            open_entrance, last_gantry = None, None
+        elif kind == "gantry" and open_entrance is None and booth.price is None:
+            last_gantry = booth
 
     return out
 
@@ -128,6 +146,7 @@ def account(data: BoothData, node_ids) -> Journey:
     journey = Journey()
     open_entrance = None
     open_index = 0
+    last_gantry = None
 
     def close_unpriced(reason):
         nonlocal open_entrance
@@ -141,17 +160,16 @@ def account(data: BoothData, node_ids) -> Journey:
         nonlocal open_entrance
         name = f"{open_entrance.label} → {exit_booth.label}"
 
+        sold = fare(data, open_entrance, exit_booth)
         if exit_booth.gare is None:
             journey.passages.append(Passage(
                 name=name, index=index, reason="the booth maps to no gare"))
-        elif exit_booth.gare not in open_entrance.prices:
+        elif sold is None:
             journey.passages.append(Passage(
                 name=name, index=index,
                 reason="the entrance does not price this exit"))
         else:
-            journey.passages.append(Passage(
-                name=name, cost=open_entrance.prices[exit_booth.gare], index=index
-            ))
+            journey.passages.append(Passage(name=name, cost=sold, index=index))
 
         open_entrance = None
 
@@ -173,18 +191,37 @@ def account(data: BoothData, node_ids) -> Journey:
                 # unresolvable; record it and start the new one.
                 close_unpriced("entrance never closed by an exit")
             open_entrance, open_index = booth, index
+            last_gantry = None
 
         elif kind == "exit":
-            if open_entrance is None:
-                # The journey began inside the toll network, or an entrance was
-                # missed. Either way there is no ticket to close.
-                journey.passages.append(Passage(
-                    name=booth.label, index=index, reason="exit without an entrance"
-                ))
-            else:
+            if open_entrance is not None:
                 price_ticket(index, booth)
+            else:
+                # No ticket to close. Look back at the gantry behind this
+                # exit. If it has a fare to this exit, it was a ticketless
+                # entrance, and this exit closes the section it sold.
+                sold = fare(data, last_gantry, booth)
+                if sold is None:
+                    # The journey began inside the toll network, or an entrance
+                    # was missed. Either way there is no ticket to close.
+                    journey.passages.append(Passage(
+                        name=booth.label, index=index, reason="exit without an entrance"
+                    ))
+                else:
+                    # This section pays for the gantry's own crossing, so
+                    # take back the unpriced crossing recorded for it.
+                    journey.silent_unpriced -= 1
+                    journey.passages.append(Passage(
+                        name=f"{last_gantry.label} → {booth.label}", cost=sold, index=index
+                    ))
+            last_gantry = None
 
         elif kind in ("passthrough", "gantry"):
+            if kind == "gantry" and open_entrance is None and booth.price is None:
+                # A possible ticketless entrance. A gantry with a flat price
+                # takes its money here, and is charged just below. Do not also
+                # bill it for a section.
+                last_gantry = booth
             if booth.price is None:
                 journey.silent_unpriced += 1
             else:
