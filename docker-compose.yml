@@ -4,14 +4,22 @@ services:
     # --max-matching-size is necessary to match Google Maps routes across OSM graph.
     command: osrm-routed --algorithm mld --max-matching-size 10000 /osrm/france-latest.osrm
     volumes:
-      - "${OSRM_TOLL_PATH}:/osrm"
+      - type: bind
+        source: ${OSRM_TOLL_PATH:-/OSRM_TOLL_PATH-is-unset}
+        target: /osrm
+        bind:
+          create_host_path: false
     restart: always
 
   osrm-optimal:
     image: ghcr.io/project-osrm/osrm-backend:26.8-debian
     command: osrm-routed --algorithm mld /osrm/france-latest.osrm
     volumes:
-      - "${OSRM_OPTIMAL_PATH}:/osrm"
+      - type: bind
+        source: ${OSRM_OPTIMAL_PATH:-/OSRM_OPTIMAL_PATH-is-unset}
+        target: /osrm
+        bind:
+          create_host_path: false
     restart: always
 
   nginx:
@@ -64,14 +72,22 @@ services:
   osrm-toll-tools:
     image: ghcr.io/project-osrm/osrm-backend:26.8-debian
     volumes:
-      - "${OSRM_TOLL_PATH}:/osrm"
+      - type: bind
+        source: ${OSRM_TOLL_PATH:-/OSRM_TOLL_PATH-is-unset}
+        target: /osrm
+        bind:
+          create_host_path: false
       - "./data:/data"
     profiles: ["tools"]
 
   osrm-optimal-tools:
     image: ghcr.io/project-osrm/osrm-backend:26.8-debian
     volumes:
-      - "${OSRM_OPTIMAL_PATH}:/osrm"
+      - type: bind
+        source: ${OSRM_OPTIMAL_PATH:-/OSRM_OPTIMAL_PATH-is-unset}
+        target: /osrm
+        bind:
+          create_host_path: false
       - "./data:/data"
     profiles: ["tools"]
 
@@ -79,7 +95,11 @@ services:
     build: ./builder
     volumes:
       - "./data:/data"
-      - "${OSRM_TOLL_PATH}:/osrm"
+      - type: bind
+        source: ${OSRM_TOLL_PATH:-/OSRM_TOLL_PATH-is-unset}
+        target: /osrm
+        bind:
+          create_host_path: false
     environment:
       ULYS_SUBSCRIPTION_KEY: "${ULYS_SUBSCRIPTION_KEY:-}"
       ULYS_PASSAGE_DATE: "${ULYS_PASSAGE_DATE:-}"

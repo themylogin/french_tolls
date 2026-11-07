@@ -41,6 +41,7 @@ import yaml
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 TOLL_URL = os.environ.get("OSRM_TOLL_URL", "http://osrm-toll:5000")
+ACCESS_TOKEN = os.environ.get("OSRM_ACCESS_TOKEN", "").strip()
 
 FILTERED_PBF = os.path.join(DATA_DIR, "filtered.osm.pbf")
 OUT = os.path.join(DATA_DIR, "test_cities.yaml")
@@ -91,7 +92,10 @@ class Places(osmium.SimpleHandler):
 
 
 def get(url):
-    with urllib.request.urlopen(url, timeout=120) as r:
+    headers = {}
+    if ACCESS_TOKEN:
+        headers["X-Auth"] = ACCESS_TOKEN
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=120) as r:
         return json.load(r)
 
 

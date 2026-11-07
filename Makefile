@@ -114,7 +114,7 @@ RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-toll-tools
         guard-osrm-path guard-osrm-optimal-path guard-osrm-paths-differ \
         guard-ulys-key guard-ulys-passage-date guard-eur-per-hour \
         update_route_set clean clean-osrm \
-        web bot app app-down test clean-cache requirements \
+        routers web bot app app-down test clean-cache requirements \
         test_cities test_google_routes test_google
 
 all: download_pbf setup_osrm build_osm_toll_booths build_route_set \
@@ -685,23 +685,45 @@ clean-osrm: guard-osrm-path guard-osrm-optimal-path
 # `docker compose up` still starts the two query services and nothing else.
 #
 # Every one of them needs the routers running: `web` and `bot` answer from them,
-# and the suite measures them. The recipes bring the routers up first rather
-# than failing on a connection refused.
+# and the suite measures them. Each depends on `routers`, which brings the
+# routers up first rather than failing on a connection refused.
+#
+# A router whose address .env sets (OSRM_TOLL_URL, OSRM_OPTIMAL_URL) belongs to
+# another deployment. `routers` does not start it here, stops a copy left
+# running from before, and does not ask for its graph path. The pipeline steps
+# above ignore both addresses: they read and write the local graph.
+LOCAL_ROUTERS  := $(strip $(if $(strip $(OSRM_TOLL_URL)),,osrm-toll) $(if $(strip $(OSRM_OPTIMAL_URL)),,osrm-optimal))
+REMOTE_ROUTERS := $(strip $(if $(strip $(OSRM_TOLL_URL)),osrm-toll) $(if $(strip $(OSRM_OPTIMAL_URL)),osrm-optimal))
+
+ifeq ($(LOCAL_ROUTERS),osrm-toll osrm-optimal)
+ROUTER_GUARD := guard-osrm-paths-differ
+else ifeq ($(LOCAL_ROUTERS),osrm-toll)
+ROUTER_GUARD := guard-osrm-path
+else ifeq ($(LOCAL_ROUTERS),osrm-optimal)
+ROUTER_GUARD := guard-osrm-optimal-path
+endif
+
+routers: $(ROUTER_GUARD)
+ifneq ($(LOCAL_ROUTERS),)
+	$(COMPOSE) up -d $(LOCAL_ROUTERS)
+endif
+ifneq ($(REMOTE_ROUTERS),)
+	$(COMPOSE) stop $(REMOTE_ROUTERS)
+endif
+
 # Brings up the application and the front end together. The page is the point
 # of the web service, and `web` publishes no port of its own, so starting one
 # without the other leaves nothing a browser can reach.
-web: guard-osrm-paths-differ
-	$(COMPOSE) up -d osrm-toll osrm-optimal
+web: routers
 	$(COMPOSE) --profile app up -d --build web nginx
 
-bot: guard-osrm-paths-differ
+bot: routers
 	@if [ -z "$(TELEGRAM_BOT_TOKEN)" ]; then \
 	    echo "ERROR: TELEGRAM_BOT_TOKEN is unset or empty."; \
 	    echo "       Copy .env.example to .env and set it to the token BotFather"; \
 	    echo "       issued. The bot polls Telegram and cannot start without one."; \
 	    exit 1; \
 	fi
-	$(COMPOSE) up -d osrm-toll osrm-optimal
 	$(COMPOSE) --profile app up -d --build bot
 
 app: web bot
@@ -784,8 +806,7 @@ RUN_EVAL := $(COMPOSE) --profile evaluation run --rm --no-TTY --user $(HOST_USER
 
 # Fifty cities spread over mainland France, chosen from the extract and written
 # to data/test_cities.yaml. Free, incremental, and reproducible.
-test_cities: guard-osrm-path
-	$(COMPOSE) up -d osrm-toll osrm-optimal
+test_cities: routers
 	$(RUN_EVAL) python3 build_test_cities.py $(ARGS)
 
 # Buys the Google routes. COSTS MONEY. It counts what is outstanding, says what
@@ -798,13 +819,11 @@ test_cities: guard-osrm-path
 # Incremental at the granularity of one journey: a pair already on disk is never
 # requested again, and a request that fails writes nothing, so it is simply
 # outstanding next time.
-test_google_routes: guard-osrm-paths-differ | $(TEST_CITIES)
-	$(COMPOSE) up -d osrm-toll osrm-optimal
+test_google_routes: routers | $(TEST_CITIES)
 	$(COMPOSE) --profile app up -d web
 	$(RUN_EVAL) python3 fetch_google_routes.py $(ARGS)
 
 # The report. Free, and makes no request to Google: it reads what was bought.
-test_google: guard-osrm-paths-differ
-	$(COMPOSE) up -d osrm-toll osrm-optimal
+test_google: routers
 	$(COMPOSE) --profile app up -d web
 	$(RUN_EVAL) python3 report.py $(ARGS)

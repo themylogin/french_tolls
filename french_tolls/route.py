@@ -197,7 +197,7 @@ async def _super_optimal(routers, start, end, optimal, plan):
             vias.append((booth.latlon[1], booth.latlon[0]))
 
     try:
-        route = await routers.route_via(osrm.OPTIMAL_URL, start, vias, end)
+        route = await routers.route_via(config.osrm_optimal_url, start, vias, end)
     except (NoRoute, RouterUnavailable) as e:
         logger.info("could not route the split journey: %r", e)
         return None

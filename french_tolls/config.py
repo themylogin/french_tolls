@@ -30,6 +30,17 @@ class Config:
     # the real client at its own replay server.
     google_routes_endpoint: str = getenv("GOOGLE_ROUTES_ENDPOINT", GOOGLE_ROUTES)
 
+    # Where the untouched graph is asked. Another deployment's relay, for a host
+    # that holds no graph: https://<lender>/api/osrm/toll.
+    osrm_toll_url: str = getenv("OSRM_TOLL_URL", "http://osrm-toll:5000").rstrip("/")
+
+    # Where the toll-weighted graph is asked: https://<lender>/api/osrm/optimal.
+    osrm_optimal_url: str = getenv("OSRM_OPTIMAL_URL", "http://osrm-optimal:5000").rstrip("/")
+
+    # Sent as X-Auth on every router request. Set, it also opens the relay
+    # under /api/osrm/ to a caller that sends the same value.
+    osrm_access_token: str = getenv("OSRM_ACCESS_TOKEN")
+
     # OSRM's travel time is multiplied by this before it is served. Google
     # predicts x0.9333 of OSRM's time for the same road; 1 serves it unchanged.
     time_multiplier: float = float(getenv("TIME_MULTIPLIER", "1"))

@@ -34,6 +34,8 @@ The other variables are optional:
 | Variable | Purpose |
 | --- | --- |
 | `URL` | public address of the site, used in the links it emits |
+| `OSRM_TOLL_URL`, `OSRM_OPTIMAL_URL` | another deployment's routers |
+| `OSRM_ACCESS_TOKEN` | the token the relay checks and the client sends |
 | `LOCATIONIQ_API_KEY` | the search box |
 | `GOOGLE_DIRECTIONS_API_KEY` | route refinement |
 | `GOOGLE_DIRECTIONS_MAX_REQUEST_PER_MONTH` | monthly ceiling for the above |

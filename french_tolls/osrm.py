@@ -1,10 +1,13 @@
 # -*- coding=utf-8 -*-
 from dataclasses import dataclass
+import json
 import logging
 import os
 import urllib.parse
 
 import aiohttp
+
+from .config import config
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +21,6 @@ __all__ = [
     "Snap",
     "TooFarFromNetwork",
 ]
-
-TOLL_URL = "http://osrm-toll:5000"
-OPTIMAL_URL = "http://osrm-optimal:5000"
 
 # How far an origin or a destination may be from the road network.
 SNAP_REACH_M = 1000.0
@@ -146,17 +146,30 @@ class Routers:
         self.requests += 1
         url = f"{base}{path}?{urllib.parse.urlencode(params, doseq=True, quote_via=urllib.parse.quote)}"
 
+        headers = {}
+        if config.osrm_access_token:
+            headers["X-Auth"] = config.osrm_access_token
+
         timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as resp:
-                    body = await resp.json(content_type=None)
+                async with session.get(url, headers=headers) as resp:
+                    status = resp.status
+                    raw = await resp.read()
         except aiohttp.ClientError as e:
             raise RouterUnavailable(f"{base} did not answer: {e}") from e
         except TimeoutError as e:
             raise RouterUnavailable(
                 f"{base} did not answer within {REQUEST_TIMEOUT_S:.0f} s"
             ) from e
+
+        # A proxy on the way to a remote router answers its own errors as HTML.
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            raise RouterUnavailable(f"{base} answered HTTP {status} without a JSON object")
 
         code = body.get("code")
         if code == "Ok":
@@ -175,7 +188,7 @@ class Routers:
         reach_m = SNAP_REACH_M if reach_m is None else reach_m
 
         body = await self._get(
-            TOLL_URL, f"/nearest/v1/driving/{location[0]},{location[1]}", {"number": 1}
+            config.osrm_toll_url, f"/nearest/v1/driving/{location[0]},{location[1]}", {"number": 1}
         )
         waypoints = body.get("waypoints") or []
         if not waypoints:
@@ -195,7 +208,7 @@ class Routers:
     async def distance_to_road_network(self, location) -> float:
         """How far a coordinate is from the nearest road, in metres."""
         body = await self._get(
-            TOLL_URL, f"/nearest/v1/driving/{location[0]},{location[1]}", {"number": 1}
+            config.osrm_toll_url, f"/nearest/v1/driving/{location[0]},{location[1]}", {"number": 1}
         )
         waypoints = body.get("waypoints") or []
         return waypoints[0]["distance"] if waypoints else float("inf")
@@ -252,16 +265,16 @@ class Routers:
             # tracepoint is most of the response body.
             "generate_hints": "false",
         }
-        body = await self._get(TOLL_URL, f"/match/v1/driving/{coords}", params)
+        body = await self._get(config.osrm_toll_url, f"/match/v1/driving/{coords}", params)
         return _read_match(body)
 
     async def fast(self, start: Snap, end: Snap) -> Route:
         """The fastest route: the untouched graph, which carries no tariff."""
-        return await self.route(TOLL_URL, start, end)
+        return await self.route(config.osrm_toll_url, start, end)
 
     async def optimal(self, start: Snap, end: Snap) -> Route:
         """The cheapest route in money and time: the toll-weighted graph."""
-        return await self.route(OPTIMAL_URL, start, end)
+        return await self.route(config.osrm_optimal_url, start, end)
 
 
 def _read_route(body: dict) -> Route:

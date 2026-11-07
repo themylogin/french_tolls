@@ -4,6 +4,7 @@ import logging
 from aiohttp import web
 
 from . import refine as refine_module
+from . import relay
 from .autocomplete import autocomplete
 from .config import config
 from .route import get_route
@@ -33,3 +34,4 @@ async def calculate(request):
 app = web.Application()
 app.add_routes([web.get("/api/autocomplete", autocomplete)])
 app.add_routes([web.post("/api/calculate", calculate)])
+relay.install(app)

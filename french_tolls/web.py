@@ -17,7 +17,8 @@ def main():
         format="[%(asctime)s] %(levelname)-8s [%(name)s] %(message)s",
     )
 
-    web.run_app(app, host="0.0.0.0", port=8080)
+    # aiohttp refuses a request line over 8 KB by default. /api/osrm/ proxies requests with path up to 120 KB.
+    web.run_app(app, host="0.0.0.0", port=8080, max_line_size=1048576)
 
 
 if __name__ == "__main__":
