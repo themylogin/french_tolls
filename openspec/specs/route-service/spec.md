@@ -190,6 +190,8 @@ The sixth is built from its own image under `www/`:
 
 `web` and `bot` SHALL join the Compose network and SHALL address the routers by their service names, `osrm-toll` and `osrm-optimal`. They SHALL NOT address the routers through a published host port: on a host where the published ports are not reachable, a service that used them would fail while the same query over the network succeeds.
 
+**Where `remote-routers` configures an address for a router, `web` and `bot` SHALL address that router there instead of by its service name.** The other router keeps its service name. A published host port of this deployment is still never the path.
+
 **`osrm-toll` SHALL be started with a matching size large enough for a whole trace as `toll-equivalence` sends one.** That capability recovers the booths a foreign route crosses by matching its geometry in one request, and the server's default admits a hundred coordinates where the shortest trace worth matching runs to hundreds. Splitting the trace to fit is not an alternative: a window matched with no knowledge of the road before it produces wrong answers, which is the defect that made this requirement necessary.
 
 The size SHALL be chosen against that measurement rather than set as high as it will go. `toll-equivalence` thins a trace before it sends it, and a size that also admits an unthinned one buys nothing: it lets a fault — a caller that skipped the thinning — reach the router as a request tens of times more expensive and, measured, less accurate. A ceiling that refuses it is the cheaper failure.
@@ -198,7 +200,7 @@ The size SHALL be chosen against that measurement rather than set as high as it 
 
 `tests` SHALL depend on none of them. It SHALL NOT be given the routers' addresses and SHALL NOT mount `data/`, because the suite it runs reaches no routing service and reads no artefact. A test runner carrying a dependency its tests do not use only makes the suite unrunnable on a checkout that has no graphs.
 
-**`integration` SHALL be the opposite, and SHALL be a separate service for exactly that reason.** It SHALL reach the routers by name and SHALL mount `data/`, because `drive-flow-integration-tests` drives real routes over real booths.
+**`integration` SHALL be the opposite, and SHALL be a separate service for exactly that reason.** It SHALL reach the routers as `web` does, by name unless an address is configured, and SHALL mount `data/`, because `drive-flow-integration-tests` drives real routes over real booths.
 
 It SHALL be unable to spend money or reach a chat, and SHALL be so **by construction rather than by promise**: its Google endpoint SHALL address the suite's own replay server, and its Telegram token SHALL authenticate nothing. A real key left in the environment by accident then buys nothing, because there is nowhere for the request to go.
 
@@ -244,8 +246,13 @@ Merging the two runners was considered and refused. One of them exists to prove 
 
 #### Scenario: The application reaches the routers by name
 
-- **WHEN** the web service answers a query
+- **WHEN** the web service answers a query and no router address is configured
 - **THEN** it reaches `osrm-toll` and `osrm-optimal` over the Compose network
+
+#### Scenario: The application reaches a configured router
+
+- **WHEN** `OSRM_OPTIMAL_URL` is configured and the bot answers a journey
+- **THEN** it reaches the optimal graph at that address and `osrm-toll` over the Compose network
 
 #### Scenario: A whole trace can be matched in one request
 
@@ -312,18 +319,19 @@ The functions it imports SHALL keep their names and signatures.
 
 ### Requirement: Configuration is read from the environment
 
-The token, the API keys, the monthly ceiling on paid requests, the travel-time factor, the debug setting, the log level, the address route requests are sent to, and the public address of the site SHALL be read from the environment, each with a documented default where a default is meaningful.
+The token, the API keys, the monthly ceiling on paid requests, the travel-time factor, the debug setting, the log level, the address route requests are sent to, the public address of the site, the address of each router, and the router access token SHALL be read from the environment, each with a documented default where a default is meaningful.
 
-Six entries this list carried are gone from it, and none of them was ever configured:
+Five entries this list carried are gone from it, and none of them was ever configured:
 
 - **The published port** is fixed at 8080 because the front end proxies to it. A variable that changes it takes the site down rather than moving it.
-- **The routers' addresses** are Compose service names on one network. The published host ports refuse connections, which this capability already requires nothing to use.
 - **The fit threshold** is a measured value, chosen because the corpus leaves an empty band between 97.7% and 99.5%. `google-route-refinement` requires the evaluation and the drive flow to use the same one, and they already do — by reading the same constant, not the same variable.
 - **The query budget** bounds how many local routing requests one journey's search may issue. It guards against a search that is looping, and a deployment that reaches it does not want a larger number, so it is a constant with its measurement beside it.
 - **The reach** — how far an origin may be from a road — was a setting in one place and a literal in two others, and the bot's reply names a kilometre in prose. A value that three places have to agree on is one value, written once and read by all three.
 - **The wage** belongs to `toll-weighted-graph`, which requires it to be settable there. It is a parameter of the pipeline that builds the weighted graph, and no service reads it from the environment.
 
 The count of waypoints a link carries goes the same way: it is nine because a Google Maps URL carries nine, and a variable that raises it makes the search place points the link drops without saying so.
+
+**The routers' addresses are settings again.** They were removed because every deployment reached the routers by service name. A deployment without graphs now reaches another deployment's routers, so the address differs between environments. Each address defaults to the service name. `remote-routers` states the rules for the addresses and the token.
 
 **They SHALL be declared in one place, and nothing else in the application package SHALL read the environment.** Each setting SHALL carry its name, its type, its default, and a sentence saying what it is for. A caller SHALL obtain a value by asking that one object, and SHALL receive it already of the type it is used at — a count as an integer, a distance as a number, a switch as a boolean.
 
@@ -437,9 +445,21 @@ A secret SHALL NOT be committed and SHALL NOT appear in a failure record or a lo
 - **WHEN** a service configured with a Google key reports that a link was not checked
 - **THEN** it is because the month's requests are actually spent, not because the ceiling never reached it
 
+#### Scenario: The router addresses default to the service names
+
+- **WHEN** neither router address is configured
+- **THEN** the settings hold `http://osrm-toll:5000` and `http://osrm-optimal:5000`
+
+#### Scenario: The access token is a secret
+
+- **WHEN** the router access token is set and a router request fails
+- **THEN** neither the failure record nor any log line contains the token
+
 ### Requirement: The API serves the page from two routes and no more
 
-The HTTP API SHALL expose place lookup and route calculation, and nothing else.
+The HTTP API SHALL expose place lookup and route calculation, and nothing else for the page.
+
+**Where the router access token is set, the API SHALL also serve the router relay of `remote-routers`.** The relay serves another deployment, not the page. The page never calls it, and without the token it does not exist.
 
 **There SHALL be no endpoint for the refinement.** `google-route-refinement` states why: a refinement describes a particular optimal route, so answering for one separately means computing that route a second time. One question from a visitor SHALL cost one request and one search.
 
@@ -451,8 +471,13 @@ Nothing that duplicates a value already in the answer SHALL be carried in it.
 
 #### Scenario: Two routes, and the refinement is not one of them
 
-- **WHEN** the API's routes are enumerated
+- **WHEN** the API's routes are enumerated and the router access token is unset
 - **THEN** they are place lookup and route calculation, and no path serves a refinement
+
+#### Scenario: The relay is added only by the token
+
+- **WHEN** the API's routes are enumerated and the router access token is set
+- **THEN** they are place lookup, route calculation, and the relay under `/api/osrm/toll/` and `/api/osrm/optimal/`, and no path serves a refinement
 
 #### Scenario: The refinement travels with the answer
 
