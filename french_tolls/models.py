@@ -4,7 +4,7 @@ import datetime
 from sqlalchemy import DateTime, Float, Integer, JSON, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-__all__ = ["Autocomplete", "Base", "GasStation", "GasStationArea", "GoogleRequest"]
+__all__ = ["Autocomplete", "Base", "Car", "GasStation", "GasStationArea", "GoogleRequest"]
 
 
 class Base(DeclarativeBase):
@@ -59,3 +59,13 @@ class GasStationArea(Base):
     max_latitude: Mapped[float] = mapped_column(Float)
     min_longitude: Mapped[float] = mapped_column(Float)
     max_longitude: Mapped[float] = mapped_column(Float)
+
+
+class Car(Base):
+    __tablename__ = "car"
+
+    telegram_user_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    fuel_type: Mapped[str] = mapped_column(Text, nullable=False)
+    tank_volume: Mapped[int] = mapped_column(Integer, nullable=False)
+    consume_80: Mapped[float] = mapped_column(Float, nullable=False)
+    consume_130: Mapped[float] = mapped_column(Float, nullable=False)

@@ -10,6 +10,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, ContextTypes,
                           filters, MessageHandler)
 
+from . import car as car_rules
 from . import drive as drive_rules
 from .drive import AskGoogle, AskRoute, Opinion, Part, drive
 from . import spending
@@ -44,6 +45,7 @@ class ChatState:
         # Stretches offered but not yet asked for, by the token the button
         # carries.
         self.pending = {}
+        self.car_dialogs = {}
         self._tokens = itertools.count(1)
 
     def remember(self, parts):
@@ -51,6 +53,9 @@ class ChatState:
         token = f"d{next(self._tokens)}"
         self.pending[token] = parts
         return token
+
+    def new_car_token(self):
+        return f"c{next(self._tokens)}"
 
 
 def state_of(context) -> ChatState:
@@ -78,9 +83,13 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     state = state_of(context)
+    user_id = update.message.from_user.id
     if update.message.location is not None:
         await handle_location(message=update.message, state=state, location=(
             update.message.location.longitude, update.message.location.latitude))
+    elif user_id in state.car_dialogs:
+        reply = car_rules.answer_text(state.car_dialogs[user_id], update.message.text)
+        await send_car_reply(update.message, state, user_id, reply)
     elif location := parse_location(update.message.text):
         await handle_location(update.message, state, location)
     else:
@@ -304,6 +313,53 @@ async def send_help(message):
     )
 
 
+async def car_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    state = state_of(context)
+    user_id = update.message.from_user.id
+    reply = car_rules.start(state.new_car_token(), await car_rules.load_car(user_id))
+    await send_car_reply(update.message, state, user_id, reply)
+
+
+async def car_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    token, _, choice = query.data.removeprefix("car:").partition(":")
+    state = state_of(context)
+    user_id = query.from_user.id
+    reply = car_rules.answer_button(state.car_dialogs.get(user_id), token, choice)
+    if reply.pressed_text is None:
+        await query.edit_message_reply_markup(reply_markup=None)
+    else:
+        await query.edit_message_text(reply.pressed_text)
+
+    await send_car_reply(query.message, state, user_id, reply)
+
+
+async def send_car_reply(message, state, user_id, reply):
+    if reply.save is not None:
+        try:
+            await car_rules.save_car(user_id, reply.save)
+        except Exception as e:
+            logger.warning("Error saving the car of %r: %r", user_id, e, exc_info=True)
+            state.car_dialogs.pop(user_id, None)
+            await message.reply_text("Error saving your car parameters. I am very sorry for that 😞")
+            return
+
+    if reply.dialog is None:
+        state.car_dialogs.pop(user_id, None)
+    else:
+        state.car_dialogs[user_id] = reply.dialog
+
+    markup = None
+    if reply.buttons:
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton(label, callback_data=f"car:{reply.dialog.token}:{choice}") for label, choice in row]
+            for row in reply.buttons
+        ])
+    await message.reply_text(reply.text, reply_markup=markup)
+
+
 async def reset_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state_of(context).users_from.pop(update.message.from_user.id, None)
     await update.message.reply_text("Now, send me the origin location")
@@ -313,6 +369,7 @@ async def post_init(application: Application):
     await application.bot.set_my_commands([
         ("help", "Help"),
         ("reset", "Reset the origin location"),
+        ("car", "Enter car parameters"),
     ])
 
 
@@ -329,7 +386,9 @@ def build(token, *, request=None, get_updates_request=None):
     application.add_handler(MessageHandler((filters.TEXT | filters.LOCATION) & ~filters.COMMAND, text_message_handler))
     application.add_handler(CommandHandler("help", help_command_handler))
     application.add_handler(CommandHandler("reset", reset_command_handler))
-    application.add_handler(CallbackQueryHandler(drive_button_handler))
+    application.add_handler(CommandHandler("car", car_command_handler))
+    application.add_handler(CallbackQueryHandler(drive_button_handler, pattern=r"^d\d+$"))
+    application.add_handler(CallbackQueryHandler(car_button_handler, pattern=r"^car:"))
 
     return application
 

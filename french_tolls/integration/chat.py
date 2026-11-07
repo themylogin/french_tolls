@@ -58,6 +58,12 @@ class Chat:
         """
         await self._message({"text": text})
 
+    async def send_command(self, command):
+        await self._message({
+            "text": f"/{command}",
+            "entities": [{"type": "bot_command", "offset": 0, "length": len(command) + 1}],
+        })
+
     async def _message(self, body):
         await self._feed({
             "message": {
@@ -69,7 +75,7 @@ class Chat:
             },
         })
 
-    async def press(self, token):
+    async def press(self, token, message_id=None):
         """Press a button, by the callback data the bot itself put in it."""
         self.pressed.append(token)
         await self._feed({
@@ -79,7 +85,7 @@ class Chat:
                 "chat_instance": "1",
                 "data": token,
                 "message": {
-                    "message_id": next(self._updates),
+                    "message_id": message_id or next(self._updates),
                     "date": 0,
                     "chat": {"id": CHAT_ID, "type": "private"},
                     "from": {"id": 424242, "is_bot": True, "first_name": "French Tolls"},
@@ -104,6 +110,15 @@ class Chat:
         self._pressed_at = len(self.telegram.messages)
         await self.press(buttons[-1])
         return True
+
+    async def press_labelled(self, label):
+        for message in reversed(self.telegram.messages):
+            for row in (message.markup or {}).get("inline_keyboard", []):
+                for button in row:
+                    if button["text"] == label:
+                        await self.press(button["callback_data"], message.message_id)
+                        return
+        raise AssertionError(f"no message offers a button labelled {label!r}")
 
     async def drive(self, origin, destination, presses=8):
         """A whole journey: both locations, then every part it owes.

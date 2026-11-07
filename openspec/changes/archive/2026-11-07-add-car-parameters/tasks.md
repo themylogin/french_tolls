@@ -1,0 +1,35 @@
+# Tasks
+
+## 1. Schema
+
+- [x] 1.1 Add the model `Car` to `french_tolls/models.py`, with the columns of design D2, and add it to `__all__`. Verify that `Base.metadata.tables` names `autocomplete`, `google_requests`, `gas_station`, `gas_station_area`, and `car`.
+- [x] 1.2 Generate the revision with the command of design D3. In `upgrade`, create `car` with `op.create_table`. In `downgrade`, drop it. Verify that the filename starts with the date and time and ends with `_car.py`, that `down_revision` is `cd499fbf77cb`, and that `upgrade head`, `downgrade -1`, and `upgrade head` all succeed on an empty file in the image.
+- [x] 1.3 In `french_tolls/tests/test_gas_stations.py`, rename `test_the_store_holds_three_tables_and_the_index` to `test_the_store_holds_four_tables_and_the_index`, and add `"car"` to the expected set. Verify with `make test` that this test and `test_the_models_and_the_revisions_agree` pass.
+- [x] 1.4 Change the comment above `clean-cache` in the `Makefile`. It must say that the target also drops the station table and the car of each driver, and that drivers must then enter their car again. Verify that `make -n clean-cache` prints the same commands as before.
+
+## 2. Dialog rules
+
+- [x] 2.1 Create `french_tolls/car.py` without an import of `telegram`. Add the fuel types of design D1 as an ordered tuple of `(key, label)` pairs, and `parse_tank_volume` and `parse_consumption` with the patterns of design D6. Create `french_tolls/tests/test_car.py` with parser tests for each value in the spec scenarios: `30`, `29`, `50.5`, `50 l`, `fifty`, and a 20-digit number for the tank; `6,5`, `0.1`, `7`, `29.9`, `0`, `30`, `-5`, `1e1`, `nan`, and `6.5 l` for a consumption. Verify with `make test`.
+- [x] 2.2 Add `describe(car)` with the format of design D10. Add tests: the spec example gives the four lines `Tank volume: 50 L`, `Fuel type: Diesel`, `At 80 km/h: 5.5 L/100 km`, and `At 130 km/h: 7 L/100 km`; `29.99999` shows as `29.99999`; `0.00001` shows as `0.00001`. Verify with `make test`.
+- [x] 2.3 Add the frozen dataclasses `CarDialog` and `CarReply` of design D4 and D5, and `start(token, car)` and `answer_text(dialog, text)`. Add rule tests with the literal texts of the spec: a driver without a car gets the tank question; a driver with a car gets `Your car parameters:`, the values, `Do you want to change them?`, and the buttons `Yes` and `No`; an invalid tank volume and an invalid consumption repeat the step with the error text; a typed fuel type gets the error text and the three buttons again. Verify with `make test`.
+- [x] 2.4 Add `answer_button(dialog, token, choice)` with the press test of design D7. Add rule tests: a fuel press goes to `consume_80` and sets `pressed_text` to `Fuel type: <label>`; `Yes` goes to `tank_volume`; `No` ends the dialog with `Your car parameters are unchanged.` and no save; a press with no dialog, a wrong token, or a choice that does not fit the step gives `This question has expired. Send /car to start again.` and leaves the dialog unchanged. Verify with `make test`.
+- [x] 2.5 Add tests for full sequences from `start`: four valid answers give one reply with `save` set to the four values and the text `Your car parameters are saved.` followed by the values; no earlier reply has `save` set; the three buttons come in the order of design D1 and store `diesel`, `95`, and `98`. Verify with `make test`.
+- [x] 2.6 Add the coroutines `load_car` and `save_car` of design D9. Add store tests on a temporary file migrated by Alembic, with the fixture pattern of `test_gas_stations.py`: a first save creates the car; a second save replaces it and leaves one row; two users get their own values; `load_car` of an unknown user returns `None`. Verify with `make test`.
+- [x] 2.7 Add the station fuel names of design D1 to each entry of `FUEL_TYPES`, and add `station_fuels(fuel_type)`. Add unit tests with the literal names: `diesel` gives `("Gazole (B7)",)`, `95` gives `("SP95-E10 (E10)", "SP95 (E5)")`, and `98` gives `("SP98 (E5)",)`. Verify with `make test`. Then read the fuel names from the prices in the live store, read-only, and verify that each mapped name occurs there.
+
+## 3. Bot shell
+
+- [x] 3.1 Add `car_dialogs` and a dialog token method to `ChatState`. Add `car_command_handler` to `french_tolls/bot.py`, and change `text_message_handler` to the order of design D8. Register the command in `build`. Verify with the tests of 3.4.
+- [x] 3.2 Add `car_button_handler` with the pattern `^car:`, and give `drive_button_handler` the pattern `^d\d+$`, as in design D7. The car handler answers the query, edits the pressed message with `pressed_text` or removes its buttons, and sends the reply. Verify with the tests of 3.4.
+- [x] 3.3 Save the car when a reply has `save` set. On an error, log it, drop the dialog, and send the error text of design D9. Add `("car", "Enter car parameters")` to `post_init`, after `help` and `reset`. Verify with the tests of 3.4.
+- [x] 3.4 Add `press_labelled(label)` to `Chat` in `french_tolls/integration/chat.py`. It presses the button with that label on the latest message that has one. Create `french_tolls/integration/test_car_dialog.py` with the tests of design D11, with an autouse fixture that deletes the `car` rows. The menu test calls `bot.post_init(chat.application)`, because `Application.initialize` does not run it, and reads the `setMyCommands` call. Verify with `docker compose --profile test run --rm --no-TTY integration`.
+- [x] 3.5 In `test_car_dialog.py`, add the tests of the dialog routing: `6,5` as a consumption is accepted and does not get `Now, send me the destination location`; after the dialog, a typed `50` gets the help message; a second application answers `50` from the same user with the help message. Verify with `docker compose --profile test run --rm --no-TTY integration`.
+- [x] 3.6 In `test_car_dialog.py`, add the tests of the buttons: an old fuel button after the dialog gets the expired text and does not change the stored car; it does not get `That route has expired. Please send the locations again.`; `/car` during a dialog drops the answer `60` and starts again. Verify with `docker compose --profile test run --rm --no-TTY integration`.
+
+## 4. Integration checks
+
+- [ ] 4.1 Run `make test` and `docker compose --profile test run --rm --no-TTY integration`. Verify that all three suites pass.
+- [x] 4.2 Search `french_tolls/` and `alembic/` for `CREATE TABLE`, `CREATE VIRTUAL TABLE`, and `CREATE TRIGGER`. Verify that the only matches are in `2026-11-07_15-52_gas_stations.py`.
+- [x] 4.3 With the agreement of the operator, run `make bot`. Verify that `migrate` applies the `car` revision, and that the `car` table exists in the `cache` volume.
+- [x] 4.4 In Telegram, send `/car` to the bot and answer `50`, `Diesel`, `5,5`, and `7.2`. Send `/car` again and press `No`. Verify that the menu shows `Enter car parameters`, that the second `/car` shows the saved values, and that the row in `car` holds `50`, `diesel`, `5.5`, and `7.2`.
+- [x] 4.5 Run `openspec validate add-car-parameters --strict`. Verify that the change is valid.

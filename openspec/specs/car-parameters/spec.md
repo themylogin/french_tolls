@@ -1,0 +1,217 @@
+# car-parameters Specification
+
+## Purpose
+Defines what the bot stores about the car of a driver, how the `/car` command collects and changes these values, the limits on each value, and the fuel types that the bot offers.
+
+## Requirements
+
+### Requirement: The store keeps one car for each driver
+
+The store SHALL keep at most one car for each Telegram user id. A car SHALL have a fuel type, a tank volume in liters as an integer, and two consumptions in liters per 100 km as floats: one at 80 km/h and one at 130 km/h. When a driver saves new values, they SHALL replace the old values of that driver.
+
+#### Scenario: A first save creates the car
+
+- **GIVEN** the user `777001` has no car
+- **WHEN** the user saves the tank volume `50`, the fuel type `diesel`, and the consumptions `5.5` and `7.2`
+- **THEN** the store has one car for `777001` with these four values
+
+#### Scenario: A second save replaces the car
+
+- **GIVEN** the user `777001` has a car with the tank volume `50`
+- **WHEN** the user saves the tank volume `60` and three other values
+- **THEN** the store has one car for `777001`, with the tank volume `60`
+
+#### Scenario: Two drivers have two cars
+
+- **WHEN** the users `777001` and `777002` each save a car
+- **THEN** each user gets the values that they saved, and not the values of the other user
+
+### Requirement: The bot offers the command /car
+
+The command menu of the bot SHALL contain `/car` with the description `Enter car parameters`. The existing commands `/help` and `/reset` SHALL stay in the menu.
+
+#### Scenario: The menu names the command
+
+- **WHEN** the bot starts
+- **THEN** it sets the commands `help`, `reset`, and `car`, and the description of `car` is `Enter car parameters`
+
+### Requirement: A driver without a car gets four questions in a fixed order
+
+When a driver without a car sends `/car`, the bot SHALL ask for the tank volume, then the fuel type, then the consumption at 80 km/h, then the consumption at 130 km/h. The bot SHALL ask the next question only after a valid answer to the current one.
+
+#### Scenario: The questions come in order
+
+- **GIVEN** the driver has no car
+- **WHEN** the driver sends `/car`, then `50`, then presses `Diesel`, then sends `5.5`
+- **THEN** the bot asks, in order, `Enter the tank volume in liters.`, `Choose the fuel type.`, `Enter the consumption at 80 km/h in liters per 100 km.`, and `Enter the consumption at 130 km/h in liters per 100 km.`
+
+### Requirement: The tank volume is a whole number of 30 or more
+
+The bot SHALL accept as the tank volume only a whole number of 30 or more, written in digits. White space around the digits is permitted. The bot SHALL refuse any other answer with an error message and SHALL ask the same question again.
+
+#### Scenario: The lowest permitted volume
+
+- **WHEN** the driver answers `30` to the tank volume question
+- **THEN** the bot accepts it and asks for the fuel type
+
+#### Scenario: A volume below the limit
+
+- **WHEN** the driver answers `29` to the tank volume question
+- **THEN** the bot sends `The tank volume must be a whole number of 30 or more. Enter it again.`, and the next answer is again a tank volume
+
+#### Scenario: A volume that is not a whole number
+
+- **WHEN** the driver answers `50.5`, `50 l`, or `fifty` to the tank volume question
+- **THEN** the bot refuses each answer with the same error message
+
+#### Scenario: A number that the store cannot hold
+
+- **WHEN** the driver answers `99999999999999999999` to the tank volume question
+- **THEN** the bot refuses the answer with the same error message, and the bot does not fail
+
+### Requirement: The fuel type is chosen with a button
+
+The bot SHALL show the fuel type question with exactly three buttons, one on each row, in this order: `Diesel`, `95`, `98`. They SHALL store the fuel types `diesel`, `95`, and `98`. After a press, the question SHALL name the chosen type and SHALL show no buttons.
+
+#### Scenario: A press selects the fuel type
+
+- **WHEN** the driver presses `95`
+- **THEN** the question changes to `Fuel type: 95` without buttons, and the bot asks for the consumption at 80 km/h
+
+#### Scenario: A typed fuel type is refused
+
+- **WHEN** the driver types `diesel` at the fuel type question
+- **THEN** the bot sends `Choose the fuel type with a button.` with the three buttons again
+
+### Requirement: A consumption is a number more than 0 and less than 30
+
+The bot SHALL accept as a consumption only a number more than 0 and less than 30, written in digits, with a point or a comma before an optional decimal part. White space around the number is permitted. The bot SHALL refuse any other answer with an error message and SHALL ask the same question again.
+
+#### Scenario: A decimal comma
+
+- **WHEN** the driver answers `6,5` to a consumption question
+- **THEN** the bot stores the consumption `6.5`
+
+#### Scenario: Values inside the limits
+
+- **WHEN** the driver answers `0.1`, `7`, or `29.9` to a consumption question
+- **THEN** the bot accepts the answer
+
+#### Scenario: Values outside the limits
+
+- **WHEN** the driver answers `0`, `30`, `-5`, `1e1`, `nan`, or `6.5 l` to a consumption question
+- **THEN** the bot sends `The consumption must be a number more than 0 and less than 30, for example 6.5. Enter it again.`, and asks the same question again
+
+### Requirement: The values are saved only after the last valid answer
+
+The bot SHALL save the four values together after a valid answer to the consumption at 130 km/h. It SHALL then send `Your car parameters are saved.` and the saved values. Before the last valid answer, the bot SHALL NOT change the stored car.
+
+#### Scenario: A complete set of answers is saved
+
+- **WHEN** the driver answers `50`, `Diesel`, `5.5`, and `7.2`
+- **THEN** the store has the car `50`, `diesel`, `5.5`, `7.2`, and the bot sends `Your car parameters are saved.` followed by the values
+
+#### Scenario: An unfinished set of answers is not saved
+
+- **GIVEN** the driver has a car with the tank volume `50`
+- **WHEN** the driver changes the tank volume to `60` and then sends `/car` again
+- **THEN** the stored tank volume is still `50`
+
+### Requirement: The saved values are shown in one format
+
+The bot SHALL show the values of a car as four lines: `Tank volume: <volume> L`, `Fuel type: <button label>`, `At 80 km/h: <consumption> L/100 km`, and `At 130 km/h: <consumption> L/100 km`. A consumption SHALL be shown without trailing zeros.
+
+#### Scenario: The values of a car
+
+- **GIVEN** a car with the tank volume `50`, the fuel type `diesel`, and the consumptions `5.5` and `7.0`
+- **WHEN** the bot shows the car
+- **THEN** the lines are `Tank volume: 50 L`, `Fuel type: Diesel`, `At 80 km/h: 5.5 L/100 km`, and `At 130 km/h: 7 L/100 km`
+
+### Requirement: A driver with a car sees the values and chooses to change them
+
+When a driver with a car sends `/car`, the bot SHALL send `Your car parameters:`, the values, and `Do you want to change them?`, with the buttons `Yes` and `No`. `Yes` SHALL start the four questions. `No` SHALL keep the values and send `Your car parameters are unchanged.` After a press, the message SHALL show no buttons.
+
+#### Scenario: The driver keeps the values
+
+- **GIVEN** the driver has a car
+- **WHEN** the driver sends `/car` and presses `No`
+- **THEN** the bot sends `Your car parameters are unchanged.`, asks no question, and the stored car does not change
+
+#### Scenario: The driver changes the values
+
+- **GIVEN** the driver has a car
+- **WHEN** the driver sends `/car` and presses `Yes`
+- **THEN** the bot asks for the tank volume, and then for each other value in order
+
+### Requirement: An open dialog takes the typed messages of the driver
+
+From `/car` until the dialog ends, the bot SHALL treat each typed message of the driver as an answer to the current question. It SHALL NOT read the message as a location. A dialog ends when the values are saved, or when the driver presses `No`.
+
+#### Scenario: A decimal comma is not a location
+
+- **GIVEN** the driver has sent no origin
+- **WHEN** the driver answers `6,5` to a consumption question
+- **THEN** the bot accepts the consumption, and it does not reply `Now, send me the destination location`
+
+#### Scenario: After the dialog, a typed message is not an answer
+
+- **WHEN** the dialog has ended and the driver types `50`
+- **THEN** the bot sends its help message, as it does for any text that is not a location
+
+### Requirement: /car during a dialog starts the dialog again
+
+When the driver sends `/car` during an open dialog, the bot SHALL drop the answers of that dialog and SHALL start again as for a first `/car`.
+
+#### Scenario: The driver starts again
+
+- **GIVEN** the driver has answered the tank volume `60`
+- **WHEN** the driver sends `/car` again
+- **THEN** the bot drops the answer `60`, and asks the first question of a new dialog
+
+### Requirement: An old button does not change the values
+
+A press on a fuel button or a `Yes` or `No` button that does not belong to the current question SHALL NOT change the dialog or the store. The bot SHALL remove the buttons from that message and SHALL send `This question has expired. Send /car to start again.` A press on such a button SHALL NOT reach the route buttons.
+
+#### Scenario: A fuel button after the dialog
+
+- **GIVEN** the dialog has ended
+- **WHEN** the driver presses a fuel button of that dialog
+- **THEN** the bot sends `This question has expired. Send /car to start again.`, and the stored car does not change
+
+#### Scenario: A car button is not a route button
+
+- **WHEN** the driver presses an old car button
+- **THEN** the bot does not send `That route has expired. Please send the locations again.`
+
+### Requirement: The dialog belongs to one application
+
+The open dialog and its answers SHALL belong to the bot application that received them. Two applications in one process SHALL NOT share a dialog.
+
+#### Scenario: Two applications do not share a dialog
+
+- **WHEN** two applications are built in one process, and the same user id sends `/car` to the first one only
+- **THEN** the second application answers a typed `50` from that user with its help message, not with the next question
+
+### Requirement: Each fuel type names the station fuels that it covers
+
+The application SHALL keep, for each fuel type, the fuel names of the gas station table that the type covers, exactly as the station prices store them. `diesel` SHALL cover `Gazole (B7)`. `95` SHALL cover `SP95-E10 (E10)` and `SP95 (E5)`. `98` SHALL cover `SP98 (E5)`. No fuel type SHALL cover `E85 (E85)` or `GPLc (LPG)`.
+
+#### Scenario: A 95 car covers two station fuels
+
+- **WHEN** the station fuels of `95` are read
+- **THEN** they are `SP95-E10 (E10)` and `SP95 (E5)`
+
+#### Scenario: Diesel and 98 cover one station fuel each
+
+- **WHEN** the station fuels of `diesel` and `98` are read
+- **THEN** `diesel` gives `Gazole (B7)`, and `98` gives `SP98 (E5)`
+
+#### Scenario: E85 and LPG are not covered
+
+- **WHEN** the station fuels of all three fuel types are read
+- **THEN** none of them is `E85 (E85)` or `GPLc (LPG)`
+
+#### Scenario: The names match the store
+
+- **WHEN** the covered names are compared with the fuel names in the prices of the gas station table
+- **THEN** each covered name occurs there

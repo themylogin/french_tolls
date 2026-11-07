@@ -77,13 +77,14 @@ def test_the_models_and_the_revisions_agree(store):
     command.check(alembic_config(store))
 
 
-def test_the_store_holds_three_tables_and_the_index(store):
+def test_the_store_holds_four_tables_and_the_index(store):
     with sqlite3.connect(store) as connection:
         names = {name for (name,) in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
     assert names == {
         "alembic_version",
         "autocomplete",
+        "car",
         "google_requests",
         "gas_station",
         "gas_station_area",

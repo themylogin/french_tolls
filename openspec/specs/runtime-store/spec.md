@@ -11,17 +11,20 @@ The application SHALL declare every table it reads or writes as a model, in one 
 
 **One exception: a structure that the model layer cannot create SHALL be created by a hand-written statement inside a revision, and nowhere else.** The geographic index of `gas-station-inventory` is a virtual table, and triggers keep it equal to the station table. The model layer cannot create either of them. The index SHALL still be declared as a model, so that a query reaches it through the model.
 
-There SHALL be exactly three tables:
+There SHALL be exactly four tables:
 
 - an autocomplete cache, keyed by the normalised query string, holding the answer that was bought for it;
 - a count of paid Google requests, one row per calendar month keyed as `YYYY-MM`;
-- the gas stations that `gas-station-inventory` collects, one row per station, keyed by the station id of the source.
+- the gas stations that `gas-station-inventory` collects, one row per station, keyed by the station id of the source;
+- the cars that `car-parameters` collects, one row per driver, keyed by the Telegram user id.
 
-The station table SHALL have exactly one geographic index. SQLite keeps internal tables for that index. They are part of the index, and they are not a fourth table.
+The station table SHALL have exactly one geographic index. SQLite keeps internal tables for that index. They are part of the index, and they are not a fifth table.
 
 The first two survive because losing a row costs money. An autocomplete answer cost a paid LocationIQ request. A month's count is what the request ceiling is enforced against, and a lost count is a ceiling that stops holding.
 
 The station table survives for a different reason. Losing it costs no money, but a rebuild reads one page per station from a public service, about 9,400 requests. A run reads only the stale stations, and the stored rows tell it which stations are stale.
+
+The car table survives for a third reason. Its rows are what drivers typed. No source can rebuild them, and a lost row makes a driver enter four values again.
 
 Nothing else SHALL be a table. A route answer recomputes from local routing alone, and `route-service` states that it is no longer stored. A refinement is no longer stored either, and `google-route-refinement` states what that costs.
 
@@ -30,6 +33,8 @@ An answer bought from an external service SHALL be stored **as the provider sent
 It SHALL NOT be stored in whatever shape this application serves to its own callers. What the money bought is what the provider said; the mapping into the shape the page reads costs nothing and SHALL be applied on the way out, each time. Storing the derived shape instead would make a change to what the page wants invalidate rows that were paid for, and would discard the fields of the provider's answer that nothing reads yet.
 
 **A station page is not bought, and the two rules above do not apply to it.** The page is HTML, and a caller reads fields. The station table SHALL store the fields that `gas-station-inventory` parses from the page, and SHALL NOT store the page.
+
+**A car is not bought either.** The car table SHALL store each value that the driver entered in its own column.
 
 **The build pipeline's own stores are not covered by this requirement.** `vinci-direct-pricing` keeps a rejection database that is deleted and rebuilt from routing alone. It is a scratch file for one long build, not state the application carries between requests, and it SHALL NOT be declared here or versioned with these tables.
 
@@ -50,8 +55,13 @@ It SHALL NOT be stored in whatever shape this application serves to its own call
 
 #### Scenario: Three tables in all
 
+- **WHEN** the tables that hold no data entered by a driver are inspected
+- **THEN** they are the autocomplete cache, the monthly request count, and the station table with its geographic index
+
+#### Scenario: Four tables in all
+
 - **WHEN** the store is inspected
-- **THEN** it holds the autocomplete cache, the monthly request count, the station table with its geographic index, and nothing else
+- **THEN** it holds the autocomplete cache, the monthly request count, the station table with its geographic index, the car table, and nothing else
 
 #### Scenario: A bought answer is stored whole
 
@@ -72,6 +82,11 @@ It SHALL NOT be stored in whatever shape this application serves to its own call
 
 - **WHEN** a station is stored
 - **THEN** its name, address, services, and prices are separate values, and the page HTML is not stored
+
+#### Scenario: A car is stored as its values
+
+- **WHEN** a car is stored
+- **THEN** its fuel type, tank volume, and two consumptions are separate values
 
 #### Scenario: The builder's rejection store is untouched
 

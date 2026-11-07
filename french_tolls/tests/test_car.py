@@ -1,0 +1,361 @@
+# -*- coding=utf-8 -*-
+import asyncio
+import sqlite3
+
+from alembic import command
+from alembic.config import Config
+import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from .. import car, db
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("30", 30),
+    ("50", 50),
+    (" 60 ", 60),
+])
+def test_a_tank_volume_of_30_or_more_is_accepted(text, expected):
+    assert car.parse_tank_volume(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "29",
+    "50.5",
+    "50 l",
+    "fifty",
+    "-50",
+    "",
+    "99999999999999999999",
+])
+def test_any_other_tank_volume_is_refused(text):
+    assert car.parse_tank_volume(text) is None
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("6,5", 6.5),
+    ("6.5", 6.5),
+    ("0.1", 0.1),
+    ("7", 7.0),
+    ("29.9", 29.9),
+    (" 5,5 ", 5.5),
+])
+def test_a_consumption_above_0_and_below_30_is_accepted(text, expected):
+    assert car.parse_consumption(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "0",
+    "0.0",
+    "30",
+    "-5",
+    "1e1",
+    "nan",
+    "inf",
+    "6.5 l",
+    "6.",
+    "",
+    "9" * 400,
+])
+def test_any_other_consumption_is_refused(text):
+    assert car.parse_consumption(text) is None
+
+
+def test_a_car_is_described_in_four_lines():
+    parameters = car.CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5, consume_130=7.0)
+
+    assert car.describe(parameters).split("\n") == [
+        "Tank volume: 50 L",
+        "Fuel type: Diesel",
+        "At 80 km/h: 5.5 L/100 km",
+        "At 130 km/h: 7 L/100 km",
+    ]
+
+
+@pytest.mark.parametrize("consumption,expected", [
+    (29.99999, "At 80 km/h: 29.99999 L/100 km"),
+    (0.00001, "At 80 km/h: 0.00001 L/100 km"),
+    (10.0, "At 80 km/h: 10 L/100 km"),
+])
+def test_a_consumption_is_shown_without_trailing_zeros(consumption, expected):
+    parameters = car.CarParameters(fuel_type="95", tank_volume=40, consume_80=consumption, consume_130=6.0)
+
+    assert car.describe(parameters).split("\n")[2] == expected
+
+
+def button_labels(reply):
+    return [[label for label, _choice in row] for row in reply.buttons]
+
+
+def test_a_driver_without_a_car_is_asked_for_the_tank_volume():
+    reply = car.start("c1", None)
+
+    assert reply.text == "Enter the tank volume in liters."
+    assert reply.buttons == ()
+    assert reply.dialog == car.CarDialog(token="c1", step="tank_volume")
+    assert reply.save is None
+
+
+def test_a_driver_with_a_car_sees_it_and_is_asked_to_change_it():
+    reply = car.start("c1", car.CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5, consume_130=7.2))
+
+    assert reply.text == (
+        "Your car parameters:\n\n"
+        "Tank volume: 50 L\n"
+        "Fuel type: Diesel\n"
+        "At 80 km/h: 5.5 L/100 km\n"
+        "At 130 km/h: 7.2 L/100 km\n\n"
+        "Do you want to change them?"
+    )
+    assert reply.buttons == ((("Yes", "yes"), ("No", "no")),)
+    assert reply.dialog == car.CarDialog(token="c1", step="confirm")
+
+
+def test_a_valid_tank_volume_asks_for_the_fuel_type():
+    reply = car.answer_text(car.CarDialog(token="c1", step="tank_volume"), "50")
+
+    assert reply.text == "Choose the fuel type."
+    assert button_labels(reply) == [["Diesel"], ["95"], ["98"]]
+    assert reply.dialog == car.CarDialog(token="c1", step="fuel_type", tank_volume=50)
+
+
+@pytest.mark.parametrize("text", ["29", "50.5", "50 l", "fifty", "99999999999999999999"])
+def test_an_invalid_tank_volume_repeats_the_question(text):
+    dialog = car.CarDialog(token="c1", step="tank_volume")
+
+    reply = car.answer_text(dialog, text)
+
+    assert reply.text == "The tank volume must be a whole number of 30 or more. Enter it again."
+    assert reply.dialog == dialog
+    assert reply.save is None
+
+
+def test_a_typed_fuel_type_is_refused_with_the_buttons_again():
+    dialog = car.CarDialog(token="c1", step="fuel_type", tank_volume=50)
+
+    reply = car.answer_text(dialog, "diesel")
+
+    assert reply.text == "Choose the fuel type with a button."
+    assert button_labels(reply) == [["Diesel"], ["95"], ["98"]]
+    assert reply.dialog == dialog
+
+
+def test_a_valid_consumption_at_80_asks_for_the_consumption_at_130():
+    dialog = car.CarDialog(token="c1", step="consume_80", tank_volume=50, fuel_type="diesel")
+
+    reply = car.answer_text(dialog, "6,5")
+
+    assert reply.text == "Enter the consumption at 130 km/h in liters per 100 km."
+    assert reply.dialog == car.CarDialog(token="c1", step="consume_130", tank_volume=50, fuel_type="diesel",
+                                         consume_80=6.5)
+    assert reply.save is None
+
+
+@pytest.mark.parametrize("step", ["consume_80", "consume_130"])
+@pytest.mark.parametrize("text", ["0", "30", "-5", "1e1", "nan", "6.5 l"])
+def test_an_invalid_consumption_repeats_the_question(step, text):
+    dialog = car.CarDialog(token="c1", step=step, tank_volume=50, fuel_type="diesel", consume_80=5.5)
+
+    reply = car.answer_text(dialog, text)
+
+    assert reply.text == ("The consumption must be a number more than 0 and less than 30, for example 6.5. "
+                          "Enter it again.")
+    assert reply.dialog == dialog
+    assert reply.save is None
+
+
+def test_a_typed_answer_to_the_change_question_repeats_it():
+    dialog = car.CarDialog(token="c1", step="confirm")
+
+    reply = car.answer_text(dialog, "yes")
+
+    assert reply.text == "Do you want to change them?"
+    assert reply.buttons == ((("Yes", "yes"), ("No", "no")),)
+    assert reply.dialog == dialog
+
+
+def test_a_fuel_press_asks_for_the_consumption_at_80():
+    dialog = car.CarDialog(token="c1", step="fuel_type", tank_volume=50)
+
+    reply = car.answer_button(dialog, "c1", "95")
+
+    assert reply.text == "Enter the consumption at 80 km/h in liters per 100 km."
+    assert reply.pressed_text == "Fuel type: 95"
+    assert reply.buttons == ()
+    assert reply.dialog == car.CarDialog(token="c1", step="consume_80", tank_volume=50, fuel_type="95")
+
+
+def test_yes_asks_for_the_tank_volume():
+    reply = car.answer_button(car.CarDialog(token="c1", step="confirm"), "c1", "yes")
+
+    assert reply.text == "Enter the tank volume in liters."
+    assert reply.pressed_text is None
+    assert reply.dialog == car.CarDialog(token="c1", step="tank_volume")
+
+
+def test_no_keeps_the_car_and_ends_the_dialog():
+    reply = car.answer_button(car.CarDialog(token="c1", step="confirm"), "c1", "no")
+
+    assert reply.text == "Your car parameters are unchanged."
+    assert reply.dialog is None
+    assert reply.save is None
+
+
+@pytest.mark.parametrize("dialog,token,choice", [
+    (None, "c1", "diesel"),
+    (None, "c1", "yes"),
+    (car.CarDialog(token="c2", step="fuel_type", tank_volume=50), "c1", "diesel"),
+    (car.CarDialog(token="c1", step="consume_80", tank_volume=50, fuel_type="diesel"), "c1", "98"),
+    (car.CarDialog(token="c1", step="fuel_type", tank_volume=50), "c1", "yes"),
+    (car.CarDialog(token="c1", step="confirm"), "c1", "diesel"),
+    (car.CarDialog(token="c1", step="fuel_type", tank_volume=50), "c1", "petrol"),
+])
+def test_a_button_that_does_not_fit_the_current_question_has_expired(dialog, token, choice):
+    reply = car.answer_button(dialog, token, choice)
+
+    assert reply.text == "This question has expired. Send /car to start again."
+    assert reply.dialog == dialog
+    assert reply.save is None
+    assert reply.pressed_text is None
+
+
+class Press(str):
+    pass
+
+
+def run_dialog(parameters, answers):
+    reply = car.start("c1", parameters)
+    replies = [reply]
+    for answer in answers:
+        if isinstance(answer, Press):
+            reply = car.answer_button(reply.dialog, "c1", answer)
+        else:
+            reply = car.answer_text(reply.dialog, answer)
+        replies.append(reply)
+    return replies
+
+
+def test_four_valid_answers_save_the_car_once():
+    replies = run_dialog(None, ["50", Press("diesel"), "5.5", "7.2"])
+
+    assert [reply.save for reply in replies[:-1]] == [None] * 4
+    assert replies[-1].save == car.CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5, consume_130=7.2)
+    assert replies[-1].dialog is None
+    assert replies[-1].text == (
+        "Your car parameters are saved.\n\n"
+        "Tank volume: 50 L\n"
+        "Fuel type: Diesel\n"
+        "At 80 km/h: 5.5 L/100 km\n"
+        "At 130 km/h: 7.2 L/100 km"
+    )
+
+
+def test_the_questions_come_in_order():
+    replies = run_dialog(None, ["50", Press("diesel"), "5.5"])
+
+    assert [reply.text for reply in replies] == [
+        "Enter the tank volume in liters.",
+        "Choose the fuel type.",
+        "Enter the consumption at 80 km/h in liters per 100 km.",
+        "Enter the consumption at 130 km/h in liters per 100 km.",
+    ]
+
+
+def test_a_driver_with_a_car_changes_it_after_yes():
+    replies = run_dialog(car.CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5, consume_130=7.2),
+                         [Press("yes"), "60", Press("98"), "6", "8,5"])
+
+    assert [reply.save for reply in replies[:-1]] == [None] * 5
+    assert replies[-1].save == car.CarParameters(fuel_type="98", tank_volume=60, consume_80=6.0, consume_130=8.5)
+
+
+def test_an_invalid_answer_does_not_skip_a_question():
+    replies = run_dialog(None, ["29", "50", "diesel", Press("95"), "0", "5.5", "30", "7.2"])
+
+    assert replies[-1].save == car.CarParameters(fuel_type="95", tank_volume=50, consume_80=5.5, consume_130=7.2)
+
+
+@pytest.mark.parametrize("label,stored", [("Diesel", "diesel"), ("95", "95"), ("98", "98")])
+def test_each_fuel_button_stores_its_fuel_type(label, stored):
+    fuel_question = run_dialog(None, ["50"])[-1]
+    choice = dict(row[0] for row in fuel_question.buttons)[label]
+
+    replies = run_dialog(None, ["50", Press(choice), "5.5", "7.2"])
+
+    assert replies[-1].save.fuel_type == stored
+
+
+def test_the_fuel_buttons_come_in_one_column_in_this_order():
+    fuel_question = run_dialog(None, ["50"])[-1]
+
+    assert fuel_question.buttons == ((("Diesel", "diesel"),), (("95", "95"),), (("98", "98"),))
+
+
+@pytest.fixture
+def store(tmp_path, monkeypatch):
+    db_path = tmp_path / "database.db"
+    alembic_config = Config(__file__.rsplit("/", 3)[0] + "/alembic.ini")
+    alembic_config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    command.upgrade(alembic_config, "head")
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    monkeypatch.setattr(db, "Session", async_sessionmaker(engine, expire_on_commit=False))
+    yield db_path
+    asyncio.run(engine.dispose())
+
+
+def car_rows(db_path):
+    with sqlite3.connect(db_path) as connection:
+        return connection.execute(
+            "SELECT telegram_user_id, fuel_type, tank_volume, consume_80, consume_130 FROM car"
+            " ORDER BY telegram_user_id"
+        ).fetchall()
+
+
+def test_a_first_save_creates_the_car(store):
+    parameters = car.CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5, consume_130=7.2)
+
+    asyncio.run(car.save_car(777001, parameters))
+
+    assert car_rows(store) == [(777001, "diesel", 50, 5.5, 7.2)]
+    assert asyncio.run(car.load_car(777001)) == parameters
+
+
+def test_a_second_save_replaces_the_car(store):
+    asyncio.run(car.save_car(777001, car.CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5,
+                                                       consume_130=7.2)))
+
+    asyncio.run(car.save_car(777001, car.CarParameters(fuel_type="98", tank_volume=60, consume_80=6.0,
+                                                       consume_130=8.5)))
+
+    assert car_rows(store) == [(777001, "98", 60, 6.0, 8.5)]
+
+
+def test_two_drivers_have_two_cars(store):
+    first = car.CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5, consume_130=7.2)
+    second = car.CarParameters(fuel_type="95", tank_volume=45, consume_80=4.8, consume_130=6.9)
+
+    asyncio.run(car.save_car(777001, first))
+    asyncio.run(car.save_car(777002, second))
+
+    assert asyncio.run(car.load_car(777001)) == first
+    assert asyncio.run(car.load_car(777002)) == second
+
+
+def test_a_driver_without_a_car_has_none(store):
+    assert asyncio.run(car.load_car(777001)) is None
+
+
+@pytest.mark.parametrize("fuel_type,expected", [
+    ("diesel", ("Gazole (B7)",)),
+    ("95", ("SP95-E10 (E10)", "SP95 (E5)")),
+    ("98", ("SP98 (E5)",)),
+])
+def test_each_fuel_type_names_its_station_fuels(fuel_type, expected):
+    assert car.station_fuels(fuel_type) == expected
+
+
+def test_e85_and_lpg_are_not_covered():
+    covered = {name for fuel_type in ("diesel", "95", "98") for name in car.station_fuels(fuel_type)}
+
+    assert covered.isdisjoint({"E85 (E85)", "GPLc (LPG)"})

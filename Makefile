@@ -744,7 +744,8 @@ test:
 	$(COMPOSE) --profile test run --rm --no-TTY tests
 	$(COMPOSE) --profile test run --rm --no-TTY builder-tests
 
-# Drops the store: the autocomplete answers and the month's request count.
+# Drops the store: the autocomplete answers, the month's request count, the gas
+# stations, and the car of each driver.
 #
 # A PIPELINE REBUILD NO LONGER NEEDS THIS. It used to, and that was the whole
 # reason the target existed: route answers and refinements were kept under the
@@ -756,6 +757,8 @@ test:
 # What it still drops costs money to replace. Each autocomplete row was a paid
 # LocationIQ request, and the request count is what the monthly ceiling is
 # enforced against -- dropping it mid-month lets the ceiling be reached twice.
+# The gas stations cost a full run of about 9,400 page reads. The cars cannot
+# be rebuilt at all: each driver must send /car and enter their car again.
 # So run this to reset a deployment, not as routine maintenance.
 clean-cache:
 	$(COMPOSE) --profile app down
