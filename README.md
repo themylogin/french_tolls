@@ -94,6 +94,18 @@ make app       # both
 make app-down  # stop both
 ```
 
+## Gas stations
+
+`gas-stations` copies the fuel stations of https://www.prix-carburants.gouv.fr
+into the application store:
+
+```
+docker compose run --rm gas-stations PT23H
+```
+
+The argument is an ISO 8601 duration. It updates stations that had the
+last read more than that duration ago.
+
 ## Tests
 
 ```

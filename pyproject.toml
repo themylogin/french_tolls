@@ -8,6 +8,8 @@ dependencies = [
     "aiohttp",
     "aiosqlite",
     "alembic",
+    "beautifulsoup4",
+    "isodate",
     "polyline",
     "pyproj",
     "pytest",

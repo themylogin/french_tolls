@@ -746,13 +746,29 @@ clean-cache:
 # Resolving against whatever happens to be installed here would pin a set the
 # image cannot install.
 #
+# --python-version is the python3 of Debian bookworm, which the image installs.
+# The uv image runs a later 3.11 release, and a package can require that later
+# release: soupsieve 4.0.1 requires 3.11.5.
+#
+# uv keeps each version already pinned in its output file while that version
+# still satisfies pyproject.toml. So the committed list goes in too. Without it,
+# each run resolves every package again against the index of that day, and an
+# unchanged declaration gives a different list.
+#
+# The output goes to a new file first. A redirection to requirements.txt empties
+# that file before the container starts, so the container would read nothing.
+#
 # Run it after changing a dependency in pyproject.toml, and commit both files.
 requirements:
 	$(DOCKER) run --rm -v "$$(pwd)/pyproject.toml:/in/pyproject.toml:ro" \
+	    -v "$$(pwd)/requirements.txt:/in/requirements.txt:ro" \
 	    ghcr.io/astral-sh/uv:python3.11-bookworm-slim \
-	    sh -c 'mkdir -p /build && cp /in/pyproject.toml /build/ && cd /build \
-	           && uv pip compile pyproject.toml -o requirements.txt >/dev/null 2>&1 \
-	           && cat requirements.txt' > requirements.txt
+	    sh -c 'mkdir -p /build && cp /in/pyproject.toml /in/requirements.txt /build/ \
+	           && cd /build \
+	           && uv pip compile --python-version 3.11.2 pyproject.toml -o requirements.txt \
+	           >/dev/null 2>&1 \
+	           && cat requirements.txt' > requirements.txt.new
+	mv requirements.txt.new requirements.txt
 
 # --------------------------------------------------------------------------
 # The paid evaluation (not one of the eleven steps, and not part of `test`)

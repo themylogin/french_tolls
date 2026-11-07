@@ -57,7 +57,7 @@ services:
     environment:
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
     restart: "no"
-    profiles: ["app", "record"]
+    profiles: ["app", "record", "gas-stations"]
 
   # Tools
 
@@ -84,6 +84,18 @@ services:
       ULYS_SUBSCRIPTION_KEY: "${ULYS_SUBSCRIPTION_KEY:-}"
       ULYS_PASSAGE_DATE: "${ULYS_PASSAGE_DATE:-}"
     profiles: ["tools"]
+
+  gas-stations:
+    build: .
+    entrypoint: ["python3", "-m", "french_tolls.gas_stations"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - "cache:/cache"
+    environment:
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    profiles: ["gas-stations"]
 
   # Developer tools
 

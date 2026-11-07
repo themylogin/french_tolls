@@ -14,10 +14,15 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_object(object_, name, type_, reflected, compare_to):
+    return not (type_ == "table" and name.startswith("gas_station_area"))
+
+
 def run_migrations_offline():
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         # SQLite cannot ALTER much of anything, so a revision that changes a
@@ -37,6 +42,7 @@ def run_migrations_online():
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            include_object=include_object,
             render_as_batch=True,
         )
 
