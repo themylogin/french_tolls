@@ -18,7 +18,7 @@ ANSWER = {
     "waypoints": [{"location": [2.35, 48.86], "hint": "h", "nodes": [1, 2], "distance": 1.0}],
     "matchings": [{"legs": [{"annotation": {"nodes": [1, 2]}}]}],
     "routes": [{
-        "legs": [{"annotation": {"nodes": [1, 2], "distance": [1.0], "duration": [1.0]}}],
+        "legs": [{"distance": 1.0, "annotation": {"nodes": [1, 2], "distance": [1.0], "duration": [1.0]}}],
         "geometry": {"coordinates": [[2.35, 48.86], [2.36, 48.87]]},
         "distance": 1.0,
         "duration": 1.0,
@@ -150,3 +150,22 @@ def test_a_refused_token_is_an_unavailable_router_that_hides_the_token(monkeypat
     assert isinstance(error, RouterUnavailable)
     assert "Unauthorized" in str(error)
     assert "s3cret" not in str(error)
+
+
+def test_a_route_through_a_via_keeps_the_distance_of_each_leg():
+    body = {"code": "Ok", "routes": [{
+        "legs": [
+            {"distance": 1200.0, "annotation": {"nodes": [1, 2, 3], "distance": [600.0, 600.0],
+                                                "duration": [30.0, 30.0]}},
+            {"distance": 800.0, "annotation": {"nodes": [3, 4], "distance": [800.0], "duration": [40.0]}},
+        ],
+        "geometry": {"coordinates": [[2.35, 48.86], [2.36, 48.86], [2.37, 48.86], [2.38, 48.86]]},
+        "distance": 2000.0,
+        "duration": 100.0,
+        "weight": 100.0,
+    }]}
+
+    route = osrm._read_route_legs(body)
+
+    assert route.leg_distance == (1200.0, 800.0)
+    assert route.node_ids == (1, 2, 3, 4)

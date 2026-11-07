@@ -1,4 +1,6 @@
 # -*- coding=utf-8 -*-
+import contextlib
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import logging
@@ -8,13 +10,13 @@ import urllib.parse
 from . import equivalence, osrm, splits
 from .config import config
 from .booths import load
-from .osrm import NoRoute, RouterUnavailable, Routers, TooFarFromNetwork
+from .osrm import NoRoute, RouterUnavailable, Routers, Snap, TooFarFromNetwork
 from .waypoints import MAX_WAYPOINTS, plan_waypoints
-from .tolls import account, booths_crossed, closed_sections, fare
+from .tolls import Journey, account, booths_crossed, closed_sections, fare
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["RouteError", "get_route"]
+__all__ = ["PlannedRoute", "RouteError", "SplitStop", "get_route", "planned_route", "toll_cost"]
 
 ERRORS_DIR = "/cache/errors"
 
@@ -177,8 +179,16 @@ def _split_google_url(route, optimal, plan, stops):
     return google_maps_link(points)
 
 
-async def _super_optimal(routers, start, end, optimal, plan):
-    """The optimal route, re-driven through the stops that make it cheaper."""
+@dataclass(frozen=True)
+class _Split:
+    route: osrm.Route
+    stops: list
+    journey: Journey
+    saving: float
+    extra_time: int
+
+
+async def _split_journey(routers, start, end, optimal):
     stops, expected_saving, extra = _plan_split(optimal)
     if not stops:
         return None
@@ -196,11 +206,7 @@ async def _super_optimal(routers, start, end, optimal, plan):
             booth = BOOTHS.at(stop.exit_node)
             vias.append((booth.latlon[1], booth.latlon[0]))
 
-    try:
-        route = await routers.route_via(config.osrm_optimal_url, start, vias, end)
-    except (NoRoute, RouterUnavailable) as e:
-        logger.info("could not route the split journey: %r", e)
-        return None
+    route = await routers.route_via(config.osrm_optimal_url, start, vias, end)
 
     crossed = booths_crossed(BOOTHS, route.node_ids)
     missed = [n for n in wanted if n not in crossed]
@@ -212,28 +218,63 @@ async def _super_optimal(routers, start, end, optimal, plan):
         return None
 
     journey = account(BOOTHS, route.node_ids)
-    described = _describe(route, plan, journey, booths_crossed(BOOTHS, route.node_ids))
+    saving = round(optimal_cost(optimal) - journey.cost, 2)
+    if saving <= 0:
+        logger.info("the split route priced no cheaper than the optimal one"
+                    " (expected %.2f); not offering it", expected_saving)
+        return None
+
+    return _Split(route=route, stops=stops, journey=journey, saving=saving, extra_time=extra)
+
+
+async def _super_optimal(routers, start, end, optimal, plan):
+    """The optimal route, re-driven through the stops that make it cheaper."""
+    try:
+        split = await _split_journey(routers, start, end, optimal)
+    except (NoRoute, RouterUnavailable) as e:
+        logger.info("could not route the split journey: %r", e)
+        return None
+    if split is None:
+        return None
+
+    route = split.route
+    described = _describe(route, plan, split.journey, booths_crossed(BOOTHS, route.node_ids))
     described["stops"] = [
         {"name": BOOTHS.at(stop.exit_node).label,
          "latlon": list(BOOTHS.at(stop.exit_node).latlon)}
-        for _e, _x, candidate in stops for stop in candidate.stops
+        for _e, _x, candidate in split.stops for stop in candidate.stops
     ]
     # `_describe` builds a link from the plan it was handed, which is the
     # optimal route's and says nothing about the stops. Replace it with one that
     # drives this journey, or with None where the waypoints do not fit.
-    described["google_url"] = _split_google_url(route, optimal, plan, stops)
-    described["extra_duration"] = extra
-    described["saving"] = round(optimal_cost(optimal) - journey.cost, 2)
-
-    if described["saving"] <= 0:
-        logger.info("the split route priced no cheaper than the optimal one"
-                    " (expected %.2f); not offering it", expected_saving)
-        return None
+    described["google_url"] = _split_google_url(route, optimal, plan, split.stops)
+    described["extra_duration"] = split.extra_time
+    described["saving"] = split.saving
     return described
 
 
 def optimal_cost(optimal) -> float:
     return account(BOOTHS, optimal.node_ids).cost
+
+
+def toll_cost(route: osrm.Route) -> float:
+    return account(BOOTHS, route.node_ids).cost
+
+
+@contextlib.contextmanager
+def _named_failures(from_, to):
+    try:
+        yield
+    except TooFarFromNetwork as e:
+        _record_failure(from_, to, "out_of_reach", str(e))
+        raise RouteError("out_of_reach", str(e)) from None
+    except NoRoute as e:
+        message = f"no route between {_as_latlon(from_)} and {_as_latlon(to)}: {e}"
+        _record_failure(from_, to, "no_route", message)
+        raise RouteError("no_route", message) from None
+    except RouterUnavailable as e:
+        _record_failure(from_, to, "router_unavailable", str(e))
+        raise RouteError("router_unavailable", str(e)) from None
 
 
 async def get_route(from_, to):
@@ -242,7 +283,7 @@ async def get_route(from_, to):
     Returns `{"fast": ..., "optimal": ...}`, the shape `api.py` serves and
     `bot.py` formats.
     """
-    try:
+    with _named_failures(from_, to):
         routers = Routers()
 
         start = await routers.snap(from_)
@@ -265,18 +306,53 @@ async def get_route(from_, to):
         split = await _super_optimal(routers, start, end, optimal, plan)
         if split is not None:
             result["super_optimal"] = split
-    except TooFarFromNetwork as e:
-        _record_failure(from_, to, "out_of_reach", str(e))
-        raise RouteError("out_of_reach", str(e)) from None
-    except NoRoute as e:
-        message = f"no route between {_as_latlon(from_)} and {_as_latlon(to)}: {e}"
-        _record_failure(from_, to, "no_route", message)
-        raise RouteError("no_route", message) from None
-    except RouterUnavailable as e:
-        _record_failure(from_, to, "router_unavailable", str(e))
-        raise RouteError("router_unavailable", str(e)) from None
 
     return _for_delivery(result, from_, to)
+
+
+@dataclass(frozen=True)
+class SplitStop:
+    # [longitude, latitude] of the exit booth, as the split route was sent it.
+    location: tuple[float, float]
+    index: int
+
+
+@dataclass(frozen=True)
+class PlannedRoute:
+    start: Snap
+    end: Snap
+    route: osrm.Route
+    stops: tuple[SplitStop, ...]
+
+
+async def planned_route(routers, from_, to, name) -> PlannedRoute | None:
+    """The `optimal` or `super_optimal` route of `get_route`, without the waypoint search.
+
+    None where the journey offers no split route.
+    """
+    with _named_failures(from_, to):
+        start = await routers.snap(from_)
+        end = await routers.snap(to)
+        optimal = await routers.optimal(start, end)
+
+        if name == "optimal":
+            return PlannedRoute(start=start, end=end, route=optimal, stops=())
+
+        try:
+            split = await _split_journey(routers, start, end, optimal)
+        except NoRoute:
+            return None
+        if split is None:
+            return None
+
+        stops = []
+        for _entrance, _exit, candidate in split.stops:
+            for stop in candidate.stops:
+                booth = BOOTHS.at(stop.exit_node)
+                stops.append(SplitStop(location=(booth.latlon[1], booth.latlon[0]),
+                                       index=split.route.index_of(booth.node_id)))
+
+        return PlannedRoute(start=start, end=end, route=split.route, stops=tuple(stops))
 
 
 async def booths_along(geometry):

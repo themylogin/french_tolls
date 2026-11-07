@@ -100,6 +100,9 @@ class Route:
     distance: float
     duration: float
     weight: float
+    # The router's distance of each leg, in metres: one leg more than the points
+    # the route was forced through.
+    leg_distance: tuple[float, ...] = ()
 
     def __len__(self):
         return len(self.node_ids)
@@ -311,6 +314,7 @@ def _read_route(body: dict) -> Route:
         distance=route["distance"],
         duration=route["duration"],
         weight=route["weight"],
+        leg_distance=(legs[0]["distance"],),
     )
 
 
@@ -371,6 +375,7 @@ def _read_route_legs(body: dict) -> Route:
         distance=route["distance"],
         duration=route["duration"],
         weight=route["weight"],
+        leg_distance=tuple(leg["distance"] for leg in legs),
     )
 
 

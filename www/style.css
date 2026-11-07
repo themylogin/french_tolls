@@ -71,3 +71,40 @@ body {
 .maps-link img {
     display: block;
 }
+
+.refuel-link {
+    display: inline-block;
+    margin-left: 6px;
+    color: #70757a;
+    font-size: 16px;
+    line-height: 0;
+    vertical-align: -1px;
+}
+.refuel-link:hover { color: #202124; }
+
+#refuel-busy { display: none; }
+
+/* This file loads before Bootstrap, so a rule here names the input element to
+   outrank Bootstrap's `.form-control` rules of the same class count. */
+.unit-field { position: relative; }
+.unit-field .unit {
+    position: absolute;
+    top: 50%;
+    right: calc(var(--bs-gutter-x) * .5 + .5rem);
+    transform: translateY(-50%);
+    color: #70757a;
+    font-size: .875rem;
+    pointer-events: none;
+}
+.unit-field input.form-control { padding-right: 1.75rem; }
+.unit-field-wide input.form-control { padding-right: 4.5rem; }
+/* Bootstrap draws its invalid icon where the unit is. The red border stays. */
+.unit-field input.form-control.is-invalid { background-image: none; }
+
+.refuel-fuel-types { padding-top: calc(.25rem + 1px); font-size: .875rem; white-space: nowrap; }
+.refuel-fuel-types .form-check-inline { margin-right: .6rem; }
+
+.stations { width: 100%; font-size: 0.9rem; }
+.stations td { padding: 6px 0; vertical-align: top; border-top: 1px solid #e8eaed; }
+.stations td:first-child { width: 100%; padding-right: 12px; }
+.stations td:not(:first-child) { text-align: right; white-space: nowrap; padding-left: 12px; }

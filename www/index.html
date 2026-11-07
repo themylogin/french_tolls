@@ -48,6 +48,77 @@
     </div>
     <div id="map"></div>
 
+    <div class="modal fade" id="refuel-dialog" tabindex="-1" aria-labelledby="refuel-title" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="refuel-title">Find a gas station</h5>
+                </div>
+                <div class="modal-body">
+                    <form id="refuel-form" novalidate>
+                        <div class="row mb-2">
+                            <label for="refuel-tank-volume" class="col-7 col-form-label col-form-label-sm">Tank volume<span class="visually-hidden">, L</span></label>
+                            <div class="col-5 unit-field">
+                                <input type="text" inputmode="numeric" class="form-control form-control-sm" id="refuel-tank-volume">
+                                <span class="unit" aria-hidden="true">L</span>
+                            </div>
+                            <div class="col-12 invalid-feedback"></div>
+                        </div>
+                        <div class="row mb-2">
+                            <div class="col-7 col-form-label col-form-label-sm" id="refuel-fuel-type-label">Fuel type</div>
+                            <div class="col-5 refuel-fuel-types" role="radiogroup" aria-labelledby="refuel-fuel-type-label">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="refuel-fuel-type" id="refuel-fuel-type-diesel" value="diesel">
+                                    <label class="form-check-label" for="refuel-fuel-type-diesel">Diesel</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="refuel-fuel-type" id="refuel-fuel-type-95" value="95" checked>
+                                    <label class="form-check-label" for="refuel-fuel-type-95">95</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="refuel-fuel-type" id="refuel-fuel-type-98" value="98">
+                                    <label class="form-check-label" for="refuel-fuel-type-98">98</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mb-2">
+                            <label for="refuel-consume-80" class="col-7 col-form-label col-form-label-sm">Consumption at 80 km/h<span class="visually-hidden">, L/100 km</span></label>
+                            <div class="col-5 unit-field unit-field-wide">
+                                <input type="text" inputmode="decimal" class="form-control form-control-sm" id="refuel-consume-80">
+                                <span class="unit" aria-hidden="true">L/100 km</span>
+                            </div>
+                            <div class="col-12 invalid-feedback"></div>
+                        </div>
+                        <div class="row mb-2">
+                            <label for="refuel-consume-130" class="col-7 col-form-label col-form-label-sm">Consumption at 130 km/h<span class="visually-hidden">, L/100 km</span></label>
+                            <div class="col-5 unit-field unit-field-wide">
+                                <input type="text" inputmode="decimal" class="form-control form-control-sm" id="refuel-consume-130">
+                                <span class="unit" aria-hidden="true">L/100 km</span>
+                            </div>
+                            <div class="col-12 invalid-feedback"></div>
+                        </div>
+                        <div class="row mb-2">
+                            <label for="refuel-fuel" class="col-7 col-form-label col-form-label-sm">Fuel in the tank now<span class="visually-hidden">, L</span></label>
+                            <div class="col-5 unit-field">
+                                <input type="text" inputmode="decimal" class="form-control form-control-sm" id="refuel-fuel">
+                                <span class="unit" aria-hidden="true">L</span>
+                            </div>
+                            <div class="col-12 invalid-feedback"></div>
+                        </div>
+                    </form>
+                    <div class="spinner-border" role="status" id="refuel-busy">
+                        <span class="visually-hidden">Calculating...</span>
+                    </div>
+                    <div id="refuel-result"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="refuel-calculate">Calculate</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- prettier-ignore -->
     <script>(g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})
     ({key: "AIzaSyCgQUA7ZGWlIXFWnQX9jkcBt6WVXL9-lDM", v: "beta"});</script>

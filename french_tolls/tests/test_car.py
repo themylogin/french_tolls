@@ -61,6 +61,54 @@ def test_any_other_consumption_is_refused(text):
     assert car.parse_consumption(text) is None
 
 
+def test_a_valid_car_object_gives_the_car():
+    data = {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2}
+
+    assert car.parse_car(data) == car.CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5,
+                                                    consume_130=7.2)
+
+
+def test_equal_consumptions_are_valid():
+    data = {"fuel_type": "95", "tank_volume": 40, "consume_80": 6, "consume_130": 6}
+
+    assert car.parse_car(data) == car.CarParameters(fuel_type="95", tank_volume=40, consume_80=6.0,
+                                                    consume_130=6.0)
+
+
+@pytest.mark.parametrize("changes", [
+    {"tank_volume": 29},
+    {"tank_volume": 50.5},
+    {"tank_volume": True},
+    {"tank_volume": "50"},
+    {"consume_80": 0},
+    {"consume_80": 30},
+    {"consume_80": float("nan")},
+    {"consume_130": float("inf")},
+    {"consume_80": "6.5"},
+    {"consume_130": True},
+    {"fuel_type": "e85"},
+    {"fuel_type": ["diesel"]},
+    {"consume_80": 7.2, "consume_130": 5.5},
+])
+def test_a_car_object_out_of_its_limits_is_refused(changes):
+    data = {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2, **changes}
+
+    assert car.parse_car(data) is None
+
+
+@pytest.mark.parametrize("key", ["fuel_type", "tank_volume", "consume_80", "consume_130"])
+def test_a_car_object_without_a_key_is_refused(key):
+    data = {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2}
+    del data[key]
+
+    assert car.parse_car(data) is None
+
+
+@pytest.mark.parametrize("data", [None, [], "car"])
+def test_a_car_that_is_not_an_object_is_refused(data):
+    assert car.parse_car(data) is None
+
+
 def test_a_car_is_described_in_four_lines():
     parameters = car.CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5, consume_130=7.0)
 
@@ -149,6 +197,25 @@ def test_a_valid_consumption_at_80_asks_for_the_consumption_at_130():
     assert reply.dialog == car.CarDialog(token="c1", step="consume_130", tank_volume=50, fuel_type="diesel",
                                          consume_80=6.5)
     assert reply.save is None
+
+
+def test_a_consumption_at_130_below_the_one_at_80_repeats_the_question():
+    dialog = car.CarDialog(token="c1", step="consume_130", tank_volume=50, fuel_type="diesel", consume_80=7.2)
+
+    reply = car.answer_text(dialog, "5.5")
+
+    assert reply.text == ("The consumption at 130 km/h must be equal to or more than the consumption at 80 km/h, "
+                          "7.2 L/100 km. Enter it again.")
+    assert reply.dialog == dialog
+    assert reply.save is None
+
+
+def test_a_consumption_at_130_equal_to_the_one_at_80_saves_the_car():
+    dialog = car.CarDialog(token="c1", step="consume_130", tank_volume=50, fuel_type="diesel", consume_80=6.0)
+
+    reply = car.answer_text(dialog, "6")
+
+    assert reply.save == car.CarParameters(fuel_type="diesel", tank_volume=50, consume_80=6.0, consume_130=6.0)
 
 
 @pytest.mark.parametrize("step", ["consume_80", "consume_130"])

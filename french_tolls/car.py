@@ -8,7 +8,7 @@ from . import db
 from .models import Car
 
 __all__ = ["FUEL_TYPES", "CarDialog", "CarParameters", "CarReply", "answer_button", "answer_text", "describe",
-           "load_car", "parse_consumption", "parse_tank_volume", "save_car", "start", "station_fuels"]
+           "load_car", "parse_car", "parse_consumption", "parse_tank_volume", "save_car", "start", "station_fuels"]
 
 FUEL_TYPES = (
     ("diesel", "Diesel", ("Gazole (B7)",)),
@@ -74,6 +74,11 @@ def answer_text(dialog, text):
 
     if dialog.step == "consume_80":
         return _ask_consumption(130, dataclasses.replace(dialog, step="consume_130", consume_80=consumption))
+
+    if consumption < dialog.consume_80:
+        return CarReply(text="The consumption at 130 km/h must be equal to or more than the consumption at 80 km/h, "
+                             f"{_consumption_text(dialog.consume_80)} L/100 km. Enter it again.",
+                        dialog=dialog)
 
     parameters = CarParameters(fuel_type=dialog.fuel_type, tank_volume=dialog.tank_volume,
                                consume_80=dialog.consume_80, consume_130=consumption)
@@ -141,6 +146,36 @@ def parse_consumption(text):
         return None
 
     return consumption
+
+
+def parse_car(data):
+    if not isinstance(data, dict):
+        return None
+
+    fuel_type = data.get("fuel_type")
+    tank_volume = data.get("tank_volume")
+    consume_80 = data.get("consume_80")
+    consume_130 = data.get("consume_130")
+    if not isinstance(fuel_type, str) or fuel_type not in _labels():
+        return None
+    if not _is_whole_number(tank_volume) or tank_volume < 30:
+        return None
+    if not _is_consumption(consume_80) or not _is_consumption(consume_130):
+        return None
+    if consume_130 < consume_80:
+        return None
+
+    return CarParameters(fuel_type=fuel_type, tank_volume=tank_volume,
+                         consume_80=float(consume_80), consume_130=float(consume_130))
+
+
+def _is_whole_number(value):
+    # JSON `true` arrives as a bool, and a bool is an int.
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_consumption(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)) and 0 < value < 30
 
 
 def describe(parameters):

@@ -13,6 +13,11 @@ let googlePath = null;
 let googleWaypointMarkers = [];
 let startMarker = null;
 let endMarker = null;
+// The journey of the routes on screen. `from` and `to` go null as soon as the
+// visitor types in a field, and the dialog must still plan these routes.
+let journey = null;
+let refuelRoute = null;
+let refuelController = null;
 
 const Z_FAST = 1;
 const Z_GOOGLE = 2;
@@ -80,7 +85,7 @@ function peageCost(peage) {
         .format(peage.cost);
 }
 
-function showRoute(title, color, route, withMapsLink) {
+function showRoute(title, color, route, routeName) {
     let html = ['<div class="route">'];
 
     html.push('<div class="info">');
@@ -105,12 +110,17 @@ function showRoute(title, color, route, withMapsLink) {
     html.push('</div>');
 
     html.push('<div class="title" style="color: ' + color + ';">' + title);
-    if (withMapsLink && route.google_url) {
+    if (routeName && route.google_url) {
         html.push(
             '<a class="maps-link" href="' + encodeHTML(route.google_url) + '"' +
             ' target="_blank" rel="noopener" title="Open in Google Maps">' +
             '<img src="https://www.google.com/images/branding/product/1x/maps_32dp.png"' +
             ' alt="Google Maps" width="16" height="16"></a>');
+    }
+    if (routeName) {
+        html.push(
+            '<a class="refuel-link" href="#" data-route="' + routeName + '"' +
+            ' title="Find a gas station"><i class="bi bi-fuel-pump"></i></a>');
     }
     html.push('</div>');
 
@@ -199,14 +209,17 @@ function calculate() {
     document.getElementById("routes").innerHTML = "";
     document.getElementById("error").style.display = "none";
 
+    journey = null;
+    const requested = { from: from["lonlat"], to: to["lonlat"] };
+
     fetch('/api/calculate', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            'from': from["lonlat"],
-            'to': to["lonlat"]
+            'from': requested.from,
+            'to': requested.to
         }),
     })
     .then(response => {
@@ -246,13 +259,14 @@ function calculate() {
         // cheapest thing on offer, and the panel under it says what it costs.
         const split = data.super_optimal
             ? showRoute("Superoptimal route", COLOR_SUPER_OPTIMAL,
-                        data.super_optimal, true)
+                        data.super_optimal, "super_optimal")
             : "";
         document.getElementById("routes").innerHTML = (
             split +
-            showRoute("Optimal route", COLOR_OPTIMAL, data.optimal, true) +
-            showRoute("Fastest route", COLOR_FAST, data.fast, false)
+            showRoute("Optimal route", COLOR_OPTIMAL, data.optimal, "optimal") +
+            showRoute("Fastest route", COLOR_FAST, data.fast, null)
         );
+        journey = requested;
 
         drawGoogleRoute(data.google);
 
@@ -487,6 +501,240 @@ function createAutocomplete(inputId, onPlace) {
     return input;
 }
 
+const CONSUMPTION_LIMITS = "The consumption must be a number more than 0 and less than 30, for example 6.5.";
+
+function refuelField(name) {
+    return document.getElementById("refuel-" + name);
+}
+
+function parseTankVolume(text) {
+    const match = /^\s*(\d{1,18})\s*$/.exec(text);
+    if (!match) {
+        return null;
+    }
+    const volume = parseInt(match[1], 10);
+    return volume >= 30 ? volume : null;
+}
+
+function parseDecimal(text) {
+    const match = /^\s*(\d+)(?:[.,](\d+))?\s*$/.exec(text);
+    if (!match) {
+        return null;
+    }
+    return parseFloat(match[1] + "." + (match[2] || "0"));
+}
+
+function parseConsumption(text) {
+    const consumption = parseDecimal(text);
+    return consumption !== null && consumption > 0 && consumption < 30 ? consumption : null;
+}
+
+function loadStoredCar() {
+    try {
+        const stored = JSON.parse(localStorage.getItem("car"));
+        if (stored && typeof stored === "object") {
+            return stored;
+        }
+    } catch (error) {
+        console.log(error);
+    }
+    return {};
+}
+
+function storeCar(car) {
+    try {
+        localStorage.setItem("car", JSON.stringify(car));
+    } catch (error) {
+        console.log(error);
+    }
+}
+
+function storedText(value) {
+    return typeof value === "number" && isFinite(value) ? String(value) : "";
+}
+
+function fieldFeedback(field) {
+    return field.closest(".row").querySelector(".invalid-feedback");
+}
+
+// The message spans the whole row, under the label and the field. It is then no
+// sibling of the field, so Bootstrap's `.is-invalid ~ .invalid-feedback` does not
+// show it, and `d-block` does.
+function markField(name, message) {
+    const field = refuelField(name);
+    field.classList.add("is-invalid");
+    fieldFeedback(field).textContent = message;
+    fieldFeedback(field).classList.add("d-block");
+}
+
+function clearFieldMarks() {
+    ["tank-volume", "consume-80", "consume-130", "fuel"].forEach(name => {
+        const field = refuelField(name);
+        field.classList.remove("is-invalid");
+        fieldFeedback(field).classList.remove("d-block");
+    });
+}
+
+// The checks of `car.parse_car` and of the endpoint, so a visitor sees the
+// reason here rather than an error from the server.
+function readRefuelForm() {
+    clearFieldMarks();
+
+    const tankVolume = parseTankVolume(refuelField("tank-volume").value);
+    const fuelType = document.querySelector('input[name="refuel-fuel-type"]:checked').value;
+    const consume80 = parseConsumption(refuelField("consume-80").value);
+    const consume130 = parseConsumption(refuelField("consume-130").value);
+    const fuel = parseDecimal(refuelField("fuel").value);
+
+    let valid = true;
+    if (tankVolume === null) {
+        markField("tank-volume", "The tank volume must be a whole number of 30 or more.");
+        valid = false;
+    }
+    if (consume80 === null) {
+        markField("consume-80", CONSUMPTION_LIMITS);
+        valid = false;
+    }
+    if (consume130 === null) {
+        markField("consume-130", CONSUMPTION_LIMITS);
+        valid = false;
+    } else if (consume80 !== null && consume130 < consume80) {
+        markField("consume-130",
+                  "The consumption at 130 km/h must be equal to or more than the consumption at 80 km/h.");
+        valid = false;
+    }
+    if (fuel === null || (tankVolume !== null && fuel > tankVolume)) {
+        markField("fuel", "The fuel in the tank must be a number from 0 to the tank volume.");
+        valid = false;
+    }
+
+    if (!valid) {
+        return null;
+    }
+    return {
+        car: { fuel_type: fuelType, tank_volume: tankVolume, consume_80: consume80, consume_130: consume130 },
+        fuel: fuel,
+    };
+}
+
+function showRefuelBusy(busy) {
+    refuelField("busy").style.display = busy ? "block" : "none";
+    refuelField("calculate").disabled = busy;
+}
+
+function showRefuelMessage(text, kind) {
+    refuelField("result").innerHTML = '<div class="alert alert-' + kind + '">' + encodeHTML(text) + '</div>';
+}
+
+function detourText(seconds) {
+    const minutes = Math.round(seconds / 60);
+    return (minutes >= 0 ? "+" : "") + minutes + " min";
+}
+
+function showRefuelAnswer(answer) {
+    if (!answer.stop_needed) {
+        showRefuelMessage("No need to refuel: you'll arrive with " + Math.floor(answer.fuel_left) + " L.", "info");
+        return;
+    }
+    if (!answer.stations.length) {
+        showRefuelMessage("No gas station sells this fuel within 50 km of the point where the tank reaches 5 L.",
+                          "info");
+        return;
+    }
+
+    const kilometres = new Intl.NumberFormat('fr-FR');
+    const price = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+    const rows = answer.stations.map(station => (
+        '<tr>' +
+        '<td><a href="' + encodeHTML(station.google_url) + '" target="_blank" rel="noopener">' +
+        encodeHTML(station.name || "Unnamed station") + '</a>' +
+        (station.badge ? ' <b>' + encodeHTML(station.badge) + '</b>' : '') + '</td>' +
+        '<td>' + kilometres.format(Math.round(station.distance / 1000)) + ' km</td>' +
+        '<td>' + price.format(station.price) + ' €/L</td>' +
+        '<td>' + detourText(station.detour_duration) + '</td>' +
+        '</tr>'
+    ));
+    refuelField("result").innerHTML = '<table class="stations">' + rows.join("") + '</table>';
+}
+
+function openRefuelDialog(routeName) {
+    refuelRoute = routeName;
+
+    const car = loadStoredCar();
+    refuelField("tank-volume").value = storedText(car.tank_volume);
+    const fuelType = ["diesel", "95", "98"].includes(car.fuel_type) ? car.fuel_type : "95";
+    refuelField("fuel-type-" + fuelType).checked = true;
+    refuelField("consume-80").value = storedText(car.consume_80);
+    refuelField("consume-130").value = storedText(car.consume_130);
+    refuelField("fuel").value = "";
+
+    clearFieldMarks();
+    refuelField("result").innerHTML = "";
+    showRefuelBusy(false);
+
+    bootstrap.Modal.getOrCreateInstance(refuelField("dialog")).show();
+}
+
+function calculateRefuel() {
+    if (refuelController) {
+        return;
+    }
+
+    const values = readRefuelForm();
+    if (!values) {
+        return;
+    }
+    storeCar(values.car);
+
+    refuelField("result").innerHTML = "";
+    showRefuelBusy(true);
+    const controller = new AbortController();
+    refuelController = controller;
+
+    fetch('/api/refuel', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            'from': journey.from,
+            'to': journey.to,
+            'route': refuelRoute,
+            'car': values.car,
+            'fuel': values.fuel
+        }),
+        signal: controller.signal,
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error("refuel failed: " + response.status);
+        }
+        return response.json();
+    })
+    .then(showRefuelAnswer)
+    .catch(error => {
+        if (error.name === "AbortError") {
+            return;
+        }
+        console.log(error);
+        showRefuelMessage("Error finding gas stations. I am very sorry for that 😞", "danger");
+    })
+    .finally(() => {
+        if (refuelController === controller) {
+            refuelController = null;
+            showRefuelBusy(false);
+        }
+    });
+}
+
+function closeRefuelDialog() {
+    if (refuelController) {
+        refuelController.abort();
+        refuelController = null;
+    }
+    showRefuelBusy(false);
+}
+
 async function initMap() {
     const position = { lat: 47, lng: 3 };
     const maps = await google.maps.importLibrary("maps");
@@ -512,6 +760,18 @@ async function initMap() {
     document.getElementById("collapse-control").addEventListener("click", () => {
         document.body.classList.toggle("collapsed");
     });
+
+    document.getElementById("routes").addEventListener("click", (event) => {
+        const link = event.target.closest(".refuel-link");
+        if (!link) {
+            return;
+        }
+        event.preventDefault();
+        openRefuelDialog(link.dataset.route);
+    });
+    refuelField("form").addEventListener("submit", (event) => event.preventDefault());
+    refuelField("calculate").addEventListener("click", calculateRefuel);
+    refuelField("dialog").addEventListener("hide.bs.modal", closeRefuelDialog);
 
     document.getElementById("calculate").addEventListener("click", () => {
         if (!from)
