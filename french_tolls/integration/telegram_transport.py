@@ -11,6 +11,7 @@ messaging library -- and it is right to. Substituting a `Bot` would fake
 `reply_text`, `edit_text`, `delete` and the markup construction, which is most of
 what the shell does; the test would then assert that the fakes were called.
 """
+import html
 import json
 import re
 
@@ -71,8 +72,12 @@ class Sent:
 
     @property
     def links(self) -> list:
-        """Every href in the message, in the order a driver would read them."""
-        return re.findall(r"href='([^']*)'", self.text)
+        """Every href in the message, in the order a driver would read them.
+
+        Unescaped, as the driver's client follows them: the HTML carries `&amp;`
+        between the parameters, and a query parsed from that finds none of them.
+        """
+        return [html.unescape(href) for href in re.findall(r"href='([^']*)'", self.text)]
 
     def __repr__(self):
         return f"Sent({self.method}, {self.text[:60]!r}, buttons={self.buttons})"

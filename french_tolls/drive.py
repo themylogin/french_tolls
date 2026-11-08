@@ -21,6 +21,10 @@ The order of the rules, and why it is that order:
 A route is acceptable when every toll booth it crosses is one ours crosses too.
 If those booths could not be established, it is acceptable when it ran along our
 road for the configured share of its length.
+
+A superoptimal route leaves the motorway and joins it again at its stops. Google's
+route for it must also cross both booths of each stop, and is never accepted on
+its road alone.
 """
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -30,9 +34,9 @@ import numpy as np
 from .overlap import lengths_m
 
 __all__ = [
-    "AskGoogle", "AskRoute", "Basis", "Message", "Opinion", "Outcome", "Part",
+    "AskGoogle", "AskRoute", "Basis", "Message", "Opinion", "Outcome", "Part", "Stop",
     "AVOID_TOLLS", "COMPLEX", "MAX_DEPTH", "UNVERIFIED",
-    "accepts", "drive", "midpoint", "pays_no_tolls", "routes_agree",
+    "accepts", "drive", "midpoint", "pays_no_tolls", "routes_agree", "settle",
 ]
 
 # How many times a journey may be halved
@@ -60,6 +64,19 @@ class Basis(StrEnum):
 
 
 @dataclass(frozen=True)
+class Stop:
+    """A junction where the route leaves the tolled road and joins it again at once.
+    """
+
+    # `(longitude, latitude)` of the exit booth, which is the via the route was built through.
+    location: tuple
+    # The exit booth and the entrance booth.
+    booths: frozenset
+    # Where in `Part.nodes` the route reaches the exit booth.
+    index: int
+
+
+@dataclass(frozen=True)
 class Part:
     """A stretch to be driven, and what this project knows about it.
     """
@@ -69,15 +86,17 @@ class Part:
     # the toll on *this* stretch
     cost: float
     waypoints: tuple = ()
-    # The optimal route's coordinates, `[longitude, latitude]` per node.
+    # The coordinates of the route this part drives, `[longitude, latitude]` per node.
     nodes: tuple = ()
     depth: int = 0
-    # The booths the optimal route for this stretch crosses. None where the
-    # caller could not establish them.
+    # The booths the route this part drives crosses. None where the caller
+    # could not establish them.
     booths: frozenset | None = None
     # The booths the *fastest* route for this stretch crosses. None where nobody
     # established them.
     fast_booths: frozenset | None = None
+    # Empty for an optimal route.
+    stops: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -87,6 +106,8 @@ class AskRoute:
     origin: tuple
     destination: tuple
     depth: int
+    # The stops the route has to go through. Empty for an optimal route.
+    stops: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -99,6 +120,8 @@ class AskGoogle:
     origin: tuple
     destination: tuple
     waypoints: tuple
+    # The route Google's route is measured against.
+    nodes: tuple
 
 
 @dataclass(frozen=True)
@@ -140,6 +163,13 @@ class Outcome:
 def midpoint(nodes):
     """The node halfway along a route by distance.
     """
+    best = _midpoint_index(nodes)
+    if best is None:
+        return None
+    return tuple(nodes[best])
+
+
+def _midpoint_index(nodes):
     if len(nodes) < 3:
         return None
 
@@ -152,7 +182,7 @@ def midpoint(nodes):
     # A split at either end is not a split.
     if best == 0 or best == len(nodes) - 1:
         return None
-    return tuple(nodes[best])
+    return best
 
 
 def link_from_here(part, waypoints, maps_link):
@@ -180,9 +210,35 @@ def routes_agree(part) -> bool:
             and part.fast_booths == part.booths)
 
 
+def settle(part, maps_link, prefix=""):
+    """Rules 1 and 2: the message for a part that needs no request, or None."""
+    if pays_no_tolls(part):
+        return Message(
+            text=(prefix + AVOID_TOLLS).strip(),
+            link=link_from_here(part, (), maps_link))
+
+    if routes_agree(part):
+        return Message(
+            text=prefix.strip(),
+            link=link_from_here(part, (), maps_link),
+            basis=Basis.AGREED)
+
+    return None
+
+
 def accepts(part, opinion, fits):
     """Which test accepts Google's route for this part, or None if neither.
     """
+    if part.stops:
+        # A route that stays on the motorway past a junction lies inside the
+        # corridor of one that leaves there, so only the booths show a missed stop.
+        if opinion.booths is None or part.booths is None:
+            return None
+        makes_every_stop = all(stop.booths <= opinion.booths for stop in part.stops)
+        if makes_every_stop and opinion.booths <= part.booths:
+            return Basis.TOLLS
+        return None
+
     if opinion.booths is not None and part.booths is not None:
         return Basis.TOLLS if opinion.booths <= part.booths else None
     return Basis.ROAD if fits(opinion.share) else None
@@ -206,19 +262,9 @@ def _part(part, budget, fits, maps_link, outcome, first):
     """One stretch, by the rules in the module docstring."""
     prefix = "" if first else COMPLEX + "\n"
 
-    # Just avoiding tolls is the optimal route.
-    if pays_no_tolls(part):
-        outcome.messages.append(Message(
-            text=(prefix + AVOID_TOLLS).strip(),
-            link=link_from_here(part, (), maps_link)))
-        return
-
-    # The fastest route pays the same tolls, so the plain link is the optimal route.
-    if routes_agree(part):
-        outcome.messages.append(Message(
-            text=prefix.strip(),
-            link=link_from_here(part, (), maps_link),
-            basis=Basis.AGREED))
+    settled = settle(part, maps_link, prefix)
+    if settled is not None:
+        outcome.messages.append(settled)
         return
 
     # Unable to verify the Google route.
@@ -228,7 +274,7 @@ def _part(part, budget, fits, maps_link, outcome, first):
             link=link_from_here(part, part.waypoints, maps_link)))
         return
 
-    answer = yield AskGoogle(part.origin, part.destination, part.waypoints)
+    answer = yield AskGoogle(part.origin, part.destination, part.waypoints, part.nodes)
     outcome.spent += 1
     if answer is None:
         outcome.messages.append(Message(
@@ -247,7 +293,7 @@ def _part(part, budget, fits, maps_link, outcome, first):
 
     # Added more waypoints to Google route, and it became ok.
     if budget - outcome.spent >= 1:
-        corrected = yield AskGoogle(part.origin, part.destination, waypoints)
+        corrected = yield AskGoogle(part.origin, part.destination, waypoints, part.nodes)
         outcome.spent += 1
         if corrected is not None:
             waypoints = corrected.waypoints
@@ -259,8 +305,10 @@ def _part(part, budget, fits, maps_link, outcome, first):
                 return
 
     # Halve the route
-    at = midpoint(part.nodes) if part.depth < MAX_DEPTH else None
-    if at is None or budget - outcome.spent < 1:
+    cut = None
+    if part.depth < MAX_DEPTH:
+        cut = _midpoint_index(part.nodes)
+    if cut is None or budget - outcome.spent < 1:
         # Nothing left to try: send the best link there is and say no more than
         # that. A part at the bound is still a part someone has to drive.
         outcome.messages.append(Message(
@@ -268,8 +316,11 @@ def _part(part, budget, fits, maps_link, outcome, first):
             link=link_from_here(part, waypoints, maps_link)))
         return
 
-    near = yield AskRoute(part.origin, at, part.depth + 1)
-    far = yield AskRoute(at, part.destination, part.depth + 1)
+    at = tuple(part.nodes[cut])
+    near_stops = tuple(stop for stop in part.stops if stop.index <= cut)
+    far_stops = tuple(stop for stop in part.stops if stop.index > cut)
+    near = yield AskRoute(part.origin, at, part.depth + 1, near_stops)
+    far = yield AskRoute(at, part.destination, part.depth + 1, far_stops)
     if near is None or far is None:
         outcome.messages.append(Message(
             text=prefix.strip(),

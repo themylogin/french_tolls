@@ -32,6 +32,9 @@ class Journey:
     asks: int
     # How many links the driver ends up with.
     parts: int
+    # The route pressed where the answer offers a choice: "Optimal" or
+    # "Superoptimal". None where the answer offers no choice.
+    choice: str | None = None
 
 
 JOURNEYS = (
@@ -46,8 +49,8 @@ JOURNEYS = (
         key="routes-agree",
         outcome="it pays a toll, but our fastest route crosses the booths our "
                 "optimal one does, so nothing is asked",
-        origin=(2.8953121, 42.6985304), origin_name="Perpignan",
-        destination=(3.2131307, 43.3426562), destination_name="Béziers",
+        origin=(4.3601, 43.8367), origin_name="Nîmes",
+        destination=(3.8767, 43.6108), destination_name="Montpellier",
         asks=0, parts=1,
     ),
     Journey(
@@ -69,7 +72,7 @@ JOURNEYS = (
         outcome="it splits in two, and the first part pays no tolls",
         origin=(3.31892, 43.73106), origin_name="Lodève",
         destination=(6.5804218, 46.0603171), destination_name="Cluses",
-        asks=4, parts=2,
+        asks=4, parts=2, choice="Optimal",
     ),
     Journey(
         key="split-all-tolled",
@@ -77,6 +80,14 @@ JOURNEYS = (
         origin=(6.4946806, 47.6863376), origin_name="Lure",
         destination=(7.5029213, 43.7753495), destination_name="Menton",
         asks=6, parts=2,
+    ),
+    Journey(
+        key="superoptimal",
+        outcome="it offers a superoptimal route with a stop at AGDE-PEZENAS, and "
+                "the driver chooses it and drives it through the stop",
+        origin=(2.8333, 42.5236), origin_name="Le Boulou",
+        destination=(4.3601, 43.8367), destination_name="Nîmes",
+        asks=2, parts=1, choice="Superoptimal",
     ),
 )
 

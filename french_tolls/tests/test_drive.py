@@ -15,7 +15,7 @@ Routes here run along a parallel so that halving by distance halves by index too
 and the midpoint a test expects is the one arithmetic gives.
 """
 from .. import drive as D
-from ..drive import AskGoogle, AskRoute, MAX_DEPTH, Opinion, Part, drive, midpoint
+from ..drive import AskGoogle, AskRoute, MAX_DEPTH, Opinion, Part, Stop, drive, midpoint
 
 FITS = 0.98
 
@@ -39,11 +39,11 @@ def route(n=201, lat=45.0, lon0=1.0, step=0.01):
     return tuple((lon0 + i * step, lat) for i in range(n))
 
 
-def part(cost=10.0, depth=0, waypoints=(), nodes=None, booths=None, fast_booths=None):
+def part(cost=10.0, depth=0, waypoints=(), nodes=None, booths=None, fast_booths=None, stops=()):
     nodes = route() if nodes is None else nodes
     return Part(origin=nodes[0], destination=nodes[-1], cost=cost,
                 waypoints=waypoints, nodes=nodes, depth=depth, booths=booths,
-                fast_booths=fast_booths)
+                fast_booths=fast_booths, stops=stops)
 
 
 def run(p, budget, answers):
@@ -152,6 +152,25 @@ def test_toll_free_is_decided_before_the_routes_agreeing():
     assert asked == []
     assert D.AVOID_TOLLS in outcome.messages[0].text
     assert outcome.messages[0].basis is None
+
+
+def test_settle_tells_a_toll_free_part_to_avoid_tolls():
+    message = D.settle(part(cost=0.0), link)
+
+    assert "Please enable Avoid tolls before driving." in message.text
+
+
+def test_settle_links_an_agreed_part_straight_through():
+    p = part(cost=10.0, waypoints=((1.5, 45.0),), booths=OURS, fast_booths=OURS)
+
+    message = D.settle(p, link)
+
+    assert message.link == "Current Location|45.000000,3.000000"
+    assert message.basis == "our own two routes agreeing"
+
+
+def test_settle_leaves_a_part_that_needs_google():
+    assert D.settle(part(cost=10.0, booths=OURS, fast_booths=OURS | {4}), link) is None
 
 
 def test_a_fastest_route_that_adds_a_booth_is_asked_about():
@@ -270,6 +289,74 @@ def test_a_part_whose_own_tolls_are_unknown_is_judged_on_the_road():
     assert outcome.messages[0].basis == D.Basis.ROAD
 
 
+# --- a route that leaves the motorway and joins it again -------------------------
+
+def stop_at(index, booths=frozenset({3, 4})):
+    """A stop on the route of `route()`, at node `index`."""
+    return Stop(location=route()[index], booths=booths, index=index)
+
+
+def test_a_route_that_makes_every_stop_is_accepted_on_its_tolls():
+    p = part(booths=frozenset({1, 2, 3, 4}), stops=(stop_at(100),))
+
+    basis = D.accepts(p, google(0.50, booths=frozenset({1, 2, 3, 4})), fits)
+
+    assert basis == "the tolls it pays"
+
+
+def test_a_route_that_skips_a_stop_is_not_accepted():
+    """It pays fewer of our booths, which accepts a route without stops."""
+    p = part(booths=frozenset({1, 2, 3, 4}), stops=(stop_at(100),))
+
+    assert D.accepts(p, google(0.99, booths=frozenset({1, 2})), fits) is None
+
+
+def test_a_route_that_makes_every_stop_and_adds_a_toll_is_not_accepted():
+    p = part(booths=frozenset({1, 2, 3, 4}), stops=(stop_at(100),))
+
+    assert D.accepts(p, google(0.99, booths=frozenset({1, 2, 3, 4, 9})), fits) is None
+
+
+def test_a_route_with_stops_is_not_accepted_on_the_road():
+    p = part(booths=frozenset({1, 2, 3, 4}), stops=(stop_at(100),))
+
+    assert D.accepts(p, google(1.0, booths=None), fits) is None
+
+
+def halves_asked_for(p):
+    """The two `AskRoute` a part makes once Google fails it twice."""
+    _outcome, asked = run(p, budget=100, answers=[google(0.50), google(0.55)])
+    return [a for a in asked if isinstance(a, AskRoute)]
+
+
+def test_each_stop_goes_to_the_half_that_drives_it():
+    near, far = halves_asked_for(part(stops=(stop_at(40), stop_at(160))))
+
+    assert near.stops == (stop_at(40),)
+    assert far.stops == (stop_at(160),)
+
+
+def test_a_stop_at_the_midpoint_goes_to_the_near_half():
+    near, far = halves_asked_for(part(stops=(stop_at(100),)))
+
+    assert near.stops == (stop_at(100),)
+    assert far.stops == ()
+
+
+def test_a_part_without_stops_asks_for_halves_without_stops():
+    near, far = halves_asked_for(part())
+
+    assert (near.stops, far.stops) == ((), ())
+
+
+def test_an_unchecked_link_carries_the_stop():
+    p = part(waypoints=(route()[100],), stops=(stop_at(100),))
+
+    outcome, _asked = run(p, budget=0, answers=[])
+
+    assert outcome.messages[0].link == "Current Location|45.000000,2.000000|45.000000,3.000000"
+
+
 def test_a_correcting_ask_can_be_accepted_on_its_tolls():
     p = part(booths=OURS)
     outcome, asked = run(p, budget=100, answers=[
@@ -294,6 +381,16 @@ def test_a_route_that_adds_a_toll_and_cannot_be_corrected_is_still_split():
 
     assert [type(a) for a in asked] == [AskGoogle, AskGoogle, AskRoute, AskRoute, AskGoogle]
     assert outcome.pending == [far]
+
+
+def test_each_ask_carries_the_route_it_is_measured_against():
+    p = part()
+    near, far = half_of(p, 5.0, 1), far_of(p, 5.0, 1)
+    _outcome, asked = run(p, budget=100, answers=[
+        google(0.50), google(0.55), near, far, google(0.99),
+    ])
+
+    assert [a.nodes for a in asked if isinstance(a, AskGoogle)] == [p.nodes, p.nodes, near.nodes]
 
 
 def test_a_route_google_leaves_is_corrected_and_sent():

@@ -1,4 +1,5 @@
 # -*- coding=utf-8 -*-
+from dataclasses import dataclass
 import html
 import itertools
 import json
@@ -13,12 +14,12 @@ from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, Con
 
 from . import car as car_rules
 from . import drive as drive_rules
-from .drive import AskGoogle, AskRoute, Opinion, Part, drive
+from .drive import AskGoogle, AskRoute, Opinion, Part, Stop, drive
 from . import spending
 from .config import config
 from .refine import request_route_once
 from .osrm import SNAP_REACH_M, Routers
-from .route import booths_along, get_route, google_maps_link
+from .route import booths_along, get_route, google_maps_link, stretch_through
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,8 @@ class ChatState:
         # Stretches offered but not yet asked for, by the token the button
         # carries.
         self.pending = {}
+        # The routes a driver can choose between, by the token both buttons carry.
+        self.choices = {}
         self.car_dialogs = {}
         self._tokens = itertools.count(1)
 
@@ -55,8 +58,24 @@ class ChatState:
         self.pending[token] = parts
         return token
 
+    def offer_choice(self, choice):
+        """Keep a `Choice`, and return the token that finds it."""
+        token = f"r{next(self._tokens)}"
+        self.choices[token] = choice
+        return token
+
     def new_car_token(self):
         return f"c{next(self._tokens)}"
+
+
+@dataclass(frozen=True)
+class Choice:
+    """The routes an answer offers, and the answer's text, which the press adds to."""
+
+    # As sent, in HTML. The message a press arrives on carries entities instead.
+    text: str
+    # The parts on offer, by route name.
+    parts: dict
 
 
 def state_of(context) -> ChatState:
@@ -139,23 +158,33 @@ def comparison_map(from_, to):
     return f"{config.url}/#{hash}"
 
 
-def part_of(answer, from_, to, depth=0):
-    """The optimal route, as the decision reads a stretch to be driven."""
-    optimal = answer["optimal"]
-    booths = optimal.get("booths")
+def part_of(answer, from_, to, depth=0, name="optimal"):
+    """The route `name` of an answer, as the decision reads a stretch to be driven."""
+    driven = answer[name]
+    booths = driven.get("booths")
     fast_booths = answer["fast"].get("booths")
+    waypoints = driven["waypoints"]
+    stops = ()
+    if name == "super_optimal":
+        waypoints = driven["drive_waypoints"]
+        stops = tuple(
+            Stop(location=(stop["latlon"][1], stop["latlon"][0]),
+                 booths=frozenset(stop["booths"]),
+                 index=stop["index"])
+            for stop in driven["stops"])
     return Part(
         origin=tuple(from_),
         destination=tuple(to),
-        cost=optimal["cost"],
-        waypoints=tuple(tuple(w) for w in optimal["waypoints"]),
-        nodes=tuple(tuple(c) for c in optimal["nodes"]),
+        cost=driven["cost"],
+        waypoints=tuple(tuple(w) for w in waypoints),
+        nodes=tuple(tuple(c) for c in driven["nodes"]),
         depth=depth,
         # None where the answer carries no booth set, so a Google route is judged
         # on its road rather than against a set nobody established. An empty list
         # is a different fact and stays one.
         booths=None if booths is None else frozenset(booths),
         fast_booths=None if fast_booths is None else frozenset(fast_booths),
+        stops=stops,
     )
 
 
@@ -164,19 +193,22 @@ async def perform(request):
     """
     if isinstance(request, AskRoute):
         try:
-            answer = await get_route(list(request.origin), list(request.destination))
+            if request.stops:
+                answer = await stretch_through(list(request.origin), list(request.destination),
+                                               [(stop.location, stop.booths) for stop in request.stops])
+                name = "super_optimal"
+            else:
+                answer = await get_route(list(request.origin), list(request.destination))
+                name = "optimal"
         except Exception as e:
             logger.warning("could not route %r -> %r: %r", request.origin, request.destination, e)
             return None
-        return part_of(answer, request.origin, request.destination, request.depth)
+        if answer is None:
+            return None
+        return part_of(answer, request.origin, request.destination, request.depth, name)
 
     if isinstance(request, AskGoogle):
-        try:
-            answer = await get_route(list(request.origin), list(request.destination))
-        except Exception as e:
-            logger.warning("could not route for a Google request: %r", e)
-            return None
-        ours = [(lat, lon) for lon, lat in answer["optimal"]["nodes"]]
+        ours = [(lat, lon) for lon, lat in request.nodes]
         google = await request_route_once(list(request.origin), list(request.destination),
                                           ours, [list(w) for w in request.waypoints])
         if google is None:
@@ -232,12 +264,16 @@ async def handle_route(message, state, from_, to):
     reply = await message.reply_text("⏳ Calculating route...")
     try:
         route = await get_route(from_, to)
+        split = route.get("super_optimal")
+        # A split route whose stops alone do not fit in one link cannot be driven.
+        offers_choice = split is not None and split["drive_waypoints"] is not None
 
         text = []
+        if offers_choice:
+            text.append(f"<b>Superoptimal route:</b> {format_route(split)}\n")
         text.append(f"<b>Optimal route:</b> {format_route(route['optimal'])}\n")
         text.append(f"<b>Fastest route:</b> {format_route(route['fast'])}\n")
-        # If routes are different, offer the comparison map.
-        if route["fast"]["nodes"] != route["optimal"]["nodes"]:
+        if offers_choice or route["fast"]["nodes"] != route["optimal"]["nodes"]:
             text.append(
                 f"➡️ <a href='{html.escape(comparison_map(from_, to))}'>Open comparison map</a>")
         if route["optimal"]["cost"] <= 0:
@@ -245,11 +281,20 @@ async def handle_route(message, state, from_, to):
             text.append(drive_rules.AVOID_TOLLS)
 
         part = part_of(route, from_, to)
-        # Nothing to ask Google about, so there is nothing to press for either.
-        # The link goes in this message rather than in one of its own.
-        if drive_rules.pays_no_tolls(part) or drive_rules.routes_agree(part):
-            link = drive_rules.link_from_here(part, (), google_maps_link)
-            text.append(f"➡️ <a href='{html.escape(link)}'>{DRIVE_THIS}</a>")
+        settled = drive_rules.settle(part, google_maps_link)
+        if offers_choice:
+            token = state.offer_choice(Choice(text="\n".join(text), parts={
+                "optimal": part,
+                "super_optimal": part_of(route, from_, to, name="super_optimal"),
+            }))
+            markup = InlineKeyboardMarkup([[
+                InlineKeyboardButton("Optimal", callback_data=f"{token}:optimal"),
+                InlineKeyboardButton("Superoptimal", callback_data=f"{token}:super_optimal"),
+            ]])
+        elif settled is not None:
+            # Nothing to ask Google about, so there is nothing to press for either.
+            # The link goes in this message rather than in one of its own.
+            text.append(f"➡️ <a href='{html.escape(settled.link)}'>{DRIVE_THIS}</a>")
             markup = None
         else:
             markup = keyboard("Drive with Google", state.remember([part]))
@@ -259,6 +304,31 @@ async def handle_route(message, state, from_, to):
     except Exception as e:
         logger.warning("Error: %r", e, exc_info=True)
         await reply.edit_text("Error calculating this route. I am very sorry for that 😞")
+
+
+async def choice_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    token, _, name = query.data.partition(":")
+    state = state_of(context)
+    choice = state.choices.pop(token, None)
+    if choice is None:
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text("That route has expired. Please send the locations again.")
+        return
+
+    part = choice.parts[name]
+    label = {"optimal": "Optimal", "super_optimal": "Superoptimal"}[name]
+    settled = drive_rules.settle(part, google_maps_link)
+    markup = None
+    if settled is None:
+        markup = keyboard("Drive with Google", state.remember([part]))
+    await query.edit_message_text(f"{choice.text}\n\n{label} route chosen", parse_mode="HTML",
+                                  reply_markup=markup, disable_web_page_preview=True)
+
+    if settled is not None:
+        await send_outcome(query.message, state, drive_rules.Outcome(messages=[settled]), whole=True)
 
 
 async def drive_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -395,6 +465,7 @@ def build(token, *, request=None, get_updates_request=None):
     application.add_handler(CommandHandler("reset", reset_command_handler))
     application.add_handler(CommandHandler("car", car_command_handler))
     application.add_handler(CallbackQueryHandler(drive_button_handler, pattern=r"^d\d+$"))
+    application.add_handler(CallbackQueryHandler(choice_button_handler, pattern=r"^r\d+:(optimal|super_optimal)$"))
     application.add_handler(CallbackQueryHandler(car_button_handler, pattern=r"^car:"))
 
     return application

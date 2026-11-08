@@ -17,7 +17,8 @@ from .tolls import Journey, account, booths_crossed, closed_sections, fare
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PlannedRoute", "RouteError", "SplitStop", "get_route", "link_through", "planned_route", "toll_cost"]
+__all__ = ["PlannedRoute", "RouteError", "SplitStop", "get_route", "link_through", "planned_route",
+           "stretch_through", "toll_cost"]
 
 ERRORS_DIR = "/cache/errors"
 
@@ -239,18 +240,49 @@ async def _super_optimal(routers, start, end, optimal, plan):
         return None
 
     route = split.route
-    described = _describe(route, plan, split.journey, booths_crossed(BOOTHS, route.node_ids))
-    described["stops"] = [
-        {"name": BOOTHS.at(stop.exit_node).label,
-         "latlon": list(BOOTHS.at(stop.exit_node).latlon)}
+    stops = [
+        _stop_entry(route, [BOOTHS.at(stop.exit_node).node_id, BOOTHS.at(stop.enter_node).node_id])
         for _e, _x, candidate in split.stops for stop in candidate.stops
     ]
+    described = _describe_split(route, optimal, plan, split.journey, stops)
     # `_describe` builds a link from the plan it was handed, which is the
     # optimal route's and says nothing about the stops. Replace it with one that
     # drives this journey, or with None where the waypoints do not fit.
     described["google_url"] = _split_google_url(route, optimal, plan, split.stops)
     described["extra_duration"] = split.extra_time
     described["saving"] = split.saving
+    return described
+
+
+def _stop_entry(route, booths):
+    """A stop as the answer carries it, or None where `route` crosses none of `booths`.
+
+    `booths` are the ids of the stop's exit booth and entrance booth. The route
+    reaches the exit booth first. It may cross an alias lane of a booth rather
+    than the booth's own node, so the booth is found by what each node belongs to.
+    """
+    for index, node_id in enumerate(route.node_ids):
+        booth = BOOTHS.at(node_id)
+        if booth is not None and booth.node_id in booths:
+            return {
+                "name": booth.label,
+                "latlon": list(booth.latlon),
+                "booths": [booth.node_id, *sorted(set(booths) - {booth.node_id})],
+                "index": index,
+            }
+    return None
+
+
+def _describe_split(route, optimal, plan, journey, stops):
+    """A route through `stops`, with the waypoints that drive it when every stop is kept."""
+    described = _describe(route, plan, journey, booths_crossed(BOOTHS, route.node_ids))
+    described["stops"] = stops
+
+    fixed = [(stop["index"], (stop["latlon"][1], stop["latlon"][0])) for stop in stops]
+    placed = _fit_waypoints(route, optimal, plan, fixed)
+    described["drive_waypoints"] = None
+    if placed is not None:
+        described["drive_waypoints"] = [list(location) for _at, location in placed]
     return described
 
 
@@ -308,6 +340,44 @@ async def get_route(from_, to):
         if split is not None:
             result["super_optimal"] = split
 
+    return _for_delivery(result, from_, to)
+
+
+async def stretch_through(from_, to, stops):
+    """The fast route, and the route through `stops`, between two `[longitude, latitude]` points.
+
+    Each stop is a `(location, booths)` pair: the `(longitude, latitude)` of its
+    exit booth, and the ids of its exit booth and entrance booth. The route is
+    built on the toll-weighted graph through each exit booth, as the split route
+    is, so the road between two stops is chosen as it is for `optimal`.
+
+    Returns `{"fast": ..., "super_optimal": ...}` in the shape of `get_route`, or
+    None where the route does not cross the booths of every stop.
+    """
+    with _named_failures(from_, to):
+        routers = Routers()
+
+        start = await routers.snap(from_)
+        end = await routers.snap(to)
+
+        fast = await routers.fast(start, end)
+        optimal = await routers.optimal(start, end)
+        plan = await plan_waypoints(routers, optimal, start, end, max_waypoints=MAX_WAYPOINTS)
+
+        vias = [tuple(location) for location, _booths in stops]
+        through = await routers.route_via(config.osrm_optimal_url, start, vias, end)
+
+    crossed = booths_crossed(BOOTHS, through.node_ids)
+    if any(not set(booths) <= crossed for _location, booths in stops):
+        logger.info("the route through %d stop(s) missed one; not offering it", len(stops))
+        return None
+
+    result = {
+        "fast": _describe(fast, None, account(BOOTHS, fast.node_ids), booths_crossed(BOOTHS, fast.node_ids)),
+        "super_optimal": _describe_split(
+            through, optimal, plan, account(BOOTHS, through.node_ids),
+            [_stop_entry(through, set(booths)) for _location, booths in stops]),
+    }
     return _for_delivery(result, from_, to)
 
 
@@ -371,19 +441,36 @@ async def link_through(routers, planned, route, kept) -> str | None:
 
     `kept` are the vias of the route, each with a `location` and the node `index`
     where the route meets it. The waypoints of the optimal route's own link fill
-    the free places. Where they do not all fit, the one nearest along the route
-    to another waypoint goes first: a waypoint next to another one pins the least.
+    the free places, as `_fit_waypoints` chooses them.
     """
     if len(kept) > MAX_WAYPOINTS:
         return None
 
     plan = await plan_waypoints(routers, planned.optimal, planned.start, planned.end, max_waypoints=MAX_WAYPOINTS)
+    placed = _fit_waypoints(route, planned.optimal, plan, [(via.index, via.location) for via in kept])
+    points = [_as_latlon(route.coordinates[0])]
+    points += [_as_latlon(location) for _at, location in placed]
+    points.append(_as_latlon(route.coordinates[-1]))
+    return google_maps_link(points)
+
+
+def _fit_waypoints(route, optimal, plan, fixed):
+    """`fixed`, and the waypoints of `optimal`'s plan that fit beside them, in `route` order.
+
+    `fixed` are `(index, location)` pairs on `route`. A waypoint of the plan is
+    kept where `route` crosses its node. Where they do not all fit, the one
+    nearest along the route to another waypoint goes first: a waypoint next to
+    another one pins the least. None where `fixed` alone does not fit.
+    """
+    if len(fixed) > MAX_WAYPOINTS:
+        return None
+
     optional = []
     for index, location in zip(plan.indices, plan.locations):
-        at = route.index_of(planned.optimal.node_ids[index])
+        at = route.index_of(optimal.node_ids[index])
         if at is not None:
             optional.append((at, location))
-    fixed = [(via.index, via.location) for via in kept]
+    fixed = list(fixed)
 
     along = [0.0, *itertools.accumulate(route.segment_distance)]
     while len(fixed) + len(optional) > MAX_WAYPOINTS:
@@ -394,8 +481,4 @@ async def link_through(routers, planned, route, kept) -> str | None:
 
         del optional[min(range(len(optional)), key=gap)]
 
-    placed = sorted(fixed + optional, key=lambda point: point[0])
-    points = [_as_latlon(route.coordinates[0])]
-    points += [_as_latlon(location) for _at, location in placed]
-    points.append(_as_latlon(route.coordinates[-1]))
-    return google_maps_link(points)
+    return sorted(fixed + optional, key=lambda point: point[0])

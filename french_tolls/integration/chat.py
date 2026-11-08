@@ -14,6 +14,15 @@ USER_ID = 777001
 CHAT_ID = 777001
 
 
+def labelled(call, label):
+    """The callback data of the button labelled `label` in a call, or None."""
+    for row in (call.markup or {}).get("inline_keyboard", []):
+        for button in row:
+            if button["text"] == label:
+                return button["callback_data"]
+    return None
+
+
 class Chat:
     """One driver, one application, and everything it was sent.
 
@@ -104,42 +113,49 @@ class Chat:
             message["caption"] = sent[0].text
         return message
 
-    async def press_offered(self):
+    async def press_offered(self, choice=None):
         """Press a button offered since the last press. False if none was.
 
         Since the last press, not anywhere in the transcript. The flow retires a
-        button by editing the markup away, and that edit is not a message a
-        driver sees -- so the message carrying the spent button is still in the
-        transcript, and looking at the whole of it would press the same button
-        for ever.
+        button by editing the markup away, but the call that offered it is still
+        recorded, and looking at all of them would press the same button for ever.
+
+        An offer is any call that carries buttons, an edit of the markup alone
+        included: that is how "Drive with Google" follows a choice of route.
+
+        The latest offer's button labelled `choice` is pressed where it has one,
+        and its last button otherwise.
         """
-        fresh = self.telegram.messages[self._pressed_at:]
-        buttons = [b for message in fresh for b in message.buttons]
-        if not buttons:
+        fresh = self.telegram.sent[self._pressed_at:]
+        offers = [call for call in fresh if call.buttons]
+        if not offers:
             return False
-        self._pressed_at = len(self.telegram.messages)
-        await self.press(buttons[-1])
+        self._pressed_at = len(self.telegram.sent)
+        latest = offers[-1]
+        token = labelled(latest, choice) or latest.buttons[-1]
+        await self.press(token, latest.message_id)
         return True
 
     async def press_labelled(self, label):
         for message in reversed(self.telegram.messages):
-            for row in (message.markup or {}).get("inline_keyboard", []):
-                for button in row:
-                    if button["text"] == label:
-                        await self.press(button["callback_data"], message.message_id)
-                        return
+            token = labelled(message, label)
+            if token is not None:
+                await self.press(token, message.message_id)
+                return
         raise AssertionError(f"no message offers a button labelled {label!r}")
 
-    async def drive(self, origin, destination, presses=8):
+    async def drive(self, origin, destination, presses=8, choice=None):
         """A whole journey: both locations, then every part it owes.
 
         `presses` bounds the loop rather than describing the journey. A flow that
         offered a button forever would otherwise hang a test instead of failing.
+
+        `choice` is the label of the route to press where the answer offers a choice.
         """
         await self.send_location(origin)
         await self.send_location(destination)
         for _ in range(presses):
-            if not await self.press_offered():
+            if not await self.press_offered(choice):
                 return
         raise AssertionError(f"still offering a button after {presses} presses")
 

@@ -60,7 +60,7 @@ async def record(journey):
     os.makedirs(CASSETTES, exist_ok=True)
     with Recorder() as recorder:
         async with Chat() as chat:
-            await chat.drive(journey.origin, journey.destination)
+            await chat.drive(journey.origin, journey.destination, choice=journey.choice)
         parts = len(chat.parts)
 
     path = os.path.join(CASSETTES, f"{journey.key}.json")
