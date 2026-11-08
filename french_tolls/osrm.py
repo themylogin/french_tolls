@@ -103,6 +103,9 @@ class Route:
     # The router's distance of each leg, in metres: one leg more than the points
     # the route was forced through.
     leg_distance: tuple[float, ...] = ()
+    # The node index where each leg begins. Leg `k + 1` begins at the node of
+    # via `k`.
+    leg_start: tuple[int, ...] = ()
 
     def __len__(self):
         return len(self.node_ids)
@@ -315,6 +318,7 @@ def _read_route(body: dict) -> Route:
         duration=route["duration"],
         weight=route["weight"],
         leg_distance=(legs[0]["distance"],),
+        leg_start=(0,),
     )
 
 
@@ -337,8 +341,9 @@ def _read_route_legs(body: dict) -> Route:
     if not legs:
         raise RouterUnavailable("the router returned a route with no legs")
 
-    node_ids, distance, duration = [], [], []
+    node_ids, distance, duration, leg_start = [], [], [], []
     for n, leg in enumerate(legs):
+        leg_start.append(len(node_ids))
         annotation = leg["annotation"]
         nodes = list(annotation["nodes"])
         # A waypoint snaps onto a segment, so the leg that ends there and the
@@ -376,6 +381,7 @@ def _read_route_legs(body: dict) -> Route:
         duration=route["duration"],
         weight=route["weight"],
         leg_distance=tuple(leg["distance"] for leg in legs),
+        leg_start=tuple(leg_start),
     )
 
 

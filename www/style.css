@@ -72,7 +72,8 @@ body {
     display: block;
 }
 
-.refuel-link {
+.refuel-link,
+.refuel-done {
     display: inline-block;
     margin-left: 6px;
     color: #70757a;
@@ -81,8 +82,17 @@ body {
     vertical-align: -1px;
 }
 .refuel-link:hover { color: #202124; }
+.refuel-done { cursor: default; }
 
-#refuel-busy { display: none; }
+#refuel-dialog { --bs-modal-width: 600px; }
+
+/* While a request is open, the old list keeps its place under the spinner. The
+   spinner turns with `transform`, so negative margins centre it. */
+.refuel-answer { position: relative; }
+.refuel-answer.busy { min-height: 3rem; }
+.refuel-answer.busy #refuel-result { visibility: hidden; }
+#refuel-busy { display: none; position: absolute; top: 50%; left: 50%; margin: -1rem 0 0 -1rem; }
+.refuel-answer.busy #refuel-busy { display: block; }
 
 /* This file loads before Bootstrap, so a rule here names the input element to
    outrank Bootstrap's `.form-control` rules of the same class count. */
@@ -108,3 +118,10 @@ body {
 .stations td { padding: 6px 0; vertical-align: top; border-top: 1px solid #e8eaed; }
 .stations td:first-child { width: 100%; padding-right: 12px; }
 .stations td:not(:first-child) { text-align: right; white-space: nowrap; padding-left: 12px; }
+/* Smaller than `btn-sm`, the smallest size Bootstrap 5 has. The two classes
+   outrank the variables that `.btn-sm` sets. */
+.stations .refuel-use {
+    --bs-btn-padding-y: 0;
+    --bs-btn-padding-x: .5rem;
+    --bs-btn-font-size: .75rem;
+}

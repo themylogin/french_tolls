@@ -16,17 +16,28 @@ let endMarker = null;
 // The journey of the routes on screen. `from` and `to` go null as soon as the
 // visitor types in a field, and the dialog must still plan these routes.
 let journey = null;
+let lastAnswer = null;
 let refuelRoute = null;
 let refuelController = null;
+// The values of the last valid Calculate. Use sends these, so an edit of a field
+// after Calculate does not change the plan.
+let refuelRequest = null;
+let refuelChosen = [];
+let refuelStations = [];
+let finishedPlan = null;
+let planPath = null;
+let planMarkers = [];
 
 const Z_FAST = 1;
 const Z_GOOGLE = 2;
-const Z_SUPER_OPTIMAL = 3;
-const Z_OPTIMAL = 4;
+const Z_PLAN = 3;
+const Z_SUPER_OPTIMAL = 4;
+const Z_OPTIMAL = 5;
 
 const COLOR_OPTIMAL = "#188038";
 const COLOR_FAST = "#0f53ff";
 const COLOR_SUPER_OPTIMAL = "#d93025";
+const COLOR_PLAN = "#000000";
 
 
 function encodeHTML(str) {
@@ -109,18 +120,23 @@ function showRoute(title, color, route, routeName) {
 
     html.push('</div>');
 
+    const planned = finishedPlan !== null && finishedPlan.route === routeName;
+    const link = planned ? finishedPlan.google_url : route.google_url;
+
     html.push('<div class="title" style="color: ' + color + ';">' + title);
-    if (routeName && route.google_url) {
+    if (routeName && link) {
         html.push(
-            '<a class="maps-link" href="' + encodeHTML(route.google_url) + '"' +
+            '<a class="maps-link" href="' + encodeHTML(link) + '"' +
             ' target="_blank" rel="noopener" title="Open in Google Maps">' +
             '<img src="https://www.google.com/images/branding/product/1x/maps_32dp.png"' +
             ' alt="Google Maps" width="16" height="16"></a>');
     }
-    if (routeName) {
+    if (routeName && finishedPlan === null) {
         html.push(
             '<a class="refuel-link" href="#" data-route="' + routeName + '"' +
             ' title="Find a gas station"><i class="bi bi-fuel-pump"></i></a>');
+    } else if (planned) {
+        html.push('<span class="refuel-done"><i class="bi bi-fuel-pump"></i></span>');
     }
     html.push('</div>');
 
@@ -176,6 +192,19 @@ function drawGoogleRoute(google) {
     });
 }
 
+function renderRoutes() {
+    // The split route is listed first where there is one: it is the cheapest
+    // thing on offer, and the panel under it says what it costs.
+    const split = lastAnswer.super_optimal
+        ? showRoute("Superoptimal route", COLOR_SUPER_OPTIMAL, lastAnswer.super_optimal, "super_optimal")
+        : "";
+    document.getElementById("routes").innerHTML = (
+        split +
+        showRoute("Optimal route", COLOR_OPTIMAL, lastAnswer.optimal, "optimal") +
+        showRoute("Fastest route", COLOR_FAST, lastAnswer.fast, null)
+    );
+}
+
 function calculate() {
     const calculateButton = document.getElementById("calculate");
     const calculating = document.getElementById("calculating");
@@ -200,6 +229,13 @@ function calculate() {
     }
     superOptimalStopMarkers.forEach(m => { m.map = null; });
     superOptimalStopMarkers = [];
+    if (planPath) {
+        planPath.setMap(null);
+        planPath = null;
+    }
+    planMarkers.forEach(m => { m.map = null; });
+    planMarkers = [];
+    finishedPlan = null;
     if (startMarker) {
         startMarker.map = null;
     }
@@ -210,6 +246,7 @@ function calculate() {
     document.getElementById("error").style.display = "none";
 
     journey = null;
+    lastAnswer = null;
     const requested = { from: from["lonlat"], to: to["lonlat"] };
 
     fetch('/api/calculate', {
@@ -253,19 +290,8 @@ function calculate() {
         });
         map.fitBounds(bounds);
 
-        const from_name = from["name"].replace(", France", "");
-        const to_name = to["name"].replace(", France", "");
-        // The split route is listed first where there is one: it is the
-        // cheapest thing on offer, and the panel under it says what it costs.
-        const split = data.super_optimal
-            ? showRoute("Superoptimal route", COLOR_SUPER_OPTIMAL,
-                        data.super_optimal, "super_optimal")
-            : "";
-        document.getElementById("routes").innerHTML = (
-            split +
-            showRoute("Optimal route", COLOR_OPTIMAL, data.optimal, "optimal") +
-            showRoute("Fastest route", COLOR_FAST, data.fast, null)
-        );
+        lastAnswer = data;
+        renderRoutes();
         journey = requested;
 
         drawGoogleRoute(data.google);
@@ -618,12 +644,21 @@ function readRefuelForm() {
 }
 
 function showRefuelBusy(busy) {
-    refuelField("busy").style.display = busy ? "block" : "none";
+    refuelField("answer").classList.toggle("busy", busy);
     refuelField("calculate").disabled = busy;
+    refuelField("result").querySelectorAll(".refuel-use").forEach(button => { button.disabled = busy; });
 }
 
 function showRefuelMessage(text, kind) {
     refuelField("result").innerHTML = '<div class="alert alert-' + kind + '">' + encodeHTML(text) + '</div>';
+}
+
+function tollText(difference) {
+    if (Math.abs(difference) < 0.005) {
+        return "";
+    }
+    const amount = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(Math.abs(difference));
+    return (difference > 0 ? "+" : "-") + amount;
 }
 
 function detourText(seconds) {
@@ -632,6 +667,10 @@ function detourText(seconds) {
 }
 
 function showRefuelAnswer(answer) {
+    if (!answer.stop_needed && refuelChosen.length) {
+        finishPlan(answer);
+        return;
+    }
     if (!answer.stop_needed) {
         showRefuelMessage("No need to refuel: you'll arrive with " + Math.floor(answer.fuel_left) + " L.", "info");
         return;
@@ -644,17 +683,33 @@ function showRefuelAnswer(answer) {
 
     const kilometres = new Intl.NumberFormat('fr-FR');
     const price = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
-    const rows = answer.stations.map(station => (
+    const rows = answer.stations.map((station, index) => (
         '<tr>' +
         '<td><a href="' + encodeHTML(station.google_url) + '" target="_blank" rel="noopener">' +
         encodeHTML(station.name || "Unnamed station") + '</a>' +
         (station.badge ? ' <b>' + encodeHTML(station.badge) + '</b>' : '') + '</td>' +
-        '<td>' + kilometres.format(Math.round(station.distance / 1000)) + ' km</td>' +
+        '<td>' + kilometres.format(Math.round(station.distance_from_previous / 1000)) + ' km</td>' +
         '<td>' + price.format(station.price) + ' €/L</td>' +
         '<td>' + detourText(station.detour_duration) + '</td>' +
+        '<td>' + tollText(station.toll_difference) + '</td>' +
+        '<td><button type="button" class="btn btn-success btn-sm refuel-use" data-index="' + index + '">' +
+        'Use</button></td>' +
         '</tr>'
     ));
+    refuelStations = answer.stations;
     refuelField("result").innerHTML = '<table class="stations">' + rows.join("") + '</table>';
+}
+
+function finishPlan(answer) {
+    finishedPlan = { route: refuelRoute, google_url: answer.route.google_url };
+    planPath = showPath(answer.route, COLOR_PLAN, 8, Z_PLAN);
+    planMarkers = refuelChosen.map(station => new AdvancedMarkerElement({
+        position: { lat: station.latitude, lng: station.longitude },
+        map: map,
+        content: waypointDot(COLOR_PLAN),
+    }));
+    renderRoutes();
+    bootstrap.Modal.getOrCreateInstance(refuelField("dialog")).hide();
 }
 
 function openRefuelDialog(routeName) {
@@ -685,8 +740,23 @@ function calculateRefuel() {
         return;
     }
     storeCar(values.car);
+    refuelRequest = values;
+    refuelChosen = [];
 
     refuelField("result").innerHTML = "";
+    sendRefuel();
+}
+
+function useStation(index) {
+    if (refuelController) {
+        return;
+    }
+
+    refuelChosen.push(refuelStations[index]);
+    sendRefuel();
+}
+
+function sendRefuel() {
     showRefuelBusy(true);
     const controller = new AbortController();
     refuelController = controller;
@@ -700,8 +770,9 @@ function calculateRefuel() {
             'from': journey.from,
             'to': journey.to,
             'route': refuelRoute,
-            'car': values.car,
-            'fuel': values.fuel
+            'car': refuelRequest.car,
+            'fuel': refuelRequest.fuel,
+            'chosen': refuelChosen.map(station => ({ latitude: station.latitude, longitude: station.longitude }))
         }),
         signal: controller.signal,
     })
@@ -732,6 +803,7 @@ function closeRefuelDialog() {
         refuelController.abort();
         refuelController = null;
     }
+    refuelChosen = [];
     showRefuelBusy(false);
 }
 
@@ -770,6 +842,12 @@ async function initMap() {
         openRefuelDialog(link.dataset.route);
     });
     refuelField("form").addEventListener("submit", (event) => event.preventDefault());
+    refuelField("result").addEventListener("click", (event) => {
+        const button = event.target.closest(".refuel-use");
+        if (button) {
+            useStation(parseInt(button.dataset.index, 10));
+        }
+    });
     refuelField("calculate").addEventListener("click", calculateRefuel);
     refuelField("dialog").addEventListener("hide.bs.modal", closeRefuelDialog);
 

@@ -10,8 +10,8 @@ from . import relay
 from .autocomplete import autocomplete
 from .car import parse_car
 from .config import config
-from .osrm import RouterUnavailable, Routers
-from .route import RouteError, get_route, planned_route, toll_cost
+from .osrm import NoRoute, RouterUnavailable, Routers
+from .route import RouteError, get_route, link_through, planned_route, toll_cost
 
 logger = logging.getLogger(__name__)
 
@@ -51,20 +51,47 @@ async def refuel(request):
         return _refused()
     if parameters is None or not _is_number(fuel) or not 0 <= fuel <= parameters.tank_volume:
         return _refused()
+    chosen = _chosen(data.get("chosen"))
+    if chosen is None:
+        return _refused()
 
     routers = Routers()
     try:
         planned = await planned_route(routers, data["from"], data["to"], data["route"])
         if planned is None:
             return web.json_response({"error": "no_split_route"}, status=404)
-        answer = await refuel_module.plan(routers, planned, parameters, fuel, toll_cost)
+        answer = await refuel_module.plan(
+            routers, planned, parameters, fuel, toll_cost, chosen=chosen,
+            link_through=lambda finished, vias: link_through(routers, planned, finished, vias))
     except RouteError as e:
         return web.json_response({"error": e.cause}, status=502)
+    except refuel_module.UnneededStation:
+        return _refused()
+    except NoRoute as e:
+        logger.warning("could not route through the chosen stations: %s", e)
+        return web.json_response({"error": "no_route"}, status=502)
     except RouterUnavailable as e:
         logger.warning("could not route a detour: %s", e)
         return web.json_response({"error": "router_unavailable"}, status=502)
 
     return web.json_response(answer)
+
+
+def _chosen(value):
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > 20:
+        return None
+
+    chosen = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            return None
+        position = (entry.get("latitude"), entry.get("longitude"))
+        if not all(_is_number(coordinate) and math.isfinite(coordinate) for coordinate in position):
+            return None
+        chosen.append(position)
+    return chosen
 
 
 def _refused():

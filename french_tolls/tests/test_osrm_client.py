@@ -168,4 +168,5 @@ def test_a_route_through_a_via_keeps_the_distance_of_each_leg():
     route = osrm._read_route_legs(body)
 
     assert route.leg_distance == (1200.0, 800.0)
+    assert route.leg_start == (0, 2)
     assert route.node_ids == (1, 2, 3, 4)

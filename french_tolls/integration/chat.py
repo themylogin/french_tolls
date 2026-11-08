@@ -84,15 +84,25 @@ class Chat:
                 "from": {"id": USER_ID, "is_bot": False, "first_name": "Driver"},
                 "chat_instance": "1",
                 "data": token,
-                "message": {
-                    "message_id": message_id or next(self._updates),
-                    "date": 0,
-                    "chat": {"id": CHAT_ID, "type": "private"},
-                    "from": {"id": 424242, "is_bot": True, "first_name": "French Tolls"},
-                    "text": "the message the button was on",
-                },
+                "message": self._pressed_message(message_id or next(self._updates)),
             },
         })
+
+    def _pressed_message(self, message_id):
+        """The message as the bot sent it: a press on a photo must arrive on a photo."""
+        message = {
+            "message_id": message_id,
+            "date": 0,
+            "chat": {"id": CHAT_ID, "type": "private"},
+            "from": {"id": 424242, "is_bot": True, "first_name": "French Tolls"},
+            "text": "the message the button was on",
+        }
+        sent = [s for s in self.telegram.sent if s.message_id == message_id and s.method == "sendPhoto"]
+        if sent:
+            del message["text"]
+            message["photo"] = [{"file_id": "gauges", "file_unique_id": "gauges", "width": 1200, "height": 400}]
+            message["caption"] = sent[0].text
+        return message
 
     async def press_offered(self):
         """Press a button offered since the last press. False if none was.

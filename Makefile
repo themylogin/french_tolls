@@ -115,7 +115,7 @@ RUN_OSRM    := $(COMPOSE) run --rm --user $(HOST_USER) osrm-toll-tools
         guard-ulys-key guard-ulys-passage-date guard-eur-per-hour \
         update_route_set clean clean-osrm \
         routers web bot app app-down test clean-cache requirements \
-        test_cities test_google_routes test_google
+        test_cities test_google_routes test_google gauge-image
 
 all: download_pbf setup_osrm build_osm_toll_booths build_route_set \
      build_vinci_toll_booths build_vinci_prices build_booth_sides \
@@ -730,6 +730,12 @@ app: web bot
 
 app-down:
 	$(COMPOSE) --profile app down
+
+# Pillow runs in a throwaway container, so the app image needs no image library.
+gauge-image:
+	$(DOCKER) run --rm --user $(HOST_USER) -e UV_CACHE_DIR=/tmp/uv -v "$$(pwd):/work" -w /work \
+	    ghcr.io/astral-sh/uv:python3.11-bookworm-slim \
+	    uv run --no-project --with pillow python gauge/render.py
 
 # The unit test suite. A one-shot run, so it gets its own profile: `--profile
 # app up` must not start it as a service.

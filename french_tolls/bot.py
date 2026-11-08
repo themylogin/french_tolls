@@ -3,6 +3,7 @@ import html
 import itertools
 import json
 import logging
+from pathlib import Path
 import re
 import urllib.parse
 
@@ -330,6 +331,8 @@ async def car_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     reply = car_rules.answer_button(state.car_dialogs.get(user_id), token, choice)
     if reply.pressed_text is None:
         await query.edit_message_reply_markup(reply_markup=None)
+    elif query.message.photo:
+        await query.edit_message_caption(caption=reply.pressed_text)
     else:
         await query.edit_message_text(reply.pressed_text)
 
@@ -357,7 +360,11 @@ async def send_car_reply(message, state, user_id, reply):
             [InlineKeyboardButton(label, callback_data=f"car:{reply.dialog.token}:{choice}") for label, choice in row]
             for row in reply.buttons
         ])
-    await message.reply_text(reply.text, reply_markup=markup)
+    if reply.photo:
+        gauges = Path(__file__).parent / "assets" / "gauges.png"
+        await message.reply_photo(photo=gauges.read_bytes(), caption=reply.text, reply_markup=markup)
+    else:
+        await message.reply_text(reply.text, reply_markup=markup)
 
 
 async def reset_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

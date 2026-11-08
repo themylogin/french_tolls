@@ -32,7 +32,9 @@ ANSWERED = (
     "getMe",
     "setMyCommands",
     "sendMessage",
+    "sendPhoto",
     "editMessageText",
+    "editMessageCaption",
     "editMessageReplyMarkup",
     "answerCallbackQuery",
     "deleteMessage",
@@ -49,7 +51,12 @@ class Sent:
 
     @property
     def text(self) -> str:
-        return self.parameters.get("text") or ""
+        """The text of a message, or the caption of a photo."""
+        return self.parameters.get("text") or self.parameters.get("caption") or ""
+
+    @property
+    def photo(self) -> bool:
+        return self.method in ("sendPhoto", "editMessageCaption")
 
     @property
     def markup(self):
@@ -110,7 +117,7 @@ class Telegram(BaseRequest):
 
         order, final = [], {}
         for s in self.sent:
-            if s.method not in ("sendMessage", "editMessageText"):
+            if s.method not in ("sendMessage", "sendPhoto", "editMessageText", "editMessageCaption"):
                 continue
             if s.message_id not in final:
                 order.append(s.message_id)
@@ -178,13 +185,18 @@ class Telegram(BaseRequest):
         # reply to, edit and delete. `date` is 0 rather than a clock reading:
         # nothing in the flow looks at it, and a test that reads a clock is a
         # test that fails on a slow machine one day in a thousand.
-        return {
+        result = {
             "message_id": message_id,
             "date": 0,
             "chat": {"id": parameters.get("chat_id", 1), "type": "private"},
             "from": {"id": 424242, "is_bot": True, "first_name": "French Tolls",
                      "username": self.username},
-            "text": parameters.get("text", ""),
             **({"reply_markup": parameters["reply_markup"]}
                if parameters.get("reply_markup") else {}),
         }
+        if endpoint in ("sendPhoto", "editMessageCaption"):
+            result["photo"] = [{"file_id": "gauges", "file_unique_id": "gauges", "width": 1200, "height": 400}]
+            result["caption"] = parameters.get("caption", "")
+        else:
+            result["text"] = parameters.get("text", "")
+        return result

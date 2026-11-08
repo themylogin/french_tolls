@@ -26,6 +26,8 @@ The browser page SHALL live under `www/`, together with its own container image 
 
 The paid evaluation SHALL live under `evaluation/`, together with its own container image definition. It is a fourth kind of thing: it is not a build step, it produces no artefact the application reads, and it is the only part of this repository that spends money. Keeping it out of `builder/` is what stops it from ever becoming a prerequisite of a build.
 
+The sources of the gauge picture and their render script SHALL live under `gauge/`. They are a fifth kind of thing: no build step runs them, and the application does not run them either. Only `make gauge-image` reads them, and it writes the picture that the bot sends to `french_tolls/assets/`.
+
 What the evaluation produces SHALL be committed, unlike the pipeline's intermediates. The rule for the rest of `data/` is that anything regenerable is left out; the rule here is the opposite, because regenerating these costs money rather than time.
 
 The application SHALL be tracked. It SHALL NOT carry a booth inventory or a tariff table of its own: those live under `data/`, are committed there already, and a second copy goes stale without saying so.
@@ -50,6 +52,11 @@ The exclusion report, the uncovered report, and the segment weight report SHALL 
 
 - **WHEN** the repository is inspected
 - **THEN** the evaluation's scripts and its Dockerfile are under `evaluation/`, and none of them sits under `builder/`
+
+#### Scenario: The gauge sources are located together
+
+- **WHEN** the repository is inspected
+- **THEN** `gauge/render.py` and the three gauge images are under `gauge/`, and the rendered picture is `french_tolls/assets/gauges.png`
 
 #### Scenario: Bought answers are committed
 

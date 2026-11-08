@@ -2,6 +2,7 @@
 import contextlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import itertools
 import json
 import logging
 import os
@@ -16,7 +17,7 @@ from .tolls import Journey, account, booths_crossed, closed_sections, fare
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PlannedRoute", "RouteError", "SplitStop", "get_route", "planned_route", "toll_cost"]
+__all__ = ["PlannedRoute", "RouteError", "SplitStop", "get_route", "link_through", "planned_route", "toll_cost"]
 
 ERRORS_DIR = "/cache/errors"
 
@@ -323,6 +324,7 @@ class PlannedRoute:
     end: Snap
     route: osrm.Route
     stops: tuple[SplitStop, ...]
+    optimal: osrm.Route
 
 
 async def planned_route(routers, from_, to, name) -> PlannedRoute | None:
@@ -336,7 +338,7 @@ async def planned_route(routers, from_, to, name) -> PlannedRoute | None:
         optimal = await routers.optimal(start, end)
 
         if name == "optimal":
-            return PlannedRoute(start=start, end=end, route=optimal, stops=())
+            return PlannedRoute(start=start, end=end, route=optimal, stops=(), optimal=optimal)
 
         try:
             split = await _split_journey(routers, start, end, optimal)
@@ -352,7 +354,7 @@ async def planned_route(routers, from_, to, name) -> PlannedRoute | None:
                 stops.append(SplitStop(location=(booth.latlon[1], booth.latlon[0]),
                                        index=split.route.index_of(booth.node_id)))
 
-        return PlannedRoute(start=start, end=end, route=split.route, stops=tuple(stops))
+        return PlannedRoute(start=start, end=end, route=split.route, stops=tuple(stops), optimal=optimal)
 
 
 async def booths_along(geometry):
@@ -362,3 +364,38 @@ async def booths_along(geometry):
     except Exception as e:                                          # noqa: BLE001
         logger.warning("could not price a foreign geometry: %r", e)
         return None
+
+
+async def link_through(routers, planned, route, kept) -> str | None:
+    """A Maps link that drives `route` through each of `kept`, or None where they alone do not fit.
+
+    `kept` are the vias of the route, each with a `location` and the node `index`
+    where the route meets it. The waypoints of the optimal route's own link fill
+    the free places. Where they do not all fit, the one nearest along the route
+    to another waypoint goes first: a waypoint next to another one pins the least.
+    """
+    if len(kept) > MAX_WAYPOINTS:
+        return None
+
+    plan = await plan_waypoints(routers, planned.optimal, planned.start, planned.end, max_waypoints=MAX_WAYPOINTS)
+    optional = []
+    for index, location in zip(plan.indices, plan.locations):
+        at = route.index_of(planned.optimal.node_ids[index])
+        if at is not None:
+            optional.append((at, location))
+    fixed = [(via.index, via.location) for via in kept]
+
+    along = [0.0, *itertools.accumulate(route.segment_distance)]
+    while len(fixed) + len(optional) > MAX_WAYPOINTS:
+        def gap(position):
+            at = optional[position][0]
+            others = fixed + optional[:position] + optional[position + 1:]
+            return min(abs(along[at] - along[other]) for other, _location in others)
+
+        del optional[min(range(len(optional)), key=gap)]
+
+    placed = sorted(fixed + optional, key=lambda point: point[0])
+    points = [_as_latlon(route.coordinates[0])]
+    points += [_as_latlon(location) for _at, location in placed]
+    points.append(_as_latlon(route.coordinates[-1]))
+    return google_maps_link(points)

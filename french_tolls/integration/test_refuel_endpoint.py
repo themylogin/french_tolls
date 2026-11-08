@@ -7,6 +7,8 @@ loads the booth artefacts at import, and `api` imports `route`. This suite has
 """
 import asyncio
 import json
+from types import SimpleNamespace
+import urllib.parse
 
 import aiohttp
 from aiohttp import web
@@ -14,7 +16,8 @@ from aiohttp.test_utils import TestServer
 import pytest
 
 from .. import api, refuel, route
-from ..osrm import Route, RouterUnavailable, Snap
+from ..osrm import NoRoute, Route, RouterUnavailable, Snap
+from ..waypoints import WaypointPlan
 
 FROM = [2.3522, 48.8566]
 TO = [5.3698, 43.2965]
@@ -112,8 +115,8 @@ def post(monkeypatch, body, *, planned=PLANNED, route_error=None, plan_error=Non
             raise route_error
         return planned
 
-    async def fake_plan(routers, planned_, parameters, fuel, toll_cost):
-        calls.append(("plan", fuel))
+    async def fake_plan(routers, planned_, parameters, fuel, toll_cost, chosen=(), link_through=None):
+        calls.append(("plan", fuel, tuple(chosen)))
         if plan_error is not None:
             raise plan_error
         return NO_STOP
@@ -152,7 +155,7 @@ def test_a_complete_request_is_answered(monkeypatch):
 
     assert status == 200
     assert answer == NO_STOP
-    assert calls == [("planned_route", "optimal"), ("plan", 20)]
+    assert calls == [("planned_route", "optimal"), ("plan", 20, ())]
 
 
 @pytest.mark.parametrize("body", [
@@ -174,7 +177,7 @@ def test_an_empty_tank_is_accepted(monkeypatch):
     status, _answer, calls = post(monkeypatch, with_changes(fuel=0))
 
     assert status == 200
-    assert calls[-1] == ("plan", 0)
+    assert calls[-1] == ("plan", 0, ())
 
 
 def test_a_journey_without_a_split_route_gets_404(monkeypatch):
@@ -197,3 +200,110 @@ def test_a_detour_failure_gets_502(monkeypatch):
 
     assert status == 502
     assert answer == {"error": "router_unavailable"}
+
+
+def a_plan(optimal, indices):
+    async def fake_plan_waypoints(routers, route_, origin, destination, *, max_waypoints):
+        return WaypointPlan(indices=list(indices), locations=[optimal.coordinates[i] for i in indices])
+
+    return fake_plan_waypoints
+
+
+def link_waypoints(url):
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    return query["waypoints"][0].split("|")
+
+
+def latlon(route_, index):
+    longitude, latitude = route_.coordinates[index]
+    return f"{latitude:.6f},{longitude:.6f}"
+
+
+def kept_at(route_, *indices):
+    return [refuel.Via(location=route_.coordinates[i], index=i, chosen=True) for i in indices]
+
+
+def test_the_link_of_a_plan_fits_the_route_waypoints_and_the_stations(monkeypatch):
+    optimal = straight_route(range(1, 22))
+    monkeypatch.setattr(route, "plan_waypoints", a_plan(optimal, [2, 6, 10, 14, 18]))
+    planned = SimpleNamespace(start="start", end="end", optimal=optimal)
+
+    url = asyncio.run(route.link_through(None, planned, optimal, kept_at(optimal, 4, 12)))
+
+    assert link_waypoints(url) == [latlon(optimal, i) for i in (2, 4, 6, 10, 12, 14, 18)]
+
+
+def test_the_link_drops_the_route_waypoint_nearest_to_another(monkeypatch):
+    optimal = straight_route(range(1, 31))
+    monkeypatch.setattr(route, "plan_waypoints", a_plan(optimal, [2, 5, 8, 11, 14, 17, 22, 26]))
+    planned = SimpleNamespace(start="start", end="end", optimal=optimal)
+
+    url = asyncio.run(route.link_through(None, planned, optimal, kept_at(optimal, 12, 20)))
+
+    assert link_waypoints(url) == [latlon(optimal, i) for i in (2, 5, 8, 12, 14, 17, 20, 22, 26)]
+
+
+def test_a_route_waypoint_that_the_plan_leaves_is_not_in_the_link(monkeypatch):
+    optimal = straight_route(range(1, 22))
+    finished = straight_route([*range(1, 11), *range(100, 106), *range(15, 22)])
+    monkeypatch.setattr(route, "plan_waypoints", a_plan(optimal, [5, 11, 17]))
+    planned = SimpleNamespace(start="start", end="end", optimal=optimal)
+
+    url = asyncio.run(route.link_through(None, planned, finished, kept_at(finished, 12)))
+
+    assert link_waypoints(url) == [latlon(optimal, 5), latlon(finished, 12), latlon(optimal, 17)]
+
+
+def test_more_than_9_stations_give_no_link(monkeypatch):
+    optimal = straight_route(range(1, 31))
+    searched = []
+
+    async def refuse(*_args, **_kwargs):
+        searched.append(True)
+
+    monkeypatch.setattr(route, "plan_waypoints", refuse)
+    planned = SimpleNamespace(start="start", end="end", optimal=optimal)
+
+    assert asyncio.run(route.link_through(None, planned, optimal, kept_at(optimal, *range(2, 22, 2)))) is None
+    assert searched == []
+
+
+def test_a_request_without_chosen_stations_plans_the_first_stop(monkeypatch):
+    status, _answer, calls = post(monkeypatch, REQUEST)
+
+    assert status == 200
+    assert calls[-1] == ("plan", 20, ())
+
+
+def test_the_chosen_stations_reach_the_plan_in_order(monkeypatch):
+    body = with_changes(chosen=[{"latitude": 47.0, "longitude": 2.0}, {"latitude": 45.34, "longitude": 4.805}])
+
+    status, _answer, calls = post(monkeypatch, body)
+
+    assert status == 200
+    assert calls[-1] == ("plan", 20, ((47.0, 2.0), (45.34, 4.805)))
+
+
+@pytest.mark.parametrize("chosen", [
+    [{"latitude": 47.0, "longitude": 2.0}] * 21,
+    [{"latitude": 45.34}],
+    "A",
+])
+def test_invalid_chosen_stations_get_400_and_no_router_request(monkeypatch, chosen):
+    status, _answer, calls = post(monkeypatch, with_changes(chosen=chosen))
+
+    assert status == 400
+    assert calls == []
+
+
+def test_a_station_that_the_plan_does_not_need_gets_400(monkeypatch):
+    status, _answer, _calls = post(monkeypatch, REQUEST, plan_error=refuel.UnneededStation("not needed"))
+
+    assert status == 400
+
+
+def test_no_route_through_the_chosen_stations_gets_502(monkeypatch):
+    status, answer, _calls = post(monkeypatch, REQUEST, plan_error=NoRoute("no road"))
+
+    assert status == 502
+    assert answer == {"error": "no_route"}
