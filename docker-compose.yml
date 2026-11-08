@@ -117,6 +117,15 @@ services:
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
     profiles: ["gas-stations"]
 
+  osm-gas-stations:
+    build: .
+    entrypoint: ["python3", "-m", "french_tolls.osm_gas_stations"]
+    volumes:
+      - "cache:/cache"
+    environment:
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    profiles: ["osm-gas-stations"]
+
   # Developer tools
 
   tests:

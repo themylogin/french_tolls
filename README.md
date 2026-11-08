@@ -108,6 +108,32 @@ docker compose run --rm gas-stations PT23H
 The argument is an ISO 8601 duration. It updates stations that had the
 last read more than that duration ago.
 
+## OSM gas stations
+
+`osm-gas-stations` downloads the most recent France extract of Geofabrik and
+writes its fuel stations with a prix-carburants id to
+`/cache/osm_gas_stations.json`:
+
+```
+docker compose run --rm osm-gas-stations
+```
+
+The file maps each id of `ref:FR:prix-carburants` to the list of OSM
+stations with that id. A node has `latitude` and `longitude`. An area has
+`area`, the `[latitude, longitude]` points of its outer ring. Both have
+`tags`, the OSM tags of the station:
+
+```json
+{"45200007": [{"latitude": 47.9120276, "longitude": 2.7350978, "tags": {"amenity": "fuel", "ref:FR:prix-carburants": "45200007"}}]}
+```
+
+The run exits with the status 0 when it writes the file. On a failure it
+exits with the status 1, and the earlier file stays.
+
+The run downloads 5.1 GB, and needs 5.2 GB free at the Docker root. It takes
+about 5 minutes on a fast link. Geofabrik makes a new extract once a day, so
+run it once a day at most.
+
 ## Tests
 
 ```

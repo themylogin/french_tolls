@@ -12,6 +12,8 @@
 /data/uncovered_booths.json
 /data/vinci_routes_rejected.sqlite3
 
+/french_tolls/tests/osm_gas_stations.osm
+
 docker-compose.override.yml
 
 __pycache__/
