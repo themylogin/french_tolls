@@ -108,6 +108,16 @@ docker compose run --rm gas-stations PT23H
 The argument is an ISO 8601 duration. It updates stations that had the
 last read more than that duration ago.
 
+The run takes the position of each station from the OSM station with the same
+id in `/cache/osm_gas_stations.json` (see "OSM gas stations" below), when one
+matches. Otherwise it takes the position of the prix-carburants list. For a
+daily update, run the two commands in this order:
+
+```
+docker compose run --rm osm-gas-stations
+docker compose run --rm gas-stations PT23H
+```
+
 ## OSM gas stations
 
 `osm-gas-stations` downloads the most recent France extract of Geofabrik and

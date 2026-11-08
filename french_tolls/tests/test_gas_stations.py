@@ -12,6 +12,7 @@ import datetime
 import json
 import pathlib
 import sqlite3
+import tempfile
 
 from aiohttp import web
 from aiohttp.test_utils import TestServer
@@ -254,10 +255,73 @@ def test_the_area_query_reads_the_index(store):
     assert "SEARCH gas_station USING INTEGER PRIMARY KEY (rowid=?)" in plan
 
 
+def osm_node(latitude, longitude, **tags):
+    return {"latitude": latitude, "longitude": longitude, "tags": {"amenity": "fuel", **tags}}
+
+
+def test_a_node_gives_its_position():
+    assert gas_stations.osm_position([osm_node(48.2095, -3.8172)], "Leclerc", (48.209, -3.818)) == (48.2095, -3.8172)
+
+
+def test_an_area_gives_its_centroid():
+    area = {"area": [[48.2, -3.82], [48.2, -3.81], [48.21, -3.81], [48.21, -3.82]], "tags": {"amenity": "fuel"}}
+
+    assert gas_stations.osm_position([area], "Leclerc", (48.209, -3.818)) == pytest.approx((48.205, -3.815))
+
+
+def test_no_candidate_gives_no_position():
+    assert gas_stations.osm_position([], "Leclerc", (48.209, -3.818)) is None
+
+
+def test_a_candidate_25_km_away_is_not_used():
+    assert gas_stations.osm_position([osm_node(48.434, -3.818)], "Leclerc", (48.209, -3.818)) is None
+
+
+def test_a_candidate_15_km_away_is_used():
+    assert gas_stations.osm_position([osm_node(48.344, -3.818)], "Leclerc", (48.209, -3.818)) == (48.344, -3.818)
+
+
+def test_the_station_brand_wins_over_a_nearer_station():
+    petro_est = osm_node(48.21125, -3.818, name="PETRO-EST")
+    leclerc = {
+        "area": [[48.20436, -3.8185], [48.20436, -3.8175], [48.20536, -3.8175], [48.20536, -3.8185]],
+        "tags": {"amenity": "fuel", "brand": "E.Leclerc", "name": "Station Service E. Leclerc"},
+    }
+
+    position = gas_stations.osm_position([petro_est, leclerc], "Leclerc", (48.209, -3.818))
+
+    assert position == pytest.approx((48.20486, -3.818))
+
+
+def test_the_brand_ignores_case_and_accents():
+    intermarche = osm_node(48.2117, -3.818, brand="INTERMARCHE")
+    total = osm_node(48.2099, -3.818, brand="Total")
+
+    position = gas_stations.osm_position([intermarche, total], "Intermarché Contact", (48.209, -3.818))
+
+    assert position == (48.2117, -3.818)
+
+
+def test_without_the_brand_word_the_nearest_candidate_wins():
+    super_u = osm_node(48.2099, -3.818, brand="Super U")
+    hyper_u = osm_node(48.2117, -3.818, brand="Hyper U")
+
+    assert gas_stations.osm_position([hyper_u, super_u], "Système U", (48.209, -3.818)) == (48.2099, -3.818)
+
+
+def test_without_a_brand_the_nearest_candidate_wins():
+    far = osm_node(48.2117, -3.818)
+    near = osm_node(48.2099, -3.818)
+
+    assert gas_stations.osm_position([far, near], None, (48.209, -3.818)) == (48.2099, -3.818)
+
+
 class LocalSource:
-    def __init__(self, listed, pages, list_status=200, list_body=None, hold=(), delay=0):
+    def __init__(self, listed, pages, list_status=200, list_body=None, hold=(), delay=0, osm=None, osm_text=None):
         self.listed = listed
         self.pages = pages
+        self.osm = osm
+        self.osm_text = osm_text
         self.list_status = list_status
         self.list_body = list_body
         self.hold = hold
@@ -300,7 +364,14 @@ class LocalSource:
         server = TestServer(app)
         await server.start_server()
         try:
-            return await gas_stations.update(max_age, base_url=f"http://{server.host}:{server.port}")
+            with tempfile.TemporaryDirectory() as directory:
+                osm_path = pathlib.Path(directory) / "osm_gas_stations.json"
+                if self.osm is not None:
+                    osm_path.write_text(json.dumps(self.osm), encoding="utf-8")
+                if self.osm_text is not None:
+                    osm_path.write_text(self.osm_text, encoding="utf-8")
+                return await gas_stations.update(
+                    max_age, base_url=f"http://{server.host}:{server.port}", osm_path=osm_path)
         finally:
             # A held handler would otherwise keep the server open until its shutdown timeout.
             self.released.set()
@@ -396,6 +467,46 @@ def test_the_listed_position_replaces_the_stored_one(store, station_page):
     assert source.run() == 0
     assert stored_row(store, 1)[1:3] == (48.209, -3.818)
     assert area_ids(48.1, -3.9, 48.3, -3.7) == [1]
+
+
+@pytest.mark.parametrize("osm_text", [None, "not json", "[]"])
+def test_a_run_without_a_usable_osm_file_stores_the_list_positions(store, station_page, caplog, monkeypatch,
+                                                                    osm_text):
+    monkeypatch.setattr(gas_stations.logger, "disabled", False)
+    source = LocalSource([(29520005, 48.209, -3.818)], {29520005: station_page}, osm_text=osm_text)
+
+    assert source.run() == 0
+    assert stored_row(store, 29520005)[1:3] == (48.209, -3.818)
+    assert "The OpenStreetMap stations are not used" in caplog.text
+
+
+def test_a_matched_osm_node_gives_the_stored_position(store, station_page):
+    source = LocalSource([(29520005, 48.209, -3.818)], {29520005: station_page},
+                         osm={"29520005": [osm_node(48.2095, -3.8172)]})
+
+    assert source.run() == 0
+    assert stored_row(store, 29520005)[1:3] == (48.2095, -3.8172)
+    assert area_ids(48.2094, -3.8173, 48.2096, -3.8171) == [29520005]
+
+
+def test_a_station_without_osm_stations_gets_its_list_position(store, station_page):
+    source = LocalSource([(29520005, 48.209, -3.818)], {29520005: station_page},
+                         osm={"45200007": [osm_node(47.9120276, 2.7350978)]})
+
+    assert source.run() == 0
+    assert stored_row(store, 29520005)[1:3] == (48.209, -3.818)
+
+
+def test_the_run_logs_the_source_of_the_positions(store, station_page, caplog, monkeypatch):
+    monkeypatch.setattr(gas_stations.logger, "disabled", False)
+    caplog.set_level("INFO", logger="french_tolls.gas_stations")
+    listed = [(1, 48.209, -3.818), (2, 48.209, -3.818), (3, 48.209, -3.818)]
+    osm = {"1": [osm_node(48.2095, -3.8172)], "2": [osm_node(48.2095, -3.8172)]}
+    source = LocalSource(listed, {1: station_page, 2: station_page, 3: station_page}, osm=osm)
+
+    assert source.run() == 0
+    assert ("3 stations refreshed (2 at the OpenStreetMap position, 1 at the list position), 0 failed"
+            in caplog.text)
 
 
 def test_the_update_time_is_the_time_of_the_read(store, station_page):
