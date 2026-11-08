@@ -53,9 +53,9 @@ def candidate_ids(position, fuel_type):
     return [candidate.station.id for candidate in asyncio.run(refuel.candidates(position, fuel_type))]
 
 
-def a_car(consume_80, consume_130, tank_volume=50, fuel_type="diesel"):
+def a_car(consume_80, consume_130, tank_volume=50, fuel_type="diesel", reserve=5):
     return CarParameters(fuel_type=fuel_type, tank_volume=tank_volume, consume_80=consume_80,
-                         consume_130=consume_130)
+                         consume_130=consume_130, reserve=reserve)
 
 
 def a_route(segment_m, segment_s, segments, start=(2.0, 47.0)):
@@ -97,6 +97,15 @@ def test_the_search_point_is_where_the_tank_first_holds_5_l():
     assert fuel_left == pytest.approx(5)
 
 
+def test_a_larger_reserve_moves_the_search_point_nearer_to_the_origin():
+    route = a_route(10_000, 10_000 / (130 / 3.6), 10)
+
+    index, fuel_left = refuel.fuel_walk(route, a_car(10, 10, reserve=8), 10)
+
+    assert index == 2
+    assert fuel_left == pytest.approx(8)
+
+
 @pytest.mark.parametrize("fuel", [4, 5])
 def test_5_l_or_less_at_the_origin_makes_the_origin_the_search_point(fuel):
     route = a_route(10_000, 10_000 / (130 / 3.6), 10)
@@ -111,6 +120,15 @@ def test_no_search_point_when_the_fuel_lasts():
 
     assert index is None
     assert fuel_left == pytest.approx(34)
+
+
+def test_a_reserve_above_the_fuel_left_at_the_destination_gives_a_search_point():
+    route = a_route(10_000, 10_000 / (130 / 3.6), 10)
+
+    index, fuel_left = refuel.fuel_walk(route, a_car(6, 6, reserve=35), 40)
+
+    assert index == 9
+    assert fuel_left == pytest.approx(34.6)
 
 
 def test_a_segment_of_0_s_uses_no_fuel():

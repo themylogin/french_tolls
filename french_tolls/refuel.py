@@ -41,17 +41,17 @@ def segment_speed(distance_m, duration_s):
 
 
 def fuel_walk(route, parameters, fuel, start=0):
-    """The index of the first node from `start` with 5 L or less, and the fuel left there.
+    """The index of the first node from `start` with the reserve of the car or less, and the fuel left there.
 
-    The index is None when the fuel left at the destination is more than 5 L.
+    The index is None when the fuel left at the destination is more than the reserve.
     """
     for index in range(start, len(route.segment_distance)):
-        if fuel <= 5:
+        if fuel <= parameters.reserve:
             return index, fuel
         distance, duration = route.segment_distance[index], route.segment_duration[index]
         fuel -= distance / 1000 * _segment_consumption(parameters, distance, duration) / 100
 
-    if fuel <= 5:
+    if fuel <= parameters.reserve:
         return len(route.segment_distance), fuel
     return None, fuel
 

@@ -594,7 +594,7 @@ function markField(name, message) {
 }
 
 function clearFieldMarks() {
-    ["tank-volume", "consume-80", "consume-130", "fuel"].forEach(name => {
+    ["tank-volume", "consume-80", "consume-130", "reserve", "fuel"].forEach(name => {
         const field = refuelField(name);
         field.classList.remove("is-invalid");
         fieldFeedback(field).classList.remove("d-block");
@@ -610,6 +610,7 @@ function readRefuelForm() {
     const fuelType = document.querySelector('input[name="refuel-fuel-type"]:checked').value;
     const consume80 = parseConsumption(refuelField("consume-80").value);
     const consume130 = parseConsumption(refuelField("consume-130").value);
+    const reserve = parseDecimal(refuelField("reserve").value);
     const fuel = parseDecimal(refuelField("fuel").value);
 
     let valid = true;
@@ -629,6 +630,10 @@ function readRefuelForm() {
                   "The consumption at 130 km/h must be equal to or more than the consumption at 80 km/h.");
         valid = false;
     }
+    if (reserve === null || (tankVolume !== null && reserve >= tankVolume)) {
+        markField("reserve", "The reserve must be a number of 0 or more and less than the tank volume.");
+        valid = false;
+    }
     if (fuel === null || (tankVolume !== null && fuel > tankVolume)) {
         markField("fuel", "The fuel in the tank must be a number from 0 to the tank volume.");
         valid = false;
@@ -638,7 +643,13 @@ function readRefuelForm() {
         return null;
     }
     return {
-        car: { fuel_type: fuelType, tank_volume: tankVolume, consume_80: consume80, consume_130: consume130 },
+        car: {
+            fuel_type: fuelType,
+            tank_volume: tankVolume,
+            consume_80: consume80,
+            consume_130: consume130,
+            reserve: reserve,
+        },
         fuel: fuel,
     };
 }
@@ -676,8 +687,8 @@ function showRefuelAnswer(answer) {
         return;
     }
     if (!answer.stations.length) {
-        showRefuelMessage("No gas station sells this fuel within 50 km of the point where the tank reaches 5 L.",
-                          "info");
+        showRefuelMessage("No gas station sells this fuel within 50 km of the point where the tank reaches " +
+                          refuelRequest.car.reserve + " L.", "info");
         return;
     }
 
@@ -721,6 +732,7 @@ function openRefuelDialog(routeName) {
     refuelField("fuel-type-" + fuelType).checked = true;
     refuelField("consume-80").value = storedText(car.consume_80);
     refuelField("consume-130").value = storedText(car.consume_130);
+    refuelField("reserve").value = storedText(car.reserve) || "5";
     refuelField("fuel").value = "";
 
     clearFieldMarks();

@@ -99,7 +99,7 @@ REQUEST = {
     "from": [2.35, 48.86],
     "to": [5.37, 43.30],
     "route": "optimal",
-    "car": {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2},
+    "car": {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2, "reserve": 5},
     "fuel": 20,
 }
 PLANNED = object()
@@ -163,7 +163,9 @@ def test_a_complete_request_is_answered(monkeypatch):
     with_changes(tank_volume=50, fuel=51),
     with_changes(consume_80=7.2, consume_130=5.5),
     with_changes(route="fast"),
+    with_changes(reserve=50),
     {key: value for key, value in REQUEST.items() if key != "fuel"},
+    {**REQUEST, "car": {key: value for key, value in REQUEST["car"].items() if key != "reserve"}},
     "this is not JSON",
 ])
 def test_an_invalid_request_gets_400_and_no_router_request(monkeypatch, body):
@@ -178,6 +180,13 @@ def test_an_empty_tank_is_accepted(monkeypatch):
 
     assert status == 200
     assert calls[-1] == ("plan", 0, ())
+
+
+def test_a_reserve_of_0_is_accepted(monkeypatch):
+    status, _answer, calls = post(monkeypatch, with_changes(reserve=0))
+
+    assert status == 200
+    assert calls[-1] == ("plan", 20, ())
 
 
 def test_a_journey_without_a_split_route_gets_404(monkeypatch):
