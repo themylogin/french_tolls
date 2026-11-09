@@ -59,12 +59,9 @@ def no_stop_text(answer):
     return f"No need to refuel: you'll arrive with {math.floor(answer['fuel_left'])} L."
 
 
-def no_station_text(parameters, by_range):
-    if by_range:
-        return ("No gas station sells this fuel within 50 km of the point where the range reaches "
-                f"{number_text(parameters.reserve_km)} km.")
-    return ("No gas station sells this fuel within 50 km of the point where the tank reaches "
-            f"{number_text(parameters.reserve)} L.")
+def no_station_text(parameters):
+    return ("No gas station sells this fuel within 50 km of the point where the range left reaches "
+            f"{number_text(parameters.reserve_km)} km.")
 
 
 def station_list(stations):

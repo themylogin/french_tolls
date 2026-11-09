@@ -600,7 +600,7 @@ function clearFieldMark(name) {
 }
 
 function clearFieldMarks() {
-    ["tank-volume", "consume-80", "consume-130", "reserve", "reserve-km", "fuel", "range"].forEach(clearFieldMark);
+    ["tank-volume", "consume-80", "consume-130", "reserve-km", "fuel", "range"].forEach(clearFieldMark);
 }
 
 // The fuel and the range are two answers to one question: text in one disables the other.
@@ -626,7 +626,6 @@ function readRefuelForm() {
     const fuelType = document.querySelector('input[name="refuel-fuel-type"]:checked').value;
     const consume80 = parseConsumption(refuelField("consume-80").value);
     const consume130 = parseConsumption(refuelField("consume-130").value);
-    const reserve = parseDecimal(refuelField("reserve").value);
     const reserveKm = parseDecimal(refuelField("reserve-km").value);
     const fuelText = refuelField("fuel").value.trim();
     const rangeText = refuelField("range").value.trim();
@@ -650,12 +649,8 @@ function readRefuelForm() {
                   "The consumption at 130 km/h must be equal to or more than the consumption at 80 km/h.");
         valid = false;
     }
-    if (reserve === null || (tankVolume !== null && reserve >= tankVolume)) {
-        markField("reserve", "The reserve must be a number of 0 or more and less than the tank volume.");
-        valid = false;
-    }
     if (reserveKm === null || reserveKm > 500) {
-        markField("reserve-km", "The range reserve must be a number from 0 to 500 km.");
+        markField("reserve-km", "The reserve must be a number from 0 to 500 km.");
         valid = false;
     }
     if (!fuelText && !rangeText) {
@@ -683,7 +678,6 @@ function readRefuelForm() {
             tank_volume: tankVolume,
             consume_80: consume80,
             consume_130: consume130,
-            reserve: reserve,
             reserve_km: reserveKm,
         },
         start: start,
@@ -727,14 +721,9 @@ function showRefuelAnswer(answer) {
         showRefuelMessage("No need to refuel: you'll arrive with " + Math.floor(answer.fuel_left) + " L.", "info");
         return;
     }
-    if (!answer.stations.length && "range" in refuelRequest.start && !refuelChosen.length) {
-        showRefuelMessage("No gas station sells this fuel within 50 km of the point where the range reaches " +
-                          refuelRequest.car.reserve_km + " km.", "info");
-        return;
-    }
     if (!answer.stations.length) {
-        showRefuelMessage("No gas station sells this fuel within 50 km of the point where the tank reaches " +
-                          refuelRequest.car.reserve + " L.", "info");
+        showRefuelMessage("No gas station sells this fuel within 50 km of the point where the range left reaches " +
+                          refuelRequest.car.reserve_km + " km.", "info");
         return;
     }
 
@@ -778,7 +767,6 @@ function openRefuelDialog(routeName) {
     refuelField("fuel-type-" + fuelType).checked = true;
     refuelField("consume-80").value = storedText(car.consume_80);
     refuelField("consume-130").value = storedText(car.consume_130);
-    refuelField("reserve").value = storedText(car.reserve) || "5";
     refuelField("reserve-km").value = storedText(car.reserve_km) || "50";
     refuelField("fuel").value = "";
     refuelField("range").value = "";

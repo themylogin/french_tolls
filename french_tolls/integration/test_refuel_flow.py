@@ -26,8 +26,8 @@ from .test_split_route import StationRouters, built_route, plan_of, position
 
 
 def a_car(**changes):
-    values = {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 10.0, "consume_130": 10.0, "reserve": 5.0,
-              "reserve_km": 50.0, "gauge_steps": 16}
+    values = {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 10.0, "consume_130": 10.0, "reserve_km": 50.0,
+              "gauge_steps": 16}
     return CarParameters(**{**values, **changes})
 
 
@@ -110,12 +110,12 @@ def no_cars():
         connection.execute("DELETE FROM car")
 
 
-def store_car(tank_volume=50, gauge_steps=16, reserve=5.0, reserve_km=50.0):
+def store_car(tank_volume=50, gauge_steps=16, reserve_km=50.0):
     with sqlite3.connect("/cache/database.db") as connection:
         connection.execute(
             "INSERT INTO car (telegram_user_id, fuel_type, tank_volume, consume_80, consume_130, gauge_steps,"
-            " reserve, reserve_km) VALUES (?, 'diesel', ?, 5.5, 7.2, ?, ?, ?)",
-            (USER_ID, tank_volume, gauge_steps, reserve, reserve_km))
+            " reserve_km) VALUES (?, 'diesel', ?, 5.5, 7.2, ?, ?)",
+            (USER_ID, tank_volume, gauge_steps, reserve_km))
 
 
 class Planner:
@@ -547,16 +547,16 @@ def test_a_plan_with_too_many_stops_is_not_offered(monkeypatch):
 
 
 def test_no_station_after_a_gauge_press(monkeypatch):
-    store_car(reserve=5.0)
+    store_car(reserve_km=50.0)
 
     chat, _planner, _replay = talk(monkeypatch, [a_list(0)], half_a_tank)
 
     assert chat.texts()[-1] == (
-        "No gas station sells this fuel within 50 km of the point where the tank reaches 5 L.")
+        "No gas station sells this fuel within 50 km of the point where the range left reaches 50 km.")
 
 
 def test_no_station_after_a_typed_range(monkeypatch):
-    store_car(reserve_km=50.0)
+    store_car(reserve_km=42.5)
 
     async def scenario(chat):
         await plan_refuel(chat)
@@ -565,11 +565,11 @@ def test_no_station_after_a_typed_range(monkeypatch):
     chat, _planner, _replay = talk(monkeypatch, [a_list(0)], scenario)
 
     assert chat.texts()[-1] == (
-        "No gas station sells this fuel within 50 km of the point where the range reaches 50 km.")
+        "No gas station sells this fuel within 50 km of the point where the range left reaches 42.5 km.")
 
 
-def test_no_station_after_a_chosen_station_names_the_liters(monkeypatch):
-    store_car(reserve=5.0)
+def test_no_station_after_a_chosen_station_names_the_reserve_in_km(monkeypatch):
+    store_car(reserve_km=50.0)
 
     async def scenario(chat):
         await plan_refuel(chat)
@@ -579,7 +579,7 @@ def test_no_station_after_a_chosen_station_names_the_liters(monkeypatch):
     chat, _planner, _replay = talk(monkeypatch, [a_list(), a_list(0)], scenario)
 
     assert chat.texts()[-1] == (
-        "No gas station sells this fuel within 50 km of the point where the tank reaches 5 L.")
+        "No gas station sells this fuel within 50 km of the point where the range left reaches 50 km.")
 
 
 def test_a_failed_plan_ends_the_plan(monkeypatch):

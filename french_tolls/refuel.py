@@ -1,5 +1,6 @@
 # -*- coding=utf-8 -*-
 import asyncio
+import bisect
 from dataclasses import dataclass
 import math
 import re
@@ -11,8 +12,8 @@ from .models import GasStation
 from .osrm import NoRoute
 
 __all__ = ["Candidate", "Start", "UnneededStation", "Via", "candidates", "consumption_at", "detour_vias", "detours",
-           "fuel_walk", "plan", "range_walk", "segment_speed", "station_badge", "station_link", "stop_cost",
-           "through_chosen"]
+           "fuel_walk", "plan", "range_walk", "reserve_fuel", "segment_speed", "station_badge", "station_link",
+           "stop_cost", "through_chosen"]
 
 RADIUS_KM = 50
 
@@ -52,19 +53,44 @@ def segment_speed(distance_m, duration_s):
 
 
 def fuel_walk(route, parameters, fuel, start=0):
-    """The index of the first node from `start` with the reserve of the car or less, and the fuel left there.
+    """The index of the first node from `start` where the fuel left is the reserve fuel there or less, and that fuel.
 
-    The index is None when the fuel left at the destination is more than the reserve.
+    The index is None when the fuel left at the destination is more than the reserve fuel there.
     """
-    for index in range(start, len(route.segment_distance)):
-        if fuel <= parameters.reserve:
-            return index, fuel
-        distance, duration = route.segment_distance[index], route.segment_duration[index]
-        fuel -= distance / 1000 * _segment_consumption(parameters, distance, duration) / 100
+    along, burn = _cumulative(route, parameters)
+    for index in range(start, len(along)):
+        left = fuel - (burn[index] - burn[start])
+        if left <= _reserve_fuel(parameters, along, burn, index):
+            return index, left
+    return None, fuel - (burn[-1] - burn[start])
 
-    if fuel <= parameters.reserve:
-        return len(route.segment_distance), fuel
-    return None, fuel
+
+def reserve_fuel(route, parameters, index):
+    """The fuel that the next `reserve_km` of the route use from the node `index`.
+
+    The km past the destination use `consume_130`.
+    """
+    along, burn = _cumulative(route, parameters)
+    return _reserve_fuel(parameters, along, burn, index)
+
+
+def _cumulative(route, parameters):
+    """The distance in m and the fuel in L from the first node to each node."""
+    along, burn = [0.0], [0.0]
+    for distance, duration in zip(route.segment_distance, route.segment_duration):
+        along.append(along[-1] + distance)
+        burn.append(burn[-1] + distance / 1000 * _segment_consumption(parameters, distance, duration) / 100)
+    return along, burn
+
+
+def _reserve_fuel(parameters, along, burn, index):
+    target = along[index] + parameters.reserve_km * 1000
+    if target >= along[-1]:
+        return burn[-1] - burn[index] + (target - along[-1]) / 1000 * parameters.consume_130 / 100
+
+    segment = bisect.bisect_right(along, target) - 1
+    share = (target - along[segment]) / (along[segment + 1] - along[segment])
+    return burn[segment] - burn[index] + share * (burn[segment + 1] - burn[segment])
 
 
 def range_walk(route, range_km, reserve_km, start=0):
@@ -203,8 +229,9 @@ async def plan(routers, planned, parameters, toll_cost, *, fuel=None, range_km=N
             }
         return answer
 
-    # After a walk by the range, the fuel at the search point is not known.
-    liters = parameters.tank_volume - parameters.reserve
+    # After a walk by the range, the fuel at the search point is not known. A
+    # reserve longer than a full tank would make the purchase negative.
+    liters = max(0.0, parameters.tank_volume - reserve_fuel(route, parameters, search_index))
     if start.fuel is not None:
         liters = parameters.tank_volume - left
     found = await candidates(route.coordinates[search_index], parameters.fuel_type)

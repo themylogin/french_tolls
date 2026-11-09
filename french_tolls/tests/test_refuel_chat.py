@@ -146,16 +146,11 @@ def test_enough_range():
         "No need to refuel: you'll arrive with 83 km of range.")
 
 
-def a_car():
-    return CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5, consume_130=7.2, reserve=5.0,
-                         reserve_km=50.0)
+def a_car(reserve_km):
+    return CarParameters(fuel_type="diesel", tank_volume=50, consume_80=5.5, consume_130=7.2, reserve_km=reserve_km)
 
 
-def test_no_station_after_a_gauge_press():
-    assert refuel_chat.no_station_text(a_car(), by_range=False) == (
-        "No gas station sells this fuel within 50 km of the point where the tank reaches 5 L.")
-
-
-def test_no_station_after_a_typed_range():
-    assert refuel_chat.no_station_text(a_car(), by_range=True) == (
-        "No gas station sells this fuel within 50 km of the point where the range reaches 50 km.")
+@pytest.mark.parametrize("reserve_km,shown", [(50.0, "50"), (42.5, "42.5")])
+def test_no_station_names_the_reserve_in_km(reserve_km, shown):
+    assert refuel_chat.no_station_text(a_car(reserve_km)) == (
+        f"No gas station sells this fuel within 50 km of the point where the range left reaches {shown} km.")

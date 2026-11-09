@@ -8,7 +8,7 @@ from . import db
 from .models import Car
 
 __all__ = ["FUEL_TYPES", "GAUGE_STEPS", "CarDialog", "CarParameters", "CarReply", "answer_button", "answer_text",
-           "describe", "load_car", "number_text", "parse_car", "parse_consumption", "parse_reserve", "parse_reserve_km",
+           "describe", "load_car", "number_text", "parse_car", "parse_consumption", "parse_reserve_km",
            "parse_tank_volume", "save_car", "start", "station_fuels"]
 
 FUEL_TYPES = (
@@ -27,7 +27,6 @@ class CarParameters:
     tank_volume: int
     consume_80: float
     consume_130: float
-    reserve: float
     reserve_km: float
     # The web dialog does not ask it. The bot always sets it before it saves.
     gauge_steps: int | None = None
@@ -42,7 +41,6 @@ class CarDialog:
     fuel_type: str | None = None
     consume_80: float | None = None
     consume_130: float | None = None
-    reserve: float | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -82,24 +80,14 @@ def answer_text(dialog, text):
     if dialog.step == "fuel_type":
         return _ask_fuel_type("Choose the fuel type with a button.", dialog)
 
-    if dialog.step == "reserve":
-        reserve = parse_reserve(text, dialog.tank_volume)
-        if reserve is None:
-            return CarReply(text="The reserve must be a number of 0 or more and less than the tank volume, "
-                                 f"{dialog.tank_volume} L. Enter it again.",
-                            dialog=dialog)
-        return CarReply(text="At how many kilometers of range do you want to refuel? Enter it, for example 50.",
-                        dialog=dataclasses.replace(dialog, step="reserve_km", reserve=reserve))
-
     if dialog.step == "reserve_km":
         reserve_km = parse_reserve_km(text)
         if reserve_km is None:
-            return CarReply(text="The range reserve must be a number from 0 to 500 km, for example 50. "
-                                 "Enter it again.",
+            return CarReply(text="The reserve must be a number from 0 to 500 km, for example 50. Enter it again.",
                             dialog=dialog)
         parameters = CarParameters(fuel_type=dialog.fuel_type, tank_volume=dialog.tank_volume,
                                    consume_80=dialog.consume_80, consume_130=dialog.consume_130,
-                                   gauge_steps=dialog.gauge_steps, reserve=dialog.reserve, reserve_km=reserve_km)
+                                   gauge_steps=dialog.gauge_steps, reserve_km=reserve_km)
         return CarReply(text=f"Your car parameters are saved.\n\n{describe(parameters)}", dialog=None,
                         save=parameters)
 
@@ -117,8 +105,8 @@ def answer_text(dialog, text):
                              f"{number_text(dialog.consume_80)} L/100 km. Enter it again.",
                         dialog=dialog)
 
-    return CarReply(text="At how many liters left in the tank do you want to refuel? Enter it, for example 5.",
-                    dialog=dataclasses.replace(dialog, step="reserve", consume_130=consumption))
+    return CarReply(text="At how many kilometers of range do you want to refuel? Enter it, for example 50.",
+                    dialog=dataclasses.replace(dialog, step="reserve_km", consume_130=consumption))
 
 
 def answer_button(dialog, token, choice):
@@ -197,14 +185,6 @@ def parse_consumption(text):
     return consumption
 
 
-def parse_reserve(text, tank_volume):
-    reserve = _decimal(text)
-    if reserve is None or not 0 <= reserve < tank_volume:
-        return None
-
-    return reserve
-
-
 def parse_reserve_km(text):
     reserve_km = _decimal(text)
     if reserve_km is None or reserve_km > 500:
@@ -221,7 +201,6 @@ def parse_car(data):
     tank_volume = data.get("tank_volume")
     consume_80 = data.get("consume_80")
     consume_130 = data.get("consume_130")
-    reserve = data.get("reserve")
     reserve_km = data.get("reserve_km")
     if not isinstance(fuel_type, str) or fuel_type not in _labels():
         return None
@@ -231,13 +210,11 @@ def parse_car(data):
         return None
     if consume_130 < consume_80:
         return None
-    if not _is_reserve(reserve, tank_volume):
-        return None
     if not _is_reserve_km(reserve_km):
         return None
 
     return CarParameters(fuel_type=fuel_type, tank_volume=tank_volume,
-                         consume_80=float(consume_80), consume_130=float(consume_130), reserve=float(reserve),
+                         consume_80=float(consume_80), consume_130=float(consume_130),
                          reserve_km=float(reserve_km))
 
 
@@ -248,10 +225,6 @@ def _is_whole_number(value):
 
 def _is_consumption(value):
     return (isinstance(value, (int, float)) and not isinstance(value, bool)) and 0 < value < 30
-
-
-def _is_reserve(value, tank_volume):
-    return (isinstance(value, (int, float)) and not isinstance(value, bool)) and 0 <= value < tank_volume
 
 
 def _is_reserve_km(value):
@@ -265,8 +238,7 @@ def describe(parameters):
         f"Fuel type: {_labels()[parameters.fuel_type]}",
         f"At 80 km/h: {number_text(parameters.consume_80)} L/100 km",
         f"At 130 km/h: {number_text(parameters.consume_130)} L/100 km",
-        f"Reserve: {number_text(parameters.reserve)} L",
-        f"Range reserve: {number_text(parameters.reserve_km)} km",
+        f"Reserve: {number_text(parameters.reserve_km)} km",
     ])
 
 
@@ -291,7 +263,7 @@ async def load_car(telegram_user_id):
 
         return CarParameters(fuel_type=row.fuel_type, tank_volume=row.tank_volume,
                              consume_80=row.consume_80, consume_130=row.consume_130,
-                             gauge_steps=row.gauge_steps, reserve=row.reserve, reserve_km=row.reserve_km)
+                             gauge_steps=row.gauge_steps, reserve_km=row.reserve_km)
 
 
 async def save_car(telegram_user_id, parameters):

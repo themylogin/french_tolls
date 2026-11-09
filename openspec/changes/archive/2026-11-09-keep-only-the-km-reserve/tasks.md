@@ -1,0 +1,28 @@
+# Tasks
+
+## 1. Store and car
+
+- [x] 1.1 In `french_tolls/models.py`, remove `Car.reserve`. Add one revision after `5eebff3c5c55` that drops the column `reserve` in one `op.batch_alter_table`. Its downgrade adds `reserve` (float, not null, `server_default` `"5"`). In `french_tolls/car.py`, remove `CarParameters.reserve`, and stop reading it in `load_car`. In `french_tolls/tests/test_car.py`, make `car_rows` select no `reserve`, and remove it from the stored cars. Rename the three migration tests to what they now check: `test_a_car_stored_before_the_gauge_gets_16_steps_and_50_km`, `test_a_car_with_a_reserve_in_km_from_before_the_liters_gets_50_km`, and `test_a_car_with_a_reserve_in_liters_only_gets_50_km`. Add `test_a_car_with_both_reserves_keeps_its_km`: a car at `5eebff3c5c55` with the reserve `8` and the `reserve_km` `60`, upgraded to `head`, has `reserve_km` `60.0`. Verify with `make test`, and verify that `upgrade head`, `downgrade -1`, and `upgrade head` succeed on an empty file in the image.
+- [x] 1.2 In `french_tolls/car.py`, remove `CarDialog.reserve`, the `reserve` step, and `parse_reserve`. After the consumption at 130 km/h, ask `At how many kilometers of range do you want to refuel? Enter it, for example 50.` at the step `reserve_km`, which saves the six values. Change its error to `The reserve must be a number from 0 to 500 km, for example 50. Enter it again.` Make `describe` end with `Reserve: <km> km`. Make `parse_car` stop reading `reserve`. In `test_car.py`, remove the tests of the reserve in liters. Update the dialog, the format, and the `parse_car` tests to six values and the new texts. Add a test that `parse_car` ignores a `reserve` key. Verify with `make test`.
+- [x] 1.3 In `french_tolls/integration/test_car_dialog.py`, select no `reserve`, and give each complete answer sequence six answers. Expect the line `Reserve: 50 km` and the new question and error texts. Merge the two "stopped before the reserve" tests into `test_a_dialog_stopped_before_the_reserve_keeps_the_stored_car`. Verify with `docker compose --profile test run --rm --no-TTY integration`.
+
+## 2. Planner
+
+- [x] 2.1 In `french_tolls/refuel.py`, add `reserve_fuel(route, parameters, index)`: the fuel for the next `reserve_km` of the route from the node `index`, with a part segment for its part, and `consume_130` past the destination. Make `fuel_walk` stop at the first node where the fuel left is that reserve fuel or less, from cumulative distance and fuel lists. In `french_tolls/tests/test_refuel.py`, give `a_car` no `reserve`. Update the walk tests to the scenarios of "The search point is where the fuel left lasts only the reserve km": the fifth segment with 50 km; the second segment with 80 km; a slow road ahead; the reserve past the destination; the origin with 4 L and 5 L; the restart 45 segments after a chosen station. Update the "no stop" tests to the scenarios of "No stop is planned when the fuel lasts to the destination". Verify with `make test`.
+- [x] 2.2 Make `plan` buy `max(0, tank_volume - reserve_fuel(route, parameters, search_index))` liters after a walk by the range. In `test_refuel.py`, test `liters` `42` for the tank `50`, `consume_130` `10`, and the reserve `80` km, and `liters` `0` for `consume_130` `12` and the reserve `500` km. Verify with `make test`.
+- [x] 2.3 In `french_tolls/integration/test_refuel_endpoint.py`, remove `reserve` from the `car` of `REQUEST`. Replace the invalid bodies of the reserve in liters with a `car` that has `reserve` but no `reserve_km`. Add a test: a request whose `car` also has `"reserve": 5` reaches `plan` with the same car as one without it. Verify with the integration suite.
+
+## 3. Bot texts
+
+- [x] 3.1 In `french_tolls/refuel_chat.py`, make `no_station_text(parameters)` always end with `where the range left reaches <reserve_km> km.` In `french_tolls/bot.py`, call it with the car only. In `french_tolls/tests/test_refuel_chat.py`, give `a_car` no `reserve`, and test the text with the reserve `50` and `42.5`. In `french_tolls/integration/test_refuel_flow.py`, store cars without `reserve`, and expect the new text after a gauge press, a typed range, and a chosen station. Verify with `make test` and the integration suite.
+
+## 4. Page
+
+- [x] 4.1 In `www/index.html`, remove the row `refuel-reserve`, and change the label of `refuel-reserve-km` to `Reserve`. In `www/index.js`, stop reading, checking, storing, and sending `reserve`. Change the message of `reserve-km` to `The reserve must be a number from 0 to 500 km.` Remove `reserve` from `clearFieldMarks`. Name `reserve_km` in the "no station near" message, for the fuel and for the range. Verify with `node --check www/index.js`.
+- [ ] 4.2 With the agreement of the operator, deploy the `www` image, and ask the operator to check: seven fields, with `Reserve` in km directly above `Fuel in the tank now`; a storage with only a reserve in liters shows `50`; the reserve `501` and an empty reserve are marked; the tank `50` and the reserve `50` are valid; the request has `reserve_km` and no `reserve`.
+
+## 5. Integration checks
+
+- [x] 5.1 Run `make test` and `docker compose --profile test run --rm --no-TTY integration`. Verify that the unit and builder suites pass, and that the integration suite fails no test that passed before this change.
+- [ ] 5.2 With the agreement of the operator, deploy the bot. In Telegram, send `/car`, and verify six questions that end with the reserve in km, and the line `Reserve: 50 km`. Plan a refuel on Paris to Marseille with `1/4` on the gauge, and verify that a list comes.
+- [x] 5.3 Run `openspec validate keep-only-the-km-reserve --strict`. Verify that the change is valid.

@@ -53,9 +53,9 @@ def candidate_ids(position, fuel_type):
     return [candidate.station.id for candidate in asyncio.run(refuel.candidates(position, fuel_type))]
 
 
-def a_car(consume_80, consume_130, tank_volume=50, fuel_type="diesel", reserve=5, reserve_km=50):
+def a_car(consume_80, consume_130, tank_volume=50, fuel_type="diesel", reserve_km=50):
     return CarParameters(fuel_type=fuel_type, tank_volume=tank_volume, consume_80=consume_80,
-                         consume_130=consume_130, reserve=reserve, reserve_km=reserve_km)
+                         consume_130=consume_130, reserve_km=reserve_km)
 
 
 def a_route(segment_m, segment_s, segments, start=(2.0, 47.0)):
@@ -88,7 +88,7 @@ def test_the_speed_of_a_segment_uses_the_time_multiplier(monkeypatch):
     assert refuel.segment_speed(1000, 40) == pytest.approx(100)
 
 
-def test_the_search_point_is_where_the_tank_first_holds_5_l():
+def test_the_search_point_is_where_the_tank_first_holds_the_fuel_for_the_reserve_km():
     route = a_route(10_000, 10_000 / (130 / 3.6), 10)
 
     index, fuel_left = refuel.fuel_walk(route, a_car(10, 10), 10)
@@ -100,14 +100,14 @@ def test_the_search_point_is_where_the_tank_first_holds_5_l():
 def test_a_larger_reserve_moves_the_search_point_nearer_to_the_origin():
     route = a_route(10_000, 10_000 / (130 / 3.6), 10)
 
-    index, fuel_left = refuel.fuel_walk(route, a_car(10, 10, reserve=8), 10)
+    index, fuel_left = refuel.fuel_walk(route, a_car(10, 10, reserve_km=80), 10)
 
     assert index == 2
     assert fuel_left == pytest.approx(8)
 
 
 @pytest.mark.parametrize("fuel", [4, 5])
-def test_5_l_or_less_at_the_origin_makes_the_origin_the_search_point(fuel):
+def test_the_reserve_fuel_or_less_at_the_origin_makes_the_origin_the_search_point(fuel):
     route = a_route(10_000, 10_000 / (130 / 3.6), 10)
 
     assert refuel.fuel_walk(route, a_car(10, 10), fuel) == (0, fuel)
@@ -125,16 +125,44 @@ def test_no_search_point_when_the_fuel_lasts():
 def test_a_reserve_above_the_fuel_left_at_the_destination_gives_a_search_point():
     route = a_route(10_000, 10_000 / (130 / 3.6), 10)
 
-    index, fuel_left = refuel.fuel_walk(route, a_car(6, 6, reserve=35), 40)
+    index, fuel_left = refuel.fuel_walk(route, a_car(6, 6, reserve_km=100), 10)
 
-    assert index == 9
-    assert fuel_left == pytest.approx(34.6)
+    assert index == 7
+    assert fuel_left == pytest.approx(5.8)
 
 
 def test_a_segment_of_0_s_uses_no_fuel():
     route = a_route(0, 0, 3)
 
     assert refuel.fuel_walk(route, a_car(6, 8), 20) == (None, 20)
+
+
+def test_on_a_slow_road_the_reserve_fuel_is_the_consumption_at_80():
+    route = a_route(10_000, 10_000 / (50 / 3.6), 6)
+
+    assert refuel.reserve_fuel(route, a_car(6, 10), 0) == pytest.approx(3)
+    assert refuel.fuel_walk(route, a_car(6, 10), 3) == (0, 3)
+
+
+def test_the_reserve_past_the_destination_uses_the_consumption_at_130():
+    route = a_route(10_000, 10_000 / (130 / 3.6), 2)
+
+    assert refuel.reserve_fuel(route, a_car(10, 10), 0) == pytest.approx(5)
+
+
+def test_a_reserve_that_ends_inside_a_segment_counts_its_part():
+    route = a_route(10_000, 10_000 / (130 / 3.6), 10)
+
+    assert refuel.reserve_fuel(route, a_car(10, 10, reserve_km=25), 0) == pytest.approx(2.5)
+
+
+def test_the_reserve_fuel_follows_the_road_ahead():
+    fast, slow = 10_000 / (130 / 3.6), 10_000 / (50 / 3.6)
+    route = Route(node_ids=tuple(range(1, 12)), coordinates=tuple((2.0, 47.0 + 0.09 * i) for i in range(11)),
+                  segment_distance=(10_000.0,) * 10, segment_duration=(fast,) * 5 + (slow,) * 5,
+                  distance=100_000.0, duration=5 * fast + 5 * slow, weight=0.0)
+
+    assert refuel.reserve_fuel(route, a_car(6, 10), 0) > refuel.reserve_fuel(route, a_car(6, 10), 5)
 
 
 def test_a_walk_from_a_chosen_station_starts_with_its_fuel():
@@ -397,12 +425,20 @@ def test_a_lasting_range_gives_the_range_left():
     assert routers.requests == 0
 
 
-def test_a_stop_after_a_range_buys_the_tank_volume_less_the_reserve(store, fixed_rates):
+def test_a_stop_after_a_range_buys_the_tank_volume_less_the_reserve_fuel(store, fixed_rates):
     routers = DetourRouters()
 
-    answer = asyncio.run(refuel.plan(routers, PLANNED, a_car(10, 10, reserve=8), toll_cost, range_km=80))
+    answer = asyncio.run(refuel.plan(routers, PLANNED, a_car(10, 10, reserve_km=80), toll_cost, range_km=80))
 
     assert answer == {"stop_needed": True, "liters": 42.0, "stations": []}
+
+
+def test_a_reserve_longer_than_a_full_tank_buys_nothing(store, fixed_rates):
+    routers = DetourRouters()
+
+    answer = asyncio.run(refuel.plan(routers, PLANNED, a_car(12, 12, reserve_km=500), toll_cost, range_km=500))
+
+    assert answer == {"stop_needed": True, "liters": 0.0, "stations": []}
 
 
 def test_no_candidate_gives_an_empty_list(store, fixed_rates):

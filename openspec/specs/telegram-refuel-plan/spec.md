@@ -262,25 +262,25 @@ When the chosen stations and the stops of a split route are more than one direct
 
 ### Requirement: The bot says when no station is near
 
-When a stop is needed and the list is empty, the bot SHALL send `No gas station sells this fuel within 50 km of the point where the tank reaches <reserve> L.` When the search point comes from a typed range, the end SHALL be `where the range reaches <range reserve> km.` The plan SHALL end.
+When a stop is needed and the list is empty, the bot SHALL send `No gas station sells this fuel within 50 km of the point where the range left reaches <reserve> km.`, with the reserve of the car in km. This SHALL hold after a gauge press, after a typed range, and after a chosen station. The plan SHALL end.
 
 #### Scenario: No station after a gauge press
 
-- **GIVEN** the car has the reserve `5`
+- **GIVEN** the car has the reserve `50`
 - **WHEN** the plan after a gauge press lists no station
-- **THEN** the bot sends `No gas station sells this fuel within 50 km of the point where the tank reaches 5 L.`
+- **THEN** the bot sends `No gas station sells this fuel within 50 km of the point where the range left reaches 50 km.`
 
 #### Scenario: No station after a typed range
 
-- **GIVEN** the car has the range reserve `50`
+- **GIVEN** the car has the reserve `42.5`
 - **WHEN** the plan after a typed range, with no chosen station, lists no station
-- **THEN** the bot sends `No gas station sells this fuel within 50 km of the point where the range reaches 50 km.`
+- **THEN** the bot sends `No gas station sells this fuel within 50 km of the point where the range left reaches 42.5 km.`
 
 #### Scenario: No station after a chosen station
 
-- **GIVEN** the plan started from a typed range, the driver chose a station, and the car has the reserve `5`
+- **GIVEN** the plan started from a typed range, the driver chose a station, and the car has the reserve `50`
 - **WHEN** the next plan lists no station
-- **THEN** the bot sends `No gas station sells this fuel within 50 km of the point where the tank reaches 5 L.`
+- **THEN** the bot sends `No gas station sells this fuel within 50 km of the point where the range left reaches 50 km.`
 
 ### Requirement: A failed plan ends the plan
 

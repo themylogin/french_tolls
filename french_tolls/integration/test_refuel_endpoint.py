@@ -122,15 +122,15 @@ REQUEST = {
     "from": [2.35, 48.86],
     "to": [5.37, 43.30],
     "route": "optimal",
-    "car": {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2, "reserve": 5,
-            "reserve_km": 50},
+    "car": {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2, "reserve_km": 50},
     "fuel": 20,
 }
 PLANNED = object()
 NO_STOP = {"stop_needed": False, "fuel_left": 12.7}
 
 
-def post(monkeypatch, body, *, planned=PLANNED, route_error=None, plan_error=None):
+def post(monkeypatch, body, *, planned=PLANNED, route_error=None, plan_error=None, cars=None):
+    """POST `body`, with the planner replaced. `cars` collects the car that reaches `plan`."""
     calls = []
 
     async def fake_planned_route(routers, from_, to, name):
@@ -145,6 +145,8 @@ def post(monkeypatch, body, *, planned=PLANNED, route_error=None, plan_error=Non
         if range_km is not None:
             start = f"{range_km} km"
         calls.append(("plan", start, tuple(chosen)))
+        if cars is not None:
+            cars.append(parameters)
         if plan_error is not None:
             raise plan_error
         return NO_STOP
@@ -191,14 +193,14 @@ def test_a_complete_request_is_answered(monkeypatch):
     with_changes(tank_volume=50, fuel=51),
     with_changes(consume_80=7.2, consume_130=5.5),
     with_changes(route="fast"),
-    with_changes(reserve=50),
     with_changes(reserve_km=501),
     {**REQUEST, "car": {key: value for key, value in REQUEST["car"].items() if key != "reserve_km"}},
     {**{key: value for key, value in REQUEST.items() if key != "fuel"}, "range": 3001},
     {**{key: value for key, value in REQUEST.items() if key != "fuel"}, "range": True},
     with_changes(range=300),
     {key: value for key, value in REQUEST.items() if key != "fuel"},
-    {**REQUEST, "car": {key: value for key, value in REQUEST["car"].items() if key != "reserve"}},
+    {**REQUEST, "car": {**{key: value for key, value in REQUEST["car"].items() if key != "reserve_km"},
+                        "reserve": 5}},
     "this is not JSON",
 ])
 def test_an_invalid_request_gets_400_and_no_router_request(monkeypatch, body):
@@ -216,7 +218,7 @@ def test_an_empty_tank_is_accepted(monkeypatch):
 
 
 def test_a_reserve_of_0_is_accepted(monkeypatch):
-    status, _answer, calls = post(monkeypatch, with_changes(reserve=0))
+    status, _answer, calls = post(monkeypatch, with_changes(reserve_km=0))
 
     assert status == 200
     assert calls[-1] == ("plan", 20, ())
@@ -229,6 +231,16 @@ def test_a_range_without_fuel_is_accepted(monkeypatch):
 
     assert status == 200
     assert calls[-1] == ("plan", "300 km", ())
+
+
+def test_a_reserve_in_liters_from_an_old_page_is_ignored(monkeypatch):
+    with_liters, without = [], []
+
+    status, _answer, _calls = post(monkeypatch, {**REQUEST, "car": {**REQUEST["car"], "reserve": 5}}, cars=with_liters)
+    post(monkeypatch, REQUEST, cars=without)
+
+    assert status == 200
+    assert with_liters == without
 
 
 def test_a_journey_without_a_split_route_gets_404(monkeypatch):

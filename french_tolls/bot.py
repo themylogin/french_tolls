@@ -585,7 +585,7 @@ async def plan_and_answer(message, state, offer, parameters, start, chosen, para
                                 reply_markup=keyboard("Drive with Google", state.remember([part])))
         return
     if not answer["stations"]:
-        await working.edit_text(no_station_text(parameters, by_range=start.fuel is None and not chosen))
+        await working.edit_text(no_station_text(parameters))
         return
 
     token = state.new_list_token()

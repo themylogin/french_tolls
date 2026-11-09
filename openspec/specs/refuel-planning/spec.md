@@ -8,11 +8,11 @@ Defines how the service finds the point on a route where the driver must refuel,
 
 ### Requirement: The endpoint takes a journey, a route, a car, and the fuel or the range
 
-`POST /api/refuel` SHALL take a JSON object with these keys: `from` and `to`, each a `[longitude, latitude]` pair; `route`, either `optimal` or `super_optimal`; `car`, an object with `fuel_type`, `tank_volume`, `consume_80`, `consume_130`, `reserve`, the liters at which the driver wants to refuel, and `reserve_km`, the km of range at which the driver wants to refuel; and either `fuel`, the liters in the tank at the origin, or `range`, the km of range at the origin.
+`POST /api/refuel` SHALL take a JSON object with these keys: `from` and `to`, each a `[longitude, latitude]` pair; `route`, either `optimal` or `super_optimal`; `car`, an object with `fuel_type`, `tank_volume`, `consume_80`, `consume_130`, and `reserve_km`, the km of range at which the driver wants to refuel; and either `fuel`, the liters in the tank at the origin, or `range`, the km of range at the origin. A `reserve` key in `car` SHALL be ignored.
 
 #### Scenario: A complete request
 
-- **WHEN** the page sends `{"from": [2.35, 48.86], "to": [5.37, 43.30], "route": "optimal", "car": {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2, "reserve": 5, "reserve_km": 50}, "fuel": 20}`
+- **WHEN** the page sends `{"from": [2.35, 48.86], "to": [5.37, 43.30], "route": "optimal", "car": {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2, "reserve_km": 50}, "fuel": 20}`
 - **THEN** the service answers with the status 200 and a JSON object
 
 #### Scenario: A complete request with the range
@@ -20,64 +20,10 @@ Defines how the service finds the point on a route where the driver must refuel,
 - **WHEN** the page sends the same request with `"range": 300` in place of `"fuel": 20`
 - **THEN** the service answers with the status 200 and a JSON object
 
-### Requirement: The endpoint refuses invalid values before it routes
+#### Scenario: A request from a page with a reserve in liters
 
-The service SHALL refuse a request with a missing key or a value outside its limits. The limits SHALL be the limits of `car-parameters`: a whole `tank_volume` of 30 or more, a `fuel_type` of `diesel`, `95`, or `98`, each consumption more than 0 and less than 30, with `consume_130` not less than `consume_80`, a `reserve` of 0 or more and less than `tank_volume`, and a `reserve_km` from 0 to 500. The request SHALL have exactly one of `fuel` and `range`. `fuel` SHALL be a number from 0 to `tank_volume`. `range` SHALL be a number from 0 to 3000. A refused request SHALL get the status 400 and SHALL cause no router request.
-
-#### Scenario: A tank below the limit
-
-- **WHEN** the request has the `tank_volume` `29`
-- **THEN** the service answers with the status 400, and sends no router request
-
-#### Scenario: A lower consumption at 130 km/h
-
-- **WHEN** the request has the `consume_80` `7.2` and the `consume_130` `5.5`
-- **THEN** the service answers with the status 400
-
-#### Scenario: More fuel than the tank holds
-
-- **WHEN** the request has the `tank_volume` `50` and the `fuel` `51`
-- **THEN** the service answers with the status 400
-
-#### Scenario: An empty tank is valid
-
-- **WHEN** the request has the `fuel` `0` and valid other values
-- **THEN** the service accepts the request
-
-#### Scenario: A reserve equal to the tank volume
-
-- **WHEN** the request has the `tank_volume` `50` and the `reserve` `50`
-- **THEN** the service answers with the status 400, and sends no router request
-
-#### Scenario: A reserve of 0 is valid
-
-- **WHEN** the request has the `reserve` `0` and valid other values
-- **THEN** the service accepts the request
-
-#### Scenario: A range reserve above the limit
-
-- **WHEN** the request has the `reserve_km` `501`
-- **THEN** the service answers with the status 400, and sends no router request
-
-#### Scenario: A range above the limit
-
-- **WHEN** the request has the `range` `3001` and no `fuel`
-- **THEN** the service answers with the status 400
-
-#### Scenario: Both the fuel and the range
-
-- **WHEN** the request has the `fuel` `20` and the `range` `300`
-- **THEN** the service answers with the status 400
-
-#### Scenario: An unknown route
-
-- **WHEN** the request has the `route` `fast`
-- **THEN** the service answers with the status 400
-
-#### Scenario: A missing key
-
-- **WHEN** the request has neither `fuel` nor `range`, or its `car` has no `reserve` key or no `reserve_km` key
-- **THEN** the service answers with the status 400
+- **WHEN** the `car` of the request also has `"reserve": 5`
+- **THEN** the service answers as for the same request without it
 
 ### Requirement: The request carries the stations chosen so far
 
@@ -134,7 +80,7 @@ The service SHALL add the chosen stations to the planned route one at a time, in
 
 #### Scenario: A station that the plan does not need
 
-- **WHEN** the route through A already reaches the destination with more than the reserve, and the request has `"chosen": [A, B]`
+- **WHEN** the route through A already reaches the destination with more than its reserve fuel, and the request has `"chosen": [A, B]`
 - **THEN** the service answers with the status 400
 
 ### Requirement: A failed route gives an error status
@@ -184,59 +130,25 @@ Below 80 km/h, the consumption SHALL be `consume_80`. At 80 km/h and above, it S
 - **WHEN** the speed is 150 km/h
 - **THEN** the consumption is 9.067 L/100 km, rounded to three decimals
 
-### Requirement: The search point is where the tank first holds the reserve or less
-
-The service SHALL follow the route from the origin and subtract the fuel that each segment uses. The fuel that a segment uses SHALL be its distance in km multiplied by its consumption, divided by 100. The search point SHALL be the first route point where the fuel left is the `reserve` of the car or less. When `fuel` is the reserve or less, the search point SHALL be the origin. With chosen stations, the walk SHALL start at the last chosen station with `tank_volume` liters.
-
-#### Scenario: The tank reaches 5 L on the route
-
-- **GIVEN** a route of 10 segments, each 10 km long at 130 km/h, `consume_130` is `10`, and the `reserve` is `5`
-- **WHEN** the request has the `fuel` `10`
-- **THEN** the search point is the end of the fifth segment
-
-#### Scenario: A larger reserve
-
-- **GIVEN** the same route and car, with the `reserve` `8`
-- **WHEN** the request has the `fuel` `10`
-- **THEN** the search point is the end of the second segment
-
-#### Scenario: The tank holds 5 L or less at the origin
-
-- **GIVEN** the `reserve` is `5`
-- **WHEN** the request has the `fuel` `4`
-- **THEN** the search point is the origin
-
-#### Scenario: Exactly 5 L at the origin
-
-- **GIVEN** the `reserve` is `5`
-- **WHEN** the request has the `fuel` `5`
-- **THEN** the search point is the origin
-
-#### Scenario: The walk restarts at the last chosen station
-
-- **GIVEN** the `tank_volume` is `50`, the `reserve` is `5`, and the planned route uses 1 L per segment after the chosen station C
-- **WHEN** the request has `"chosen": [C]`
-- **THEN** the search point is 45 segments after C, whatever the tank held before C
-
 ### Requirement: No stop is planned when the fuel lasts to the destination
 
-When the fuel left at the destination is more than the `reserve` of the car, the answer SHALL have `stop_needed` false and `fuel_left`, the fuel left at the destination. Without chosen stations, these SHALL be its only keys. The service SHALL then read no station and send no detour request.
+When the fuel left at the destination is more than the reserve fuel there, the answer SHALL have `stop_needed` false and `fuel_left`, the fuel left at the destination. The reserve fuel at the destination SHALL be `reserve_km` at `consume_130`. Without chosen stations, these SHALL be its only keys. The service SHALL then read no station and send no detour request.
 
 #### Scenario: A short route
 
-- **GIVEN** a route of 100 km at 130 km/h, `consume_130` is `6`, and the `reserve` is `5`
+- **GIVEN** a route of 100 km at 130 km/h, `consume_130` is `6`, and the `reserve_km` is `50`
 - **WHEN** the request has the `fuel` `40`
 - **THEN** the answer is `{"stop_needed": false, "fuel_left": 34.0}`, and the service sends no detour request
 
 #### Scenario: A reserve above the fuel left
 
-- **GIVEN** a route of 100 km at 130 km/h, `consume_130` is `6`, and the `reserve` is `35`
-- **WHEN** the request has the `fuel` `40`
-- **THEN** the answer has `stop_needed` true
+- **GIVEN** a route of 100 km at 130 km/h, `consume_130` is `6`, and the `reserve_km` is `100`
+- **WHEN** the request has the `fuel` `10`
+- **THEN** the answer has `stop_needed` true, because the 4 L left at the destination are less than the 6 L of the reserve
 
 #### Scenario: The fuel lasts after a chosen station
 
-- **WHEN** the request has one chosen station, and the route through it reaches the destination with more than the reserve
+- **WHEN** the request has one chosen station, and the route through it reaches the destination with more than its reserve fuel
 - **THEN** the answer has `stop_needed` false, `fuel_left`, and `route`, and the service sends no detour request
 
 ### Requirement: A finished plan carries its route
@@ -313,7 +225,7 @@ The detour route SHALL go from the origin through the station to the destination
 
 ### Requirement: The stop fills the tank
 
-The liters bought SHALL be `tank_volume` minus the fuel left at the search point. After a walk by the range, the fuel left at the search point is not known, so the liters bought SHALL be `tank_volume` minus `reserve`. The answer SHALL give this value as `liters`.
+The liters bought SHALL be `tank_volume` minus the fuel left at the search point. After a walk by the range, the fuel left at the search point is not known, so the liters bought SHALL be `tank_volume` minus the reserve fuel at the search point, and at least 0. The answer SHALL give this value as `liters`.
 
 #### Scenario: A stop at 5 L
 
@@ -323,9 +235,15 @@ The liters bought SHALL be `tank_volume` minus the fuel left at the search point
 
 #### Scenario: A stop after a walk by the range
 
-- **GIVEN** the `tank_volume` is `50`, and the `reserve` is `8`
+- **GIVEN** the `tank_volume` is `50`, `consume_130` is `10`, the `reserve_km` is `80`, and the route after the search point runs at 130 km/h
 - **WHEN** the request has a `range`, and the range reaches `reserve_km` on the route
 - **THEN** `liters` is `42`
+
+#### Scenario: A reserve longer than a full tank
+
+- **GIVEN** the `tank_volume` is `50`, `consume_130` is `12`, the `reserve_km` is `500`, and the route after the search point runs at 130 km/h
+- **WHEN** the request has a `range`, and the range reaches `reserve_km` on the route
+- **THEN** `liters` is `0`
 
 ### Requirement: The cost of a stop is the fuel, the toll change, and the time
 
@@ -479,11 +397,11 @@ With `range`, the service SHALL follow the route from the origin and subtract th
 
 ### Requirement: After a chosen station, a range plan walks by the fuel
 
-With `range` and chosen stations, the walk by the range SHALL apply only up to the first chosen station. From each chosen station on, the walk SHALL be the walk by the fuel, with `tank_volume` liters and the `reserve`.
+With `range` and chosen stations, the walk by the range SHALL apply only up to the first chosen station. From each chosen station on, the walk SHALL be the walk by the fuel, with `tank_volume` liters.
 
 #### Scenario: The walk after a chosen station
 
-- **GIVEN** the `tank_volume` is `50`, the `reserve` is `5`, and the planned route uses 1 L per segment after the chosen station C
+- **GIVEN** the `tank_volume` is `50`, the `reserve_km` is `50`, and the planned route uses 1 L per 10 km segment at 130 km/h after the chosen station C, with `consume_130` `10`
 - **WHEN** the request has a `range` and `"chosen": [C]`
 - **THEN** the search point is 45 segments after C, whatever the range was at the origin
 
@@ -512,3 +430,120 @@ With `range` and no chosen station, when the range left at the destination is mo
 - **GIVEN** a route of 100 km, and the `reserve_km` is `90`
 - **WHEN** the request has the `range` `183.4`
 - **THEN** the answer has `stop_needed` true
+
+### Requirement: The endpoint refuses a car outside its limits
+
+The service SHALL refuse a `car` with a missing key or a value outside the limits of `car-parameters`: a whole `tank_volume` of 30 or more, a `fuel_type` of `diesel`, `95`, or `98`, each consumption more than 0 and less than 30, with `consume_130` not less than `consume_80`, and a `reserve_km` from 0 to 500. A refused request SHALL get the status 400 and SHALL cause no router request.
+
+#### Scenario: A tank below the limit
+
+- **WHEN** the request has the `tank_volume` `29`
+- **THEN** the service answers with the status 400, and sends no router request
+
+#### Scenario: A lower consumption at 130 km/h
+
+- **WHEN** the request has the `consume_80` `7.2` and the `consume_130` `5.5`
+- **THEN** the service answers with the status 400
+
+#### Scenario: A reserve above the limit
+
+- **WHEN** the request has the `reserve_km` `501`
+- **THEN** the service answers with the status 400, and sends no router request
+
+#### Scenario: A reserve of 0 is valid
+
+- **WHEN** the request has the `reserve_km` `0` and valid other values
+- **THEN** the service accepts the request
+
+#### Scenario: A car without a reserve
+
+- **WHEN** the `car` of the request has no `reserve_km` key, even with a `reserve` key
+- **THEN** the service answers with the status 400
+
+### Requirement: The endpoint refuses a fuel or a range outside its limits
+
+The request SHALL have exactly one of `fuel` and `range`. `fuel` SHALL be a number from 0 to `tank_volume`. `range` SHALL be a number from 0 to 3000. Any other request SHALL get the status 400 and SHALL cause no router request.
+
+#### Scenario: More fuel than the tank holds
+
+- **WHEN** the request has the `tank_volume` `50` and the `fuel` `51`
+- **THEN** the service answers with the status 400
+
+#### Scenario: An empty tank is valid
+
+- **WHEN** the request has the `fuel` `0` and valid other values
+- **THEN** the service accepts the request
+
+#### Scenario: A range above the limit
+
+- **WHEN** the request has the `range` `3001` and no `fuel`
+- **THEN** the service answers with the status 400
+
+#### Scenario: Both the fuel and the range
+
+- **WHEN** the request has the `fuel` `20` and the `range` `300`
+- **THEN** the service answers with the status 400
+
+#### Scenario: Neither the fuel nor the range
+
+- **WHEN** the request has neither `fuel` nor `range`
+- **THEN** the service answers with the status 400
+
+### Requirement: The endpoint refuses an unknown route
+
+The `route` of the request SHALL be `optimal` or `super_optimal`. Any other value SHALL get the status 400 and SHALL cause no router request.
+
+#### Scenario: An unknown route
+
+- **WHEN** the request has the `route` `fast`
+- **THEN** the service answers with the status 400
+
+### Requirement: A walk by the fuel subtracts what each segment uses
+
+A walk by the fuel SHALL follow the route from its start and subtract the fuel that each segment uses. The fuel that a segment uses SHALL be its distance in km multiplied by its consumption, divided by 100. The walk SHALL start at the origin with `fuel` liters, or at the last chosen station with `tank_volume` liters.
+
+#### Scenario: One segment
+
+- **GIVEN** a segment of 10 km at 130 km/h, and `consume_130` is `10`
+- **WHEN** the walk passes it with 10 L
+- **THEN** 9 L are left after it
+
+### Requirement: The search point is where the fuel left lasts only the reserve km
+
+The reserve fuel at a route point SHALL be the fuel that the next `reserve_km` of the route use from that point, by the consumption of each segment. A segment that these km cover only in part SHALL count for that part. Each km past the destination SHALL use `consume_130`. The search point of a walk by the fuel SHALL be its first route point where the fuel left is the reserve fuel there or less.
+
+#### Scenario: The tank reaches the reserve on the route
+
+- **GIVEN** a route of 10 segments, each 10 km long at 130 km/h, `consume_130` is `10`, and the `reserve_km` is `50`
+- **WHEN** the request has the `fuel` `10`
+- **THEN** the search point is the end of the fifth segment, where 5 L are left
+
+#### Scenario: A larger reserve
+
+- **GIVEN** the same route and car, with the `reserve_km` `80`
+- **WHEN** the request has the `fuel` `10`
+- **THEN** the search point is the end of the second segment
+
+#### Scenario: A slow road ahead
+
+- **GIVEN** `consume_80` is `6`, `consume_130` is `10`, the `reserve_km` is `50`, and the route runs 60 km at 50 km/h after the point P
+- **WHEN** the walk reaches P with 3 L
+- **THEN** the reserve fuel at P is 3 L, and P is the search point
+
+#### Scenario: The reserve runs past the destination
+
+- **GIVEN** `consume_130` is `10`, the `reserve_km` is `50`, and the destination is 20 km at 130 km/h after the point P
+- **WHEN** the walk reaches P
+- **THEN** the reserve fuel at P is 5 L: 2 L for the 20 km of the route and 3 L for the 30 km past the destination
+
+#### Scenario: The reserve or less at the origin
+
+- **GIVEN** the reserve fuel at the origin is 5 L
+- **WHEN** the request has the `fuel` `4` or `5`
+- **THEN** the search point is the origin
+
+#### Scenario: The walk restarts at the last chosen station
+
+- **GIVEN** the `tank_volume` is `50`, the `reserve_km` is `50`, and the planned route uses 1 L per 10 km segment at 130 km/h after the chosen station C, with `consume_130` `10`
+- **WHEN** the request has `"chosen": [C]`
+- **THEN** the search point is 45 segments after C, whatever the tank held before C
