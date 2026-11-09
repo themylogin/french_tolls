@@ -510,6 +510,10 @@ The patched routing profile SHALL treat a `barrier=gate` or `barrier=lift_gate` 
 
 Where an allowed class carries the node, the gate SHALL keep the profile's configured barrier penalty, exactly as before.
 
+Where an allowed class carries the node and the node carries `locked=yes`, the gate SHALL be a last resort. Every turn through it SHALL cost the profile's maximum turn weight, about 3 277 s. Its duration SHALL stay the configured barrier penalty. A route that starts or ends behind the gate crosses it. A route that passes by goes around it, unless every other way costs more than the maximum turn weight.
+
+The profile gives this treatment to a way tagged `access=private`, but has no such flag for a node. The node pass marks the gate with a second obstacle that carries the weight. The turn pass raises the turn weight to that obstacle's weight. In the toll-weighted graph the weight is worth about 18 EUR at 20 EUR per hour, so a route that saves more than that in tolls still crosses the gate.
+
 Such a gate is locked on the ground. The stock profile lets any vehicle through one for a fixed penalty, so the router leaves a toll road by an access track and returns a route nobody can drive. Every step downstream trusts the router, so an undrivable route is priced, probed and published as a real one.
 
 Any way is enough, rather than every way. A gate tagged on the node where a driveway meets a residential street would otherwise cut the street, which is a worse error than leaving the driveway open — and the driveway is already discouraged by its class and usually closed by its access tag.

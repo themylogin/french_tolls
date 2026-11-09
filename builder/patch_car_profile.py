@@ -36,6 +36,15 @@ The open gates are listed rather than the closed ones. A gate the scan does not
 reach stays shut, which is the safe direction for a rule that says these gates
 are locked -- and it is the smaller table by a factor of seventeen.
 
+A gate the class rule leaves open can still carry `locked=yes`. That gate is a
+last resort, not a barrier. A route that starts or ends behind it crosses it.
+A route that only passes by goes around. The profile already treats a way
+tagged `access=private` like this, but it has no such flag for a node. So the
+node pass adds a second obstacle to the gate, with no duration and the
+maximum turn weight. The turn pass reads that weight in the profile's own
+obstacle loop and raises the turn weight to it. The travel time keeps the
+stock penalty.
+
 The pristine profile is left beside the patched one so the two can be compared,
 and the image itself is never touched.
 
@@ -67,6 +76,14 @@ PENALTY_HOOK = "      local barrier_penalty = profile.barrier_penalties[barrier]
 
 GATE_BEGIN = "-- >>> gates_on_through_roads, injected by builder/patch_car_profile.py"
 GATE_END = "-- <<< gates_on_through_roads"
+
+# The locked gate's two anchors in process_turn. The obstacle weight is read in
+# the stock loop because a second `obstacle_map:get` on every turn costs
+# osrm-extract 23% more peak memory, and France then no longer fits. The weight
+# is applied before the routability block, because the line above that block
+# sets the turn weight from the duration and would erase a weight raised earlier.
+OBSTACLE_HOOK = "  for _, obs in pairs(obstacle_map:get(turn.from, turn.via)) do\n"
+TURN_HOOK = "  if profile.properties.weight_name == 'routability' then\n"
 
 # The classes that keep a gate open. A gate carried by one of them is on a road
 # the public drives; a gate on anything else -- service, track, driveway, path
@@ -202,7 +219,7 @@ def render_gates(gates, opened):
     table that says so closes every one of them.
     """
     if not gates:
-        return "", ""
+        return "", "", "", ""
     table = "\n".join(f"  [{n}] = true," for n in sorted(opened))
     preamble = (
         f"{GATE_BEGIN}\n"
@@ -217,8 +234,23 @@ def render_gates(gates, opened):
         f"      if barrier_penalty and not open_gate_nodes[node:id()] then\n"
         f"        barrier_penalty = nil\n"
         f"      end\n"
+        f"      if barrier_penalty and node:get_value_by_key('locked') == 'yes' then\n"
+        f"        obstacle_map:add(node, Obstacle.new(obstacle_type.gate,\n"
+        f"                                            obstacle_direction.both, 0,\n"
+        f"                                            constants.max_turn_weight))\n"
+        f"      end\n"
         f"      {GATE_END}\n")
-    return preamble, check
+    obstacle_loop = (
+        f"  {GATE_BEGIN}\n"
+        f"  local obstacle_weight = 0\n"
+        f"{OBSTACLE_HOOK}"
+        f"    obstacle_weight = math.max(obstacle_weight, obs.weight)\n"
+        f"  {GATE_END}\n")
+    turn_check = (
+        f"  {GATE_BEGIN}\n"
+        f"  turn.weight = math.max(turn.weight, obstacle_weight)\n"
+        f"  {GATE_END}\n")
+    return preamble, check, obstacle_loop, turn_check
 
 
 def render(nodes):
@@ -254,19 +286,15 @@ def render(nodes):
 def patch(source, nodes, gates=(), opened=()):
     if BEGIN in source or GATE_BEGIN in source:
         raise Abort("the profile is already patched")
-    if source.count(NODE_HOOK) != 1:
-        raise Abort(
-            f"expected exactly one {NODE_HOOK.strip()!r} in the profile,"
-            f" found {source.count(NODE_HOOK)}\n"
-            f"       The profile has changed shape; re-read it before patching.")
-    if source.count(PENALTY_HOOK) != 1:
-        raise Abort(
-            f"expected exactly one {PENALTY_HOOK.strip()!r} in the profile,"
-            f" found {source.count(PENALTY_HOOK)}\n"
-            f"       The profile has changed shape; re-read it before patching.")
+    for hook in (NODE_HOOK, PENALTY_HOOK, OBSTACLE_HOOK, TURN_HOOK):
+        if source.count(hook) != 1:
+            raise Abort(
+                f"expected exactly one {hook.strip()!r} in the profile,"
+                f" found {source.count(hook)}\n"
+                f"       The profile has changed shape; re-read it before patching.")
 
     preamble, check = render(nodes)
-    gate_preamble, gate_check = render_gates(gates, opened)
+    gate_preamble, gate_check, obstacle_loop, turn_check = render_gates(gates, opened)
     if not preamble and not gate_preamble:
         return source
 
@@ -281,6 +309,8 @@ def patch(source, nodes, gates=(), opened=()):
         source = source.replace(NODE_HOOK, NODE_HOOK + check, 1)
     if gate_check:
         source = source.replace(PENALTY_HOOK, PENALTY_HOOK + gate_check, 1)
+        source = source.replace(OBSTACLE_HOOK, obstacle_loop, 1)
+        source = source.replace(TURN_HOOK, turn_check + TURN_HOOK, 1)
     return source
 
 

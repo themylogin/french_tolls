@@ -74,9 +74,10 @@ OPT_DIR    := $(strip $(OSRM_OPTIMAL_PATH))
 OPT_STAMP  := $(OPT_DIR)/.applied.stamp
 
 # The routing profile, copied out of the image and patched so that the nodes in
-# $(BLACKLIST) are impassable, and so that a gate keeps its penalty only where an
-# allowed highway class carries it. `lib/` comes across too: car.lua requires it,
-# and osrm-extract resolves those requires relative to the profile it is given.
+# $(BLACKLIST) are impassable, so that a gate keeps its penalty only where an
+# allowed highway class carries it, and so that such a gate tagged `locked=yes`
+# is a last resort. `lib/` comes across too: car.lua requires it, and
+# osrm-extract resolves those requires relative to the profile it is given.
 PROFILE_DIR  := $(OSRM_DIR)/profile
 PROFILE      := $(PROFILE_DIR)/car.lua
 PROFILE_ORIG := $(PROFILE_DIR)/car.lua.orig
@@ -476,7 +477,9 @@ build_vinci_direct_prices: guard-osrm-path guard-ulys-key \
 # profile, so this step needs neither the router nor a key, a date or a network.
 # $(OSRM_STAMP) is a prerequisite for the profile alone: the patched graph's
 # pristine `car.lua.orig` is what says which roads a car may drive, and the
-# extent graph has to admit exactly what the router does.
+# extent graph has to admit what the router does. A locked gate is the one
+# exception: the router keeps it as a last resort, and the extent graph closes
+# it, because no driver leaves a tolled road through it.
 #
 # The extract is this step's own. The grouping carve reaches 2 km around a
 # booth, and a tolled slip road can run four times that -- a region that leaves

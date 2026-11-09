@@ -29,7 +29,9 @@ and treating that ring as an escape stopped the step on a region that was right.
 The graph has to admit exactly what the router admits, or a region stops at a
 fork the driver never sees. Access tags, the barrier whitelist and the gate
 values are read out of the routing profile itself; the gate rule and the node
-blacklist are the ones builder/patch_car_profile.py compiles into it.
+blacklist are the ones builder/patch_car_profile.py compiles into it. A locked
+gate is the one difference. The router keeps it as a last resort, and this
+graph closes it, because a last resort is not an escape.
 
 It also has to reach further than the answer. A tolled slip road runs 8 km past
 AMBLAINVILLE, and a graph carved 2 km around the booth ends in the middle of it
@@ -187,26 +189,33 @@ def load_blacklist(path):
 
 
 class BarrierScan(osmium.SimpleHandler):
-    """Every `barrier=*` node in the extract, with its value."""
+    """Every `barrier=*` node in the extract, with its value, and the locked ones."""
 
     def __init__(self):
         super().__init__()
         self.values = {}
+        self.locked = set()
 
     def node(self, n):
         value = n.tags.get("barrier")
         if value is not None:
             self.values[n.id] = value
+            if n.tags.get("locked") == "yes":
+                self.locked.add(n.id)
 
 
 def impassable_nodes(plaza_pbf, profile, blacklist):
     """(nodes no car can cross, how many of each kind were seen).
 
-    Three rules, all the router's own. A barrier value the profile does not
-    whitelist stops a car where it stands. A gate stops one everywhere an
-    allowed highway class does not carry it, which is the rule
-    patch_car_profile compiles into the profile. A blacklisted node is not a
-    connection at all.
+    Four rules. A barrier value the profile does not whitelist stops a car
+    where it stands. A gate stops one everywhere an allowed highway class does
+    not carry it, which is the rule patch_car_profile compiles into the
+    profile. A blacklisted node is not a connection at all.
+
+    A gate tagged `locked=yes` stops a car too, even where an allowed class
+    carries it. The router keeps such a gate as a last resort, so a route that
+    starts or ends behind it still crosses it. No driver leaves a tolled road
+    through it, so it is not an escape.
 
     A booth is `barrier=toll_booth` and the profile whitelists it, so the
     inventory stays reachable.
@@ -214,15 +223,17 @@ def impassable_nodes(plaza_pbf, profile, blacklist):
     scan = BarrierScan()
     scan.apply_file(plaza_pbf)
     gates, opened = pc.scan_gates(plaza_pbf, sorted(profile.gates))
+    unlocked = opened - scan.locked
     blocked = set(blacklist)
     for node, value in scan.values.items():
         if value in profile.barrier_open:
             continue
-        if value in profile.gates and node in opened:
+        if value in profile.gates and node in unlocked:
             continue
         blocked.add(node)
     counts = {"barrier nodes": len(scan.values), "gates": len(gates),
               "gates an allowed class carries": len(opened),
+              "of them locked": len(opened) - len(unlocked),
               "blacklisted": len(blacklist)}
     return blocked, counts
 

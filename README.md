@@ -10,7 +10,7 @@ A tool that helps to save money on French toll roads.
 ## Prerequisites
 
 * Linux with Docker, the Compose plugin, and GNU make.
-* 16 GB RAM. Graph preprocessing is the peak.
+* 32 GB of RAM. Graph preprocessing is the peak.
 * 30 GB free disk: 4.8 GB for the OSM extract, 9.3 GB for the road graph,
   9.3 GB for the toll-weighted graph, and transient space for preprocessing.
   The Makefile refuses to start without 25 GB free at `OSRM_TOLL_PATH` and
@@ -27,7 +27,9 @@ cp .env.example .env
 ```
 
 Set `OSRM_TOLL_PATH` and `OSRM_OPTIMAL_PATH` to two different absolute paths
-outside the repository. They hold the two routing graphs.
+outside the repository. They hold the two routing graphs. Create both
+directories before the first `make`. Compose does not create them, and every
+step that runs in the builder mounts `OSRM_TOLL_PATH`.
 
 The other variables are optional:
 
@@ -52,8 +54,14 @@ below. Download that extract and build the two routing graphs from it:
 ```
 curl -o data/france-latest.osm.pbf \
     https://french-tolls.undiscoveredlatitudes.com/download/france-latest.osm.pbf
+rm -f data/osm_toll_booths.yaml
 make apply_segment_weights
 ```
+
+The `rm` is required. Step 7 needs `data/filtered.osm.pbf`, which is not in
+the repository. Only step 3 writes it, and step 3 runs only when
+`data/osm_toll_booths.yaml` is absent. From this extract, step 3 writes the
+same inventory again, byte for byte.
 
 No API key is needed for this option.
 

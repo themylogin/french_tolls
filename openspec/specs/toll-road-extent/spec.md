@@ -97,6 +97,8 @@ The system SHALL bar a way whose access the profile bars, resolving `motorcar`, 
 
 The system SHALL treat a node carrying a `barrier` value the profile does not whitelist as impassable, and SHALL treat a `gate` or `lift_gate` as impassable unless an allowed highway class carries it — the rule `builder/patch_car_profile.py` compiles into the profile. Measured, the extract holds 27 163 barrier nodes and 15 735 gates, of which 15 729 are carried by an allowed class.
 
+The system SHALL treat a `gate` or `lift_gate` that carries `locked=yes` as impassable, even where an allowed highway class carries it. This is the one place where the graph admits less than the router. The router keeps such a gate as a last resort, so a route that starts or ends behind it still crosses it. No driver leaves a tolled road through a locked gate, so it is not an escape.
+
 The system SHALL treat every node of `data/nodes_blacklist.yaml` as impassable, for the same reason the profile does: the map is wrong about that connection, and a region that walks through one stops at a fork that is not there on the ground.
 
 Honouring all four leaves 9 031 nodes impassable in the carved extract. It changes 4 of the 1 024 extents, and where it does the looser graph is shorter by a median of 245 m, having found an escape the router does not have. The reason the rule is stated rather than left to chance is the coupling it protects: `builder/build_segment_weights.py` falls back to barrier-to-barrier whenever a pair's route does not traverse a recorded extent node, so an extent placed behind a locked gate would be discarded without any error being raised.
@@ -110,6 +112,11 @@ Honouring all four leaves 9 031 nodes impassable in the carved extract. It chang
 
 - **WHEN** a branch leaving a booth's region passes a `barrier=gate` node that no allowed highway class carries
 - **THEN** the region continues past that branch, because the profile treats the gate as shut
+
+#### Scenario: A locked gate on a through-road is not an escape
+
+- **WHEN** a branch leaving a booth's region passes a `barrier=gate` node that carries `locked=yes` and that a `highway=residential` way carries
+- **THEN** the region continues past that branch, because no driver leaves a tolled road through a locked gate
 
 #### Scenario: A blacklisted node is not an escape
 
