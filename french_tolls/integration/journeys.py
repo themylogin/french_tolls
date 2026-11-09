@@ -33,7 +33,7 @@ class Journey:
     # How many links the driver ends up with.
     parts: int
     # The route pressed where the answer offers a choice: "Optimal" or
-    # "Superoptimal". None where the answer offers no choice.
+    # "Super". None presses "Optimal".
     choice: str | None = None
 
 
@@ -87,7 +87,7 @@ JOURNEYS = (
                 "the driver chooses it and drives it through the stop",
         origin=(2.8333, 42.5236), origin_name="Le Boulou",
         destination=(4.3601, 43.8367), destination_name="Nîmes",
-        asks=2, parts=1, choice="Superoptimal",
+        asks=2, parts=1, choice="Super",
     ),
 )
 

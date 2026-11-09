@@ -273,6 +273,16 @@ def _stop_entry(route, booths):
     return None
 
 
+def _station_stop_entry(route, leg, location):
+    """A gas station as the answer carries a stop: no booths, at the node where `route` reaches it."""
+    return {
+        "name": None,
+        "latlon": [location[1], location[0]],
+        "booths": [],
+        "index": route.leg_start[leg + 1],
+    }
+
+
 def _describe_split(route, optimal, plan, journey, stops):
     """A route through `stops`, with the waypoints that drive it when every stop is kept."""
     described = _describe(route, plan, journey, booths_crossed(BOOTHS, route.node_ids))
@@ -347,9 +357,12 @@ async def stretch_through(from_, to, stops):
     """The fast route, and the route through `stops`, between two `[longitude, latitude]` points.
 
     Each stop is a `(location, booths)` pair: the `(longitude, latitude)` of its
-    exit booth, and the ids of its exit booth and entrance booth. The route is
-    built on the toll-weighted graph through each exit booth, as the split route
-    is, so the road between two stops is chosen as it is for `optimal`.
+    exit booth, and the ids of its exit booth and entrance booth. A gas station
+    of a refuel plan is a stop at its own position, with no booths. The route is
+    built on the toll-weighted graph through each stop, as the split route
+    is, so the road between two stops is chosen as it is for `optimal`. The fast
+    route goes through the gas stations, so that it is the route Google would
+    drive through them.
 
     Returns `{"fast": ..., "super_optimal": ...}` in the shape of `get_route`, or
     None where the route does not cross the booths of every stop.
@@ -360,7 +373,11 @@ async def stretch_through(from_, to, stops):
         start = await routers.snap(from_)
         end = await routers.snap(to)
 
-        fast = await routers.fast(start, end)
+        stations = [tuple(location) for location, booths in stops if not booths]
+        if stations:
+            fast = await routers.route_via(config.osrm_toll_url, start, stations, end)
+        else:
+            fast = await routers.fast(start, end)
         optimal = await routers.optimal(start, end)
         plan = await plan_waypoints(routers, optimal, start, end, max_waypoints=MAX_WAYPOINTS)
 
@@ -372,11 +389,15 @@ async def stretch_through(from_, to, stops):
         logger.info("the route through %d stop(s) missed one; not offering it", len(stops))
         return None
 
+    entries = []
+    for leg, (location, booths) in enumerate(stops):
+        if booths:
+            entries.append(_stop_entry(through, set(booths)))
+        else:
+            entries.append(_station_stop_entry(through, leg, location))
     result = {
         "fast": _describe(fast, None, account(BOOTHS, fast.node_ids), booths_crossed(BOOTHS, fast.node_ids)),
-        "super_optimal": _describe_split(
-            through, optimal, plan, account(BOOTHS, through.node_ids),
-            [_stop_entry(through, set(booths)) for _location, booths in stops]),
+        "super_optimal": _describe_split(through, optimal, plan, account(BOOTHS, through.node_ids), entries),
     }
     return _for_delivery(result, from_, to)
 
@@ -386,6 +407,8 @@ class SplitStop:
     # [longitude, latitude] of the exit booth, as the split route was sent it.
     location: tuple[float, float]
     index: int
+    # The exit booth and the entrance booth.
+    booths: tuple[int, int]
 
 
 @dataclass(frozen=True)
@@ -395,10 +418,12 @@ class PlannedRoute:
     route: osrm.Route
     stops: tuple[SplitStop, ...]
     optimal: osrm.Route
+    # The graph of `route`, where the detours from it are routed too.
+    router_url: str
 
 
 async def planned_route(routers, from_, to, name) -> PlannedRoute | None:
-    """The `optimal` or `super_optimal` route of `get_route`, without the waypoint search.
+    """The `optimal`, `super_optimal`, or `fast` route of `get_route`, without the waypoint search.
 
     None where the journey offers no split route.
     """
@@ -408,7 +433,12 @@ async def planned_route(routers, from_, to, name) -> PlannedRoute | None:
         optimal = await routers.optimal(start, end)
 
         if name == "optimal":
-            return PlannedRoute(start=start, end=end, route=optimal, stops=(), optimal=optimal)
+            return PlannedRoute(start=start, end=end, route=optimal, stops=(), optimal=optimal,
+                                router_url=config.osrm_optimal_url)
+        if name == "fast":
+            fast = await routers.fast(start, end)
+            return PlannedRoute(start=start, end=end, route=fast, stops=(), optimal=optimal,
+                                router_url=config.osrm_toll_url)
 
         try:
             split = await _split_journey(routers, start, end, optimal)
@@ -422,9 +452,11 @@ async def planned_route(routers, from_, to, name) -> PlannedRoute | None:
             for stop in candidate.stops:
                 booth = BOOTHS.at(stop.exit_node)
                 stops.append(SplitStop(location=(booth.latlon[1], booth.latlon[0]),
-                                       index=split.route.index_of(booth.node_id)))
+                                       index=split.route.index_of(booth.node_id),
+                                       booths=(booth.node_id, BOOTHS.at(stop.enter_node).node_id)))
 
-        return PlannedRoute(start=start, end=end, route=split.route, stops=tuple(stops), optimal=optimal)
+        return PlannedRoute(start=start, end=end, route=split.route, stops=tuple(stops), optimal=optimal,
+                            router_url=config.osrm_optimal_url)
 
 
 async def booths_along(geometry):

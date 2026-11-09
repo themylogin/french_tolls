@@ -107,6 +107,7 @@ body {
     pointer-events: none;
 }
 .unit-field input.form-control { padding-right: 1.75rem; }
+.unit-field-km input.form-control { padding-right: 2.5rem; }
 .unit-field-wide input.form-control { padding-right: 4.5rem; }
 /* Bootstrap draws its invalid icon where the unit is. The red border stays. */
 .unit-field input.form-control.is-invalid { background-image: none; }

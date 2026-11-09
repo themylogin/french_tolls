@@ -16,6 +16,7 @@ from aiohttp.test_utils import TestServer
 import pytest
 
 from .. import api, refuel, route
+from ..config import config
 from ..osrm import NoRoute, Route, RouterUnavailable, Snap
 from ..waypoints import WaypointPlan
 
@@ -37,8 +38,9 @@ def straight_route(node_ids):
 
 
 class FakeRouters:
-    def __init__(self, optimal, *, error=None):
+    def __init__(self, optimal, *, fast=None, error=None):
         self.optimal_route = optimal
+        self.fast_route = fast
         self.error = error
         self.requests = 0
 
@@ -54,6 +56,10 @@ class FakeRouters:
     async def optimal(self, start, end):
         self._charge()
         return self.optimal_route
+
+    async def fast(self, start, end):
+        self._charge()
+        return self.fast_route
 
     async def route_via(self, base, start, vias, end):
         self._charge()
@@ -79,6 +85,23 @@ def test_the_optimal_route_costs_three_requests(no_waypoint_search):
     assert routers.requests == 3
 
 
+def test_the_fast_route_is_planned_on_the_fast_graph(no_waypoint_search):
+    fast = straight_route([1, 4, 3])
+    routers = FakeRouters(straight_route([1, 2, 3]), fast=fast)
+
+    planned = asyncio.run(route.planned_route(routers, FROM, TO, "fast"))
+
+    assert planned.route == fast
+    assert planned.stops == ()
+    assert planned.router_url == config.osrm_toll_url
+
+
+def test_the_optimal_route_is_planned_on_the_optimal_graph(no_waypoint_search):
+    planned = asyncio.run(route.planned_route(FakeRouters(straight_route([1, 2, 3])), FROM, TO, "optimal"))
+
+    assert planned.router_url == config.osrm_optimal_url
+
+
 def test_a_route_without_a_toll_booth_has_no_split_route(no_waypoint_search):
     routers = FakeRouters(straight_route([1, 2, 3]))
 
@@ -99,7 +122,8 @@ REQUEST = {
     "from": [2.35, 48.86],
     "to": [5.37, 43.30],
     "route": "optimal",
-    "car": {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2, "reserve": 5},
+    "car": {"fuel_type": "diesel", "tank_volume": 50, "consume_80": 5.5, "consume_130": 7.2, "reserve": 5,
+            "reserve_km": 50},
     "fuel": 20,
 }
 PLANNED = object()
@@ -115,8 +139,12 @@ def post(monkeypatch, body, *, planned=PLANNED, route_error=None, plan_error=Non
             raise route_error
         return planned
 
-    async def fake_plan(routers, planned_, parameters, fuel, toll_cost, chosen=(), link_through=None):
-        calls.append(("plan", fuel, tuple(chosen)))
+    async def fake_plan(routers, planned_, parameters, toll_cost, *, fuel=None, range_km=None, chosen=(),
+                        link_through=None):
+        start = fuel
+        if range_km is not None:
+            start = f"{range_km} km"
+        calls.append(("plan", start, tuple(chosen)))
         if plan_error is not None:
             raise plan_error
         return NO_STOP
@@ -164,6 +192,11 @@ def test_a_complete_request_is_answered(monkeypatch):
     with_changes(consume_80=7.2, consume_130=5.5),
     with_changes(route="fast"),
     with_changes(reserve=50),
+    with_changes(reserve_km=501),
+    {**REQUEST, "car": {key: value for key, value in REQUEST["car"].items() if key != "reserve_km"}},
+    {**{key: value for key, value in REQUEST.items() if key != "fuel"}, "range": 3001},
+    {**{key: value for key, value in REQUEST.items() if key != "fuel"}, "range": True},
+    with_changes(range=300),
     {key: value for key, value in REQUEST.items() if key != "fuel"},
     {**REQUEST, "car": {key: value for key, value in REQUEST["car"].items() if key != "reserve"}},
     "this is not JSON",
@@ -187,6 +220,15 @@ def test_a_reserve_of_0_is_accepted(monkeypatch):
 
     assert status == 200
     assert calls[-1] == ("plan", 20, ())
+
+
+def test_a_range_without_fuel_is_accepted(monkeypatch):
+    body = {**{key: value for key, value in REQUEST.items() if key != "fuel"}, "range": 300}
+
+    status, _answer, calls = post(monkeypatch, body)
+
+    assert status == 200
+    assert calls[-1] == ("plan", "300 km", ())
 
 
 def test_a_journey_without_a_split_route_gets_404(monkeypatch):

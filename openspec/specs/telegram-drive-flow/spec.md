@@ -5,69 +5,6 @@ Defines what the Telegram bot sends for a journey, what happens when a driver as
 
 ## Requirements
 
-### Requirement: The answer message costs nothing and offers at most one action
-
-For a journey it has calculated, the bot SHALL send the route summaries, and nothing else addressed to Google beyond what this requirement allows. The summaries are the optimal route and the fastest route, with the superoptimal route above them where "A superoptimal route is listed above the optimal one" lists it.
-
-The message SHALL NOT cause a Google request. Most journeys are looked at and never driven, and a message sent for every journey cannot be allowed to spend on every journey.
-
-A link to the comparison map SHALL be sent **only where the routes differ**: where the fastest route and the optimal route are not the same road, or where a superoptimal route is listed. The map draws one route against the other; where the fastest route and the optimal route are the same road and nothing else is listed, it would draw one line twice, and the link offers a driver nothing to look at. A listed superoptimal route always leaves the optimal road at its stops, and the map marks the stops.
-
-Where the optimal route pays no tolls, the message SHALL carry, in bold, an instruction to enable "Avoid tolls" before driving. That setting reproduces the whole intent of a toll-free route in one action, and it is not expressible in a directions link.
-
-**Where a superoptimal route is listed, the message SHALL offer the choice of route as its one action**, as "The driver chooses a route before driving it" specifies, and SHALL carry no link addressed to Google Maps directions. This applies even where the optimal route alone could be answered outright: the driver has not yet said which route they want.
-
-**Where no superoptimal route is listed and the journey can be answered without a Google request** — it pays no tolls, or the fastest route crosses exactly the booths the optimal route crosses — **the message SHALL carry the directions link itself and SHALL offer no action.** The answer is already known, so asking a driver to press for it buys nothing and costs them a second message saying what the first could have said. That link SHALL start from the driver's current location and SHALL carry no waypoints.
-
-Otherwise the message SHALL offer exactly one action, labelled so a driver knows it produces something to drive, and SHALL carry no link addressed to Google Maps directions. A journey that has still to be checked against Google must not be handed out as a link before it is.
-
-The comparison map address SHALL be built from this service's configured public address rather than written into the bot.
-
-#### Scenario: A message is free
-
-- **WHEN** a journey is calculated and its answer sent
-- **THEN** no Google request has been made and the month's count is unchanged
-
-#### Scenario: A toll-free route says how to drive it
-
-- **WHEN** the optimal route's toll cost is zero
-- **THEN** the message carries the avoid-tolls instruction in bold
-
-#### Scenario: A tolled route does not
-
-- **WHEN** the optimal route pays tolls
-- **THEN** the message carries no avoid-tolls instruction
-
-#### Scenario: A journey still to be checked carries no directions link
-
-- **WHEN** the answer is sent for a journey that will need a Google request to resolve
-- **THEN** it carries no link addressed to Google Maps directions, and offers the action instead
-
-#### Scenario: A journey needing no request is answered outright
-
-- **WHEN** no superoptimal route is listed, and the optimal route pays no tolls or the fastest route crosses exactly the booths the optimal route crosses
-- **THEN** the message carries a directions link from the driver's current location with no waypoints, and offers no action
-
-#### Scenario: A listed superoptimal route replaces the outright answer
-
-- **WHEN** a superoptimal route is listed, and the fastest route crosses exactly the booths the optimal route crosses
-- **THEN** the message carries no link addressed to Google Maps directions, and offers the choice of route
-
-#### Scenario: No map where there is nothing to compare
-
-- **WHEN** the fastest route and the optimal route are the same road, and no superoptimal route is listed
-- **THEN** the message carries no comparison map link
-
-#### Scenario: The map is sent where the routes differ
-
-- **WHEN** the fastest route and the optimal route are not the same road
-- **THEN** the message carries the comparison map link
-
-#### Scenario: The map is sent where a superoptimal route is listed
-
-- **WHEN** the fastest route and the optimal route are the same road, and a superoptimal route is listed
-- **THEN** the message carries the comparison map link
-
 ### Requirement: Asking to drive resolves a journey into followable parts
 
 When the driver asks to drive, the system SHALL produce a link, or a sequence of links, that a general-purpose navigation application will follow.
@@ -87,9 +24,9 @@ Rule 1 SHALL be tried before rule 2. A part that pays no tolls has two empty boo
 
 Rule 2 SHALL apply to a part at any depth, not only to a whole journey. A half of a journey is answered by the same rules as the journey.
 
-Rules 1 and 2 SHALL also settle the answer message, before any driver asks to drive. Both produce a link and neither makes a request, so a whole journey either reaches this decision through a press or is answered outright when it is first calculated, never both. A half produced by a split still reaches it through a press.
+Every whole journey SHALL reach this decision through a press on `Drive with Google`, and a half produced by a split through a press too. The driver first chooses a route and whether to plan a refuel, so the answer message settles nothing.
 
-**Where the answer message offers the choice of route, rules 1 and 2 SHALL settle the chosen route on the press that chooses it, and not in the answer message.** The answer message cannot settle a route the driver has not chosen yet.
+**Where rule 1 or rule 2 settles the part, the press SHALL send the link at once, and SHALL show no message that Google is being checked.** Nothing is checked.
 
 Where the two booth sets are not both known, rule 2 SHALL NOT apply and the decision SHALL continue to the rules below it. An unknown set is not an equal one.
 
@@ -120,8 +57,8 @@ A link SHALL record which test accepted it, and a link accepted by rule 2 SHALL 
 
 #### Scenario: A chosen route is settled on the choice
 
-- **WHEN** the answer message offers the choice of route, and the driver chooses a route that rule 1 or rule 2 settles
-- **THEN** the link is sent on that press, and no Google request is made
+- **WHEN** the driver chooses a route that rule 1 or rule 2 settles, and then presses `Drive with Google`
+- **THEN** the link is sent on that press, no Google request is made, and no message says that Google is being checked
 
 #### Scenario: A route Google already follows is sent as it is
 
@@ -243,14 +180,14 @@ The state carried between a message and the press that answers it SHALL be expli
 
 ### Requirement: A superoptimal route is listed above the optimal one
 
-Where the route answer carries a superoptimal route that the bot can drive, the answer message SHALL list it first. Its title is "Superoptimal route". Its summary has the format of the others: travel time, cost, and distance. The optimal and fastest routes SHALL follow, as today.
+Where the route answer carries a superoptimal route that the bot can drive, the answer message SHALL list it first. Its title is "Superoptimal". Its summary has the format of the others: travel time, cost, and distance. The optimal and fastest routes SHALL follow, as today.
 
 The bot can drive the route when its stops fit in one directions link. Otherwise the bot SHALL treat the route as absent.
 
 #### Scenario: The superoptimal route is listed first
 
 - **WHEN** the answer carries a superoptimal route whose stops fit in one link
-- **THEN** the message lists "Superoptimal route", "Optimal route", and "Fastest route" in that order, each with its travel time, cost, and distance
+- **THEN** the message lists "Superoptimal", "Optimal route", and "Fastest route" in that order, each with its travel time, cost, and distance
 
 #### Scenario: No superoptimal route
 
@@ -264,28 +201,45 @@ The bot can drive the route when its stops fit in one directions link. Otherwise
 
 ### Requirement: The driver chooses a route before driving it
 
-Where a superoptimal route is listed, the answer message SHALL offer one row of two buttons: "Optimal", then "Superoptimal". A press SHALL choose that route and spend the choice. The press SHALL NOT cause a Google request.
+Where at least two routes of the answer differ, the answer message SHALL offer one row of buttons, in this order: "Super" where a superoptimal route is listed, then "Optimal", then "Fastest" where the fastest route and the optimal route are not the same road. A press SHALL choose that route and spend the choice. The press SHALL NOT cause a Google request.
 
-The bot SHALL then edit the same message. It replaces the buttons with one "Drive with Google" button, which drives the chosen route. It adds an empty line and "Optimal route chosen" or "Superoptimal route chosen" at the end. The rest of the message SHALL NOT change.
+The bot SHALL then edit the same message. It replaces the buttons with the buttons of "The chosen route offers Drive with Google and Plan refuel". It adds an empty line and "Superoptimal route chosen", "Optimal route chosen", or "Fastest route chosen" at the end. The rest of the message SHALL NOT change.
+
+Where no other route differs from the optimal route, the answer message SHALL offer no choice. It SHALL offer the buttons of "The chosen route offers Drive with Google and Plan refuel" at once, for the optimal route.
 
 #### Scenario: The choice is offered
 
-- **WHEN** a superoptimal route is listed
-- **THEN** the answer message offers the buttons "Optimal" and "Superoptimal" in one row, and no "Drive with Google" button
+- **WHEN** a superoptimal route is listed, and the fastest route and the optimal route are not the same road
+- **THEN** the answer message offers the buttons "Super", "Optimal", and "Fastest" in one row, and no "Drive with Google" or "Plan refuel" button
+
+#### Scenario: A superoptimal route on the fastest road
+
+- **WHEN** a superoptimal route is listed, and the fastest route and the optimal route are the same road
+- **THEN** the answer message offers the buttons "Super" and "Optimal" in one row
+
+#### Scenario: The fastest route differs
+
+- **WHEN** no superoptimal route is listed, and the fastest route and the optimal route are not the same road
+- **THEN** the answer message offers the buttons "Optimal" and "Fastest" in one row
+
+#### Scenario: Nothing to choose
+
+- **WHEN** no superoptimal route is listed, and the fastest route and the optimal route are the same road
+- **THEN** the answer message offers "Drive with Google" and "Plan refuel" for the optimal route, and no route button
 
 #### Scenario: A choice leads to "Drive with Google"
 
-- **WHEN** the driver presses "Superoptimal", and the superoptimal route needs a Google request
-- **THEN** the same message now offers one "Drive with Google" button, and no Google request was made
+- **WHEN** the driver presses "Super"
+- **THEN** the same message now offers one row with "Drive with Google" and "Plan refuel", and no Google request was made
 
 #### Scenario: The choice is written under the answer
 
-- **WHEN** the driver presses "Superoptimal"
+- **WHEN** the driver presses "Super"
 - **THEN** the answer message keeps its text, its bold titles, and its links, and ends with an empty line and "Superoptimal route chosen"
 
 #### Scenario: "Drive with Google" drives the chosen route
 
-- **WHEN** the driver presses "Drive with Google" after a press on "Superoptimal"
+- **WHEN** the driver presses "Drive with Google" after a press on "Super"
 - **THEN** every link sent drives the superoptimal route
 
 #### Scenario: "Drive with Google" after the optimal choice
@@ -297,15 +251,6 @@ The bot SHALL then edit the same message. It replaces the buttons with one "Driv
 
 - **WHEN** a choice that was already pressed is pressed again
 - **THEN** the bot says that the route has expired, as it does for a spent drive button
-
-### Requirement: A chosen route that needs no request is answered on the choice
-
-Where rule 1 or rule 2 of "Asking to drive" settles the chosen route, the press that chooses it SHALL remove the buttons and send the directions link at once. The link is the one the answer message carries for a journey without a choice. The bot SHALL NOT offer "Drive with Google", because a press on it would buy nothing.
-
-#### Scenario: The optimal route agrees with the fastest one
-
-- **WHEN** the driver presses "Optimal", and the fastest route crosses exactly the booths the optimal route crosses
-- **THEN** the buttons are removed, the answer message ends with "Optimal route chosen", a link from the driver's current location with no waypoints is sent, no "Drive with Google" button is offered, and no Google request is made
 
 ### Requirement: A superoptimal route is driven through its stops
 
@@ -364,3 +309,157 @@ Where the route of a half does not cross both booths of each of its stops, the p
 
 - **WHEN** the route of a half does not cross both booths of one of its stops
 - **THEN** the part is not split, and it is sent as the best link available
+
+### Requirement: The answer message costs nothing
+
+For a journey it has calculated, the bot SHALL send the route summaries: the optimal route and the fastest route, with the superoptimal route above them where "A superoptimal route is listed above the optimal one" lists it. The message SHALL NOT cause a Google request. Most journeys are looked at and never driven, and a message sent for every journey cannot be allowed to spend on every journey.
+
+#### Scenario: A message is free
+
+- **WHEN** a journey is calculated and its answer sent
+- **THEN** no Google request has been made and the month's count is unchanged
+
+### Requirement: The answer message carries no directions link
+
+The answer message SHALL carry no link addressed to Google Maps directions, also where rule 1 or rule 2 of "Asking to drive" settles the route. The driver first chooses a route, and then chooses between driving and planning a refuel. A directions link comes only from a press on `Drive with Google`.
+
+#### Scenario: A settled journey asks before it drives
+
+- **WHEN** the optimal route pays no tolls, and no other route differs from it
+- **THEN** the answer message carries no directions link, and offers "Drive with Google" and "Plan refuel"
+
+### Requirement: The comparison map is sent only where the routes differ
+
+The answer message SHALL carry a link to the comparison map only where the fastest route and the optimal route are not the same road, or where a superoptimal route is listed. The map draws one route against the other; where nothing differs, it would draw one line twice. The address SHALL be built from this service's configured public address rather than written into the bot.
+
+#### Scenario: No map where there is nothing to compare
+
+- **WHEN** the fastest route and the optimal route are the same road, and no superoptimal route is listed
+- **THEN** the message carries no comparison map link
+
+#### Scenario: The map is sent where the routes differ
+
+- **WHEN** the fastest route and the optimal route are not the same road
+- **THEN** the message carries the comparison map link
+
+#### Scenario: The map is sent where a superoptimal route is listed
+
+- **WHEN** the fastest route and the optimal route are the same road, and a superoptimal route is listed
+- **THEN** the message carries the comparison map link
+
+### Requirement: A toll-free optimal route carries the avoid-tolls instruction
+
+Where the optimal route pays no tolls, the answer message SHALL carry, in bold, an instruction to enable "Avoid tolls" before driving. That setting reproduces the whole intent of a toll-free route in one action, and it is not expressible in a directions link.
+
+#### Scenario: A toll-free route says how to drive it
+
+- **WHEN** the optimal route's toll cost is zero
+- **THEN** the message carries the avoid-tolls instruction in bold
+
+#### Scenario: A tolled route does not
+
+- **WHEN** the optimal route pays tolls
+- **THEN** the message carries no avoid-tolls instruction
+
+### Requirement: The chosen route offers Drive with Google and Plan refuel
+
+For the chosen route, the answer message SHALL offer one row: `Drive with Google`, then `Plan refuel`. This SHALL hold also where rule 1 or rule 2 settles the route. A press on either button SHALL spend both. `Plan refuel` SHALL start `telegram-refuel-plan` on the chosen route.
+
+#### Scenario: A journey that needs Google
+
+- **WHEN** the answer message offers the buttons for the optimal route, and the route needs a Google request
+- **THEN** the row has `Drive with Google` and then `Plan refuel`
+
+#### Scenario: A toll-free journey
+
+- **WHEN** the optimal route pays no tolls, and no other route differs from it
+- **THEN** the row has `Drive with Google` and then `Plan refuel`
+
+#### Scenario: A press on Drive with Google spends Plan refuel
+
+- **WHEN** the driver presses `Drive with Google`
+- **THEN** the answer message has no `Plan refuel` button, and an old copy of `Plan refuel` has expired
+
+#### Scenario: Split parts offer no Plan refuel
+
+- **WHEN** a part of a split journey is sent with the button for the next part
+- **THEN** that message has no `Plan refuel` button
+
+### Requirement: The fastest route is driven without a request
+
+`Drive with Google` for the fastest route SHALL send one link from the driver's current location to the destination, with no waypoints. It SHALL make no Google request, because the fastest route is the road that Google drives without waypoints. Where the fastest route pays no tolls, the link SHALL carry the avoid-tolls instruction in bold.
+
+#### Scenario: The fastest route is chosen
+
+- **WHEN** the driver presses "Fastest", and then `Drive with Google`
+- **THEN** the bot sends one link from the driver's current location with no waypoints, and makes no Google request
+
+### Requirement: A refuel plan is driven through its gas stations
+
+The rules of "Asking to drive" SHALL drive the route of a finished refuel plan on the optimal or the superoptimal route. Where they read the optimal route, they SHALL read the planned route through the chosen stations: its cost, its booths, and its geometry. Every link SHALL carry a waypoint at each chosen station, in route order. This SHALL hold for a link of rule 1 and of rule 2 too.
+
+#### Scenario: A toll-free plan
+
+- **WHEN** the driver drives a refuel plan with the stations A and B, and the planned route pays no tolls
+- **THEN** the bot sends one link from the driver's current location through A and B, with the avoid-tolls instruction, and makes no Google request
+
+#### Scenario: Every link carries the stations
+
+- **WHEN** a link for a refuel plan is sent, whether it is accepted, corrected, unchecked, or the best link available
+- **THEN** it carries a waypoint at each chosen station of that part
+
+#### Scenario: The stations are kept first
+
+- **WHEN** a refuel plan has 2 chosen stations, and the optimal route needed 8 waypoints that all lie on the planned route
+- **THEN** the first link carries 9 waypoints, and both stations are among them
+
+### Requirement: A refuel plan on the fastest route is driven without a request
+
+For a finished plan on the fastest route, `Drive with Google` SHALL send one link from the driver's current location through each chosen station, in route order, and through no other waypoint. It SHALL make no Google request. Where the route through the stations pays no tolls, the link SHALL carry the avoid-tolls instruction in bold.
+
+#### Scenario: A plan on the fastest route
+
+- **WHEN** the driver drives a plan on the fastest route with the stations A and B
+- **THEN** the bot sends one link from the driver's current location through A and B only, and makes no Google request
+
+### Requirement: Rule 2 for a refuel plan reads the fastest route through its stations
+
+For a refuel plan, rule 2 SHALL compare the booths of the planned route with the booths of the fastest route through the same chosen stations, in the same order. Its link SHALL carry the chosen stations and no other waypoint.
+
+#### Scenario: The two routes through the stations agree
+
+- **WHEN** the fastest route through the station A crosses exactly the booths of the planned route through A
+- **THEN** the bot sends a link from the driver's current location through A only, and makes no Google request
+
+#### Scenario: The fastest route through the stations adds a booth
+
+- **WHEN** the fastest route through the station A crosses one booth more than the planned route through A
+- **THEN** rule 2 does not apply, and the decision continues to the rules below it
+
+### Requirement: Google's route for a refuel plan is judged as the route it was planned on
+
+For a plan on the optimal route, Google's route SHALL be accepted by the tests for an optimal part. For a plan on the superoptimal route, it SHALL also cross both booths of each split stop, as "Google's route for a superoptimal part makes every stop" requires. A chosen station SHALL add no booth to these tests.
+
+#### Scenario: A plan on the optimal route with unknown tolls
+
+- **WHEN** the booths of Google's route for a plan on the optimal route cannot be established, and the route follows the planned route for the configured share
+- **THEN** it is accepted on the road it drives
+
+#### Scenario: A plan on the superoptimal route that skips a stop
+
+- **WHEN** Google's route for a plan on the superoptimal route goes through the chosen stations, but not through the exit booth of a split stop
+- **THEN** it is not accepted, and the part is corrected or split
+
+### Requirement: A split refuel plan keeps each station in its half
+
+Where a refuel plan is divided at its midpoint, each chosen station and each split stop SHALL go to the half that drives it. A half with stations or stops SHALL be routed through them, in order, on the toll-weighted graph, and priced from its own geometry. A half without them SHALL be answered as an optimal part.
+
+#### Scenario: A station stays in its half
+
+- **WHEN** a refuel plan with the station A in its first half and the station B in its second half is split
+- **THEN** each link of the first half carries A and not B, and each link of the second half carries B and not A
+
+#### Scenario: A half without a station
+
+- **WHEN** a refuel plan with one station in its first half is split
+- **THEN** the second half is answered as an optimal part

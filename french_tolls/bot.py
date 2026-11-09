@@ -1,5 +1,5 @@
 # -*- coding=utf-8 -*-
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import html
 import itertools
 import json
@@ -14,12 +14,19 @@ from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, Con
 
 from . import car as car_rules
 from . import drive as drive_rules
+from . import refuel
+from .car import CarParameters
 from .drive import AskGoogle, AskRoute, Opinion, Part, Stop, drive
 from . import spending
 from .config import config
 from .refine import request_route_once
 from .osrm import SNAP_REACH_M, Routers
-from .route import booths_along, get_route, google_maps_link, stretch_through
+from .refuel_chat import (GAUGES, no_station_text, no_stop_text, parse_range, station_list, station_paragraph,
+                          station_rows)
+from .route import (BOOTHS, RouteError, booths_along, get_route, google_maps_link, planned_route, stretch_through,
+                    toll_cost)
+from .tolls import booths_crossed
+from .waypoints import MAX_WAYPOINTS
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +57,12 @@ class ChatState:
         # The routes a driver can choose between, by the token both buttons carry.
         self.choices = {}
         self.car_dialogs = {}
+        # `RefuelOffer`s, by the token their `Plan refuel` button carries.
+        self.refuel_offers = {}
+        # The open `FuelQuestion` of each driver, by user id, so that a typed range finds it.
+        self.fuel_questions = {}
+        # Open `StationList`s, by the token their number buttons carry.
+        self.station_lists = {}
         self._tokens = itertools.count(1)
 
     def remember(self, parts):
@@ -67,6 +80,18 @@ class ChatState:
     def new_car_token(self):
         return f"c{next(self._tokens)}"
 
+    def offer_refuel(self, offer):
+        """Keep a `RefuelOffer`, and return the token that finds it."""
+        token = f"p{next(self._tokens)}"
+        self.refuel_offers[token] = offer
+        return token
+
+    def new_gauge_token(self):
+        return f"g{next(self._tokens)}"
+
+    def new_list_token(self):
+        return f"s{next(self._tokens)}"
+
 
 @dataclass(frozen=True)
 class Choice:
@@ -76,6 +101,38 @@ class Choice:
     text: str
     # The parts on offer, by route name.
     parts: dict
+
+
+@dataclass(frozen=True)
+class RefuelOffer:
+    """What `Plan refuel` plans on, and the `Drive with Google` beside it."""
+
+    # `optimal`, `super_optimal`, or `fast`, as `route.planned_route` takes it.
+    route: str
+    # What `Drive with Google` drives, and what a plan that needs no stop drives.
+    part: Part
+    drive_token: str
+
+
+@dataclass(frozen=True)
+class FuelQuestion:
+    token: str
+    offer: RefuelOffer
+    car: CarParameters
+    # Where the question is, so that a typed range can delete it.
+    chat_id: int
+    message_id: int
+
+
+@dataclass(frozen=True)
+class StationList:
+    offer: RefuelOffer
+    car: CarParameters
+    start: refuel.Start
+    # `(latitude, longitude)` of each station chosen before this list, in order.
+    chosen: tuple
+    # The entries of the plan answer, in the order of the list.
+    stations: tuple
 
 
 def state_of(context) -> ChatState:
@@ -105,11 +162,14 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     state = state_of(context)
     user_id = update.message.from_user.id
     if update.message.location is not None:
+        state.fuel_questions.pop(user_id, None)
         await handle_location(message=update.message, state=state, location=(
             update.message.location.longitude, update.message.location.latitude))
     elif user_id in state.car_dialogs:
         reply = car_rules.answer_text(state.car_dialogs[user_id], update.message.text)
         await send_car_reply(update.message, state, user_id, reply)
+    elif user_id in state.fuel_questions:
+        await handle_range(update.message, context, state)
     elif location := parse_location(update.message.text):
         await handle_location(update.message, state, location)
     else:
@@ -266,38 +326,38 @@ async def handle_route(message, state, from_, to):
         route = await get_route(from_, to)
         split = route.get("super_optimal")
         # A split route whose stops alone do not fit in one link cannot be driven.
-        offers_choice = split is not None and split["drive_waypoints"] is not None
+        offers_split = split is not None and split["drive_waypoints"] is not None
+        fast_differs = route["fast"]["nodes"] != route["optimal"]["nodes"]
 
         text = []
-        if offers_choice:
-            text.append(f"<b>Superoptimal route:</b> {format_route(split)}\n")
+        if offers_split:
+            text.append(f"<b>Superoptimal:</b> {format_route(split)}\n")
         text.append(f"<b>Optimal route:</b> {format_route(route['optimal'])}\n")
         text.append(f"<b>Fastest route:</b> {format_route(route['fast'])}\n")
-        if offers_choice or route["fast"]["nodes"] != route["optimal"]["nodes"]:
+        if offers_split or fast_differs:
             text.append(
                 f"➡️ <a href='{html.escape(comparison_map(from_, to))}'>Open comparison map</a>")
         if route["optimal"]["cost"] <= 0:
             text.append("")
             text.append(drive_rules.AVOID_TOLLS)
 
-        part = part_of(route, from_, to)
-        settled = drive_rules.settle(part, google_maps_link)
-        if offers_choice:
-            token = state.offer_choice(Choice(text="\n".join(text), parts={
-                "optimal": part,
-                "super_optimal": part_of(route, from_, to, name="super_optimal"),
-            }))
-            markup = InlineKeyboardMarkup([[
-                InlineKeyboardButton("Optimal", callback_data=f"{token}:optimal"),
-                InlineKeyboardButton("Superoptimal", callback_data=f"{token}:super_optimal"),
-            ]])
-        elif settled is not None:
-            # Nothing to ask Google about, so there is nothing to press for either.
-            # The link goes in this message rather than in one of its own.
-            text.append(f"➡️ <a href='{html.escape(settled.link)}'>{DRIVE_THIS}</a>")
-            markup = None
+        # In the order the summaries list them.
+        parts = {}
+        if offers_split:
+            parts["super_optimal"] = part_of(route, from_, to, name="super_optimal")
+        parts["optimal"] = part_of(route, from_, to)
+        if fast_differs:
+            parts["fast"] = part_of(route, from_, to, name="fast")
+
+        if len(parts) > 1:
+            token = state.offer_choice(Choice(text="\n".join(text), parts=parts))
+            labels = {"super_optimal": "Super", "optimal": "Optimal", "fast": "Fastest"}
+            markup = InlineKeyboardMarkup([[InlineKeyboardButton(labels[name], callback_data=f"{token}:{name}")
+                                            for name in parts]])
         else:
-            markup = keyboard("Drive with Google", state.remember([part]))
+            part = parts["optimal"]
+            markup = drive_and_refuel(state, RefuelOffer(route="optimal", part=part,
+                                                         drive_token=state.remember([part])))
 
         await reply.edit_text("\n".join(text), parse_mode="HTML",
                               reply_markup=markup, disable_web_page_preview=True)
@@ -319,16 +379,10 @@ async def choice_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     part = choice.parts[name]
-    label = {"optimal": "Optimal", "super_optimal": "Superoptimal"}[name]
-    settled = drive_rules.settle(part, google_maps_link)
-    markup = None
-    if settled is None:
-        markup = keyboard("Drive with Google", state.remember([part]))
+    label = {"super_optimal": "Superoptimal", "optimal": "Optimal", "fast": "Fastest"}[name]
+    markup = drive_and_refuel(state, RefuelOffer(route=name, part=part, drive_token=state.remember([part])))
     await query.edit_message_text(f"{choice.text}\n\n{label} route chosen", parse_mode="HTML",
                                   reply_markup=markup, disable_web_page_preview=True)
-
-    if settled is not None:
-        await send_outcome(query.message, state, drive_rules.Outcome(messages=[settled]), whole=True)
 
 
 async def drive_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -344,8 +398,16 @@ async def drive_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # The button is spent: a second press would pay for the same answer twice.
     await query.edit_message_reply_markup(reply_markup=None)
+    for token in [token for token, offer in state.refuel_offers.items() if offer.drive_token == query.data]:
+        del state.refuel_offers[token]
 
     head, rest = parts[0], parts[1:]
+    settled = drive_rules.settle(head, google_maps_link)
+    if settled is not None:
+        outcome = drive_rules.Outcome(messages=[settled], pending=list(rest))
+        await send_outcome(query.message, state, outcome, whole=head.depth == 0 and not rest)
+        return
+
     working = await query.message.reply_text("⏳ Checking with Google...")
     try:
         outcome = await resolve(head, await remaining_budget())
@@ -358,6 +420,183 @@ async def drive_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     outcome.pending = outcome.pending + rest
     whole = head.depth == 0 and not outcome.pending and len(outcome.messages) == 1
     await send_outcome(query.message, state, outcome, whole)
+
+
+def drive_and_refuel(state, offer):
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("Drive with Google", callback_data=offer.drive_token),
+        InlineKeyboardButton("Plan refuel", callback_data=state.offer_refuel(offer)),
+    ]])
+
+
+async def expire_refuel_button(query):
+    await query.edit_message_reply_markup(reply_markup=None)
+    await query.message.reply_text("That route has expired. Please send the locations again.")
+
+
+async def plan_refuel_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    state = state_of(context)
+    user_id = query.from_user.id
+    offer = state.refuel_offers.get(query.data)
+    if offer is None:
+        await expire_refuel_button(query)
+        return
+
+    parameters = await car_rules.load_car(user_id)
+    if parameters is None:
+        await query.message.reply_text("Use /car to set up your car details in order to use this.")
+        return
+
+    # One flow at a time: the answer's `Drive with Google` is spent with it.
+    del state.refuel_offers[query.data]
+    state.pending.pop(offer.drive_token, None)
+    await query.edit_message_reply_markup(reply_markup=None)
+
+    token = state.new_gauge_token()
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(label, callback_data=f"{token}:{step}") for label, step in row]
+        for row in GAUGES[parameters.gauge_steps]
+    ])
+    question = await query.message.reply_text(
+        "How much fuel do you have? Choose it on the gauge or enter the range in kilometers.", reply_markup=markup)
+    state.fuel_questions[user_id] = FuelQuestion(token=token, offer=offer, car=parameters,
+                                                 chat_id=question.chat_id, message_id=question.message_id)
+
+
+async def gauge_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    state = state_of(context)
+    user_id = query.from_user.id
+    token, _, step = query.data.partition(":")
+    question = state.fuel_questions.get(user_id)
+    if (question is None or question.token != token
+            or int(step) not in {value for row in GAUGES[question.car.gauge_steps] for _label, value in row}):
+        await expire_refuel_button(query)
+        return
+
+    del state.fuel_questions[user_id]
+    await query.message.delete()
+    start = refuel.Start(0, fuel=question.car.tank_volume * int(step) / question.car.gauge_steps)
+    await plan_and_answer(query.message, state, question.offer, question.car, start, ())
+
+
+async def handle_range(message, context, state):
+    user_id = message.from_user.id
+    range_km = parse_range(message.text)
+    if range_km is None:
+        await message.reply_text("Choose it on the gauge or enter the range in kilometers, for example 120.")
+        return
+
+    question = state.fuel_questions.pop(user_id)
+    await context.bot.delete_message(chat_id=question.chat_id, message_id=question.message_id)
+    await plan_and_answer(message, state, question.offer, question.car, refuel.Start(0, range_km=range_km), ())
+
+
+async def station_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    state = state_of(context)
+    token, _, number = query.data.partition(":")
+    listed = state.station_lists.pop(token, None)
+    if listed is None or not 1 <= int(number) <= len(listed.stations):
+        await expire_refuel_button(query)
+        return
+
+    station = listed.stations[int(number) - 1]
+    paragraph = station_paragraph(int(number), station)
+    await query.edit_message_text(paragraph, parse_mode="HTML", disable_web_page_preview=True)
+    chosen = (*listed.chosen, (station["latitude"], station["longitude"]))
+    await plan_and_answer(query.message, state, listed.offer, listed.car, listed.start, chosen, paragraph)
+
+
+async def plan_stops(offer, parameters, start, chosen):
+    """The planner's answer, and the `Part` that drives a finished plan through its stations.
+
+    The `Part` is None until the plan is finished, and where its stops do not fit
+    in one link.
+    """
+    routers = Routers()
+    origin, destination = list(offer.part.origin), list(offer.part.destination)
+    planned = await planned_route(routers, origin, destination, offer.route)
+    if planned is None:
+        raise RouteError("no_route", "the journey has no split route any more")
+
+    answer = await refuel.plan(routers, planned, parameters, toll_cost, fuel=start.fuel, range_km=start.range_km,
+                               chosen=chosen)
+    if answer["stop_needed"] or not chosen:
+        return answer, None
+
+    finished, vias, _start = await refuel.through_chosen(routers, planned, parameters, start, chosen)
+    if offer.route == "fast":
+        return answer, fast_plan_part(offer.part, finished, vias)
+
+    stretch = await stretch_through(origin, destination, [(via.location, frozenset(via.booths)) for via in vias])
+    if stretch is None:
+        raise RouteError("no_route", "the route through the stations misses a split stop")
+    if stretch["super_optimal"]["drive_waypoints"] is None:
+        return answer, None
+    return answer, part_of(stretch, origin, destination, name="super_optimal")
+
+
+def fast_plan_part(part, finished, vias):
+    """A finished plan on the fastest route, or None where its stations do not fit in one link.
+
+    Its booths are those of its own fastest route, so rule 1 or rule 2 always
+    settles it: one link through the stations, as Google drives them fastest.
+    """
+    if len(vias) > MAX_WAYPOINTS:
+        return None
+
+    booths = frozenset(booths_crossed(BOOTHS, finished.node_ids))
+    stops = tuple(Stop(location=tuple(via.location), booths=frozenset(), index=via.index) for via in vias)
+    return replace(part, cost=toll_cost(finished), nodes=tuple(tuple(c) for c in finished.coordinates),
+                   waypoints=tuple(stop.location for stop in stops), booths=booths, fast_booths=booths, stops=stops)
+
+
+async def plan_and_answer(message, state, offer, parameters, start, chosen, paragraph=None):
+    """Plan, and send the answer: a list to choose from, or what to drive.
+
+    After a station press, `message` is that station's `paragraph`, which a finished plan offers to drive.
+    """
+    working = await message.reply_text("⏳ Finding gas stations...")
+    try:
+        answer, part = await plan_stops(offer, parameters, start, chosen)
+    except Exception as e:
+        logger.warning("Error planning a refuel: %r", e, exc_info=True)
+        await working.edit_text("Error finding gas stations. I am very sorry for that 😞")
+        return
+
+    if not answer["stop_needed"] and not chosen:
+        await working.edit_text(no_stop_text(answer),
+                                reply_markup=keyboard("Drive with Google", state.remember([offer.part])))
+        return
+    if not answer["stop_needed"] and part is None:
+        await working.edit_text("The refuel plan has too many stops for one Google Maps link.")
+        return
+    if not answer["stop_needed"]:
+        await working.delete()
+        await message.edit_text(paragraph, parse_mode="HTML", disable_web_page_preview=True,
+                                reply_markup=keyboard("Drive with Google", state.remember([part])))
+        return
+    if not answer["stations"]:
+        await working.edit_text(no_station_text(parameters, by_range=start.fuel is None and not chosen))
+        return
+
+    token = state.new_list_token()
+    state.station_lists[token] = StationList(offer=offer, car=parameters, start=start, chosen=tuple(chosen),
+                                             stations=tuple(answer["stations"]))
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(label, callback_data=f"{token}:{label}") for label in row]
+        for row in station_rows(len(answer["stations"]))
+    ])
+    await working.edit_text(station_list(answer["stations"]), parse_mode="HTML", reply_markup=markup,
+                            disable_web_page_preview=True)
 
 
 async def remaining_budget():
@@ -439,6 +678,7 @@ async def send_car_reply(message, state, user_id, reply):
 
 async def reset_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state_of(context).users_from.pop(update.message.from_user.id, None)
+    state_of(context).fuel_questions.pop(update.message.from_user.id, None)
     await update.message.reply_text("Now, send me the origin location")
 
 
@@ -465,8 +705,12 @@ def build(token, *, request=None, get_updates_request=None):
     application.add_handler(CommandHandler("reset", reset_command_handler))
     application.add_handler(CommandHandler("car", car_command_handler))
     application.add_handler(CallbackQueryHandler(drive_button_handler, pattern=r"^d\d+$"))
-    application.add_handler(CallbackQueryHandler(choice_button_handler, pattern=r"^r\d+:(optimal|super_optimal)$"))
+    application.add_handler(CallbackQueryHandler(choice_button_handler,
+                                                 pattern=r"^r\d+:(optimal|super_optimal|fast)$"))
     application.add_handler(CallbackQueryHandler(car_button_handler, pattern=r"^car:"))
+    application.add_handler(CallbackQueryHandler(plan_refuel_button_handler, pattern=r"^p\d+$"))
+    application.add_handler(CallbackQueryHandler(gauge_button_handler, pattern=r"^g\d+:\d+$"))
+    application.add_handler(CallbackQueryHandler(station_button_handler, pattern=r"^s\d+:\d+$"))
 
     return application
 
@@ -485,5 +729,6 @@ if __name__ == "__main__":
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("telegram").setLevel(logging.WARNING)
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 
     main()

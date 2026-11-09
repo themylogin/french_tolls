@@ -71,3 +71,4 @@ class Car(Base):
     consume_130: Mapped[float] = mapped_column(Float, nullable=False)
     gauge_steps: Mapped[int] = mapped_column(Integer, nullable=False, server_default="16")
     reserve: Mapped[float] = mapped_column(Float, nullable=False, server_default="5")
+    reserve_km: Mapped[float] = mapped_column(Float, nullable=False, server_default="50")

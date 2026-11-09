@@ -23,6 +23,12 @@ def labelled(call, label):
     return None
 
 
+def driving_buttons(call):
+    """The callback data of the buttons of a call, without `Plan refuel`."""
+    return [button["callback_data"] for row in (call.markup or {}).get("inline_keyboard", []) for button in row
+            if button["text"] != "Plan refuel"]
+
+
 class Chat:
     """One driver, one application, and everything it was sent.
 
@@ -124,15 +130,16 @@ class Chat:
         included: that is how "Drive with Google" follows a choice of route.
 
         The latest offer's button labelled `choice` is pressed where it has one,
-        and its last button otherwise.
+        and its last button otherwise. `Plan refuel` is a way not to drive yet,
+        so it is pressed only where `choice` names it.
         """
         fresh = self.telegram.sent[self._pressed_at:]
-        offers = [call for call in fresh if call.buttons]
+        offers = [call for call in fresh if driving_buttons(call) or labelled(call, choice)]
         if not offers:
             return False
         self._pressed_at = len(self.telegram.sent)
         latest = offers[-1]
-        token = labelled(latest, choice) or latest.buttons[-1]
+        token = labelled(latest, choice) or driving_buttons(latest)[-1]
         await self.press(token, latest.message_id)
         return True
 
@@ -150,12 +157,13 @@ class Chat:
         `presses` bounds the loop rather than describing the journey. A flow that
         offered a button forever would otherwise hang a test instead of failing.
 
-        `choice` is the label of the route to press where the answer offers a choice.
+        `choice` is the label of the route to press where the answer offers a choice,
+        and `Optimal` where it names none.
         """
         await self.send_location(origin)
         await self.send_location(destination)
         for _ in range(presses):
-            if not await self.press_offered(choice):
+            if not await self.press_offered(choice or "Optimal"):
                 return
         raise AssertionError(f"still offering a button after {presses} presses")
 

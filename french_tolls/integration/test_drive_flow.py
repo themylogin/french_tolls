@@ -20,7 +20,7 @@ from .. import drive as drive_rules
 from .. import route
 from ..config import config
 from ..refine import ROUTING_PREFERENCE
-from .chat import Chat, labelled
+from .chat import Chat, driving_buttons, labelled
 from .google_replay import Missing, Replay, key_of, load
 from .journeys import JOURNEYS, UNPINNED, by_key
 from .telegram_transport import DRIVE_LABELS, Telegram
@@ -118,34 +118,56 @@ def test_an_origin_alone_is_answered_with_a_prompt():
 @pytest.mark.parametrize("key", [j.key for j in JOURNEYS])
 def test_every_token_pressed_came_from_the_bot(key):
     """A test that invented a token would pass while the bot offered nothing."""
-    journey, chat, _replay = driven(key)
+    _journey, chat, _replay = driven(key)
     offered = {b for call in chat.sent for b in call.buttons}
 
-    if journey.asks or journey.choice is not None:
-        assert chat.pressed, "no button was pressed, so nothing was driven"
-    else:
-        assert not chat.pressed, \
-            "a journey settled without Google is answered outright, with nothing to press"
+    assert chat.pressed, "no button was pressed, so nothing was driven"
     assert set(chat.pressed) <= offered, (
         f"pressed {chat.pressed}, but the bot only ever offered {sorted(offered)}")
 
 
 def test_a_journey_that_splits_is_driven_by_pressing_for_each_part():
-    journey, chat, _replay = driven("split-all-tolled")
+    _journey, chat, _replay = driven("split-all-tolled")
     presses = 2
-    if journey.choice is not None:
+    if any(labelled(call, "Optimal") for call in chat.sent):
         presses += 1
 
     assert len(chat.pressed) == presses, "the choice if any, the whole journey, then the part it owed"
     assert chat.pressed[-2] != chat.pressed[-1], "a fresh token for the fresh part"
 
 
-@pytest.mark.parametrize("key", [j.key for j in JOURNEYS])
-def test_the_answer_offers_a_choice_exactly_where_the_journey_is_pinned_to_one(key):
-    journey, chat, _replay = driven(key)
+def routes_that_differ(journey):
+    """The route buttons the answer to `journey` owes, in their order."""
+    answer = asyncio.run(route.get_route(list(journey.origin), list(journey.destination)))
+    names = []
+    split = answer.get("super_optimal")
+    if split is not None and split["drive_waypoints"] is not None:
+        names.append("Super")
+    names.append("Optimal")
+    if answer["fast"]["nodes"] != answer["optimal"]["nodes"]:
+        names.append("Fastest")
+    return names
 
-    offers_choice = any(labels(call) == [["Optimal", "Superoptimal"]] for call in chat.sent)
-    assert offers_choice == (journey.choice is not None)
+
+@pytest.mark.parametrize("key", [j.key for j in JOURNEYS])
+def test_the_answer_offers_a_choice_exactly_where_the_routes_differ(key):
+    journey, chat, _replay = driven(key)
+    names = routes_that_differ(journey)
+
+    first = next(call for call in chat.sent if "<b>Optimal route:</b>" in call.text and call.buttons)
+    if len(names) > 1:
+        assert labels(first) == [names]
+    else:
+        assert labels(first) == [["Drive with Google", "Plan refuel"]]
+
+
+@pytest.mark.parametrize("key", [j.key for j in JOURNEYS])
+def test_no_answer_carries_a_directions_link(key):
+    _journey, chat, _replay = driven(key)
+
+    answers = [call for call in chat.sent if "<b>Optimal route:</b>" in call.text]
+    assert answers
+    assert not any("google.com/maps/dir" in call.text for call in answers)
 
 
 # --- one test per outcome -----------------------------------------------------
@@ -252,9 +274,9 @@ def test_every_link_starts_where_the_driver_is(key):
 def test_only_the_last_part_offers_an_action(key):
     _journey, chat, _replay = driven(key)
 
-    offering = [i for i, p in enumerate(chat.parts) if p.buttons]
+    offering = [i for i, p in enumerate(chat.parts) if driving_buttons(p)]
     assert offering == list(range(len(chat.parts) - 1)), (
-        "every part but the last offers the next, and the last offers nothing")
+        "every part but the last offers the next, and the last offers nothing to drive")
 
 
 @pytest.mark.parametrize("key", [j.key for j in JOURNEYS])
@@ -304,7 +326,7 @@ def chosen(origin, destination, label):
 
 def chose_superoptimal():
     journey = by_key("superoptimal")
-    return chosen(journey.origin, journey.destination, "Superoptimal")
+    return chosen(journey.origin, journey.destination, "Super")
 
 
 def labels(call):
@@ -314,7 +336,7 @@ def labels(call):
 def test_a_superoptimal_route_is_listed_above_the_optimal_one():
     answer, _chat, _after, _replay = chose_superoptimal()
 
-    superoptimal = answer.text.index("<b>Superoptimal route:</b>")
+    superoptimal = answer.text.index("<b>Superoptimal:</b>")
     optimal = answer.text.index("<b>Optimal route:</b>")
     fastest = answer.text.index("<b>Fastest route:</b>")
     assert superoptimal < optimal < fastest
@@ -323,7 +345,8 @@ def test_a_superoptimal_route_is_listed_above_the_optimal_one():
 def test_the_answer_offers_the_choice_and_nothing_else():
     answer, _chat, _after, _replay = chose_superoptimal()
 
-    assert labels(answer) == [["Optimal", "Superoptimal"]]
+    assert labels(answer)[0][:2] == ["Super", "Optimal"]
+    assert labels(answer)[0][2:] in ([], ["Fastest"])
     assert "Drive this route" not in answer.text
     assert "google.com/maps/dir" not in answer.text
 
@@ -339,7 +362,7 @@ def test_a_choice_offers_drive_with_google_and_buys_nothing():
 
     edits = [call for call in after if call.method == "editMessageText"]
     assert [call.message_id for call in edits] == [answer.message_id], "the answer message itself"
-    assert labels(edits[0]) == [["Drive with Google"]]
+    assert labels(edits[0]) == [["Drive with Google", "Plan refuel"]]
     assert replay.spent == 0
 
 
@@ -351,20 +374,15 @@ def test_a_choice_is_written_under_the_answer():
     assert edit.parameters["parse_mode"] == "HTML", "the answer keeps its bold titles and its links"
 
 
-def test_a_chosen_route_that_needs_no_request_is_answered_on_the_choice():
+def test_a_chosen_route_that_needs_no_request_waits_for_drive_with_google():
     """Perpignan to Béziers: our fastest and optimal routes are the same road,
     and a stop at LEUCATE makes a superoptimal one."""
     answer, chat, after, replay = chosen((2.8953121, 42.6985304), (3.2131307, 43.3426562), "Optimal")
 
     edits = [call for call in after if call.method == "editMessageText"]
-    assert [labels(call) for call in edits] == [[]], "the buttons are removed and nothing replaces them"
+    assert [labels(call) for call in edits] == [[["Drive with Google", "Plan refuel"]]]
     assert edits[0].text == answer.text + "\n\nOptimal route chosen"
-    assert not any(call.buttons for call in after)
-    assert chat.texts()[-1].startswith("➡️ <a href='https://www.google.com/maps/dir/")
-    assert "Drive this route" in chat.texts()[-1]
-    link = chat.messages[-1].links[-1]
-    assert "origin=Current+Location" in link
-    assert "waypoints" not in parse_qs(urlparse(link).query)
+    assert not any("google.com/maps/dir" in call.text for call in after), "no link before Drive with Google"
     assert replay.spent == 0
 
 
@@ -384,7 +402,7 @@ def test_a_spent_choice_has_expired():
                 await chat.send_location(journey.destination)
                 answer = chat.messages[-1]
                 for _ in range(2):
-                    await chat.press(labelled(answer, "Superoptimal"), answer.message_id)
+                    await chat.press(labelled(answer, "Super"), answer.message_id)
                 return chat
 
     chat = asyncio.run(press_twice())
@@ -398,16 +416,75 @@ def test_a_superoptimal_journey_is_driven_through_its_stops():
     stops = {f"{lat:.6f},{lon:.6f}" for lat, lon in (stop["latlon"] for stop in answer["super_optimal"]["stops"])}
 
     text = next(m.text for m in chat.messages if "<b>Optimal route:</b>" in m.text)
-    assert (text.index("<b>Superoptimal route:</b>") < text.index("<b>Optimal route:</b>")
+    assert (text.index("<b>Superoptimal:</b>") < text.index("<b>Optimal route:</b>")
             < text.index("<b>Fastest route:</b>"))
-    assert [labels(call) for call in chat.sent if call.buttons] == [
-        [["Optimal", "Superoptimal"]],
-        [["Drive with Google"]],
-    ], "the choice first, then the drive for the chosen route"
+    offers = [labels(call) for call in chat.sent if call.buttons]
+    assert offers[0][0][0] == "Super" and offers[1:] == [[["Drive with Google", "Plan refuel"]]], (
+        "the choice first, then the drive for the chosen route")
     for part in chat.parts:
         waypoints = parse_qs(urlparse(part.links[-1]).query)["waypoints"][0].split("|")
         assert stops <= set(waypoints), part.links[-1]
     assert replay.spent == journey.asks
+
+
+# --- Plan refuel --------------------------------------------------------------
+
+def the_answer(chat):
+    """The last call that drew the answer message with its buttons."""
+    return [call for call in chat.sent if "<b>Optimal route:</b>" in call.text and call.buttons][-1]
+
+
+def test_a_journey_that_needs_google_offers_drive_with_google_and_plan_refuel():
+    _journey, chat, _replay = driven("accepted-first-ask")
+
+    assert labels(the_answer(chat)) == [["Drive with Google", "Plan refuel"]]
+
+
+@pytest.mark.parametrize("key", ["toll-free", "routes-agree"])
+def test_a_settled_journey_offers_both_buttons(key):
+    _journey, chat, _replay = driven(key)
+
+    assert labels(the_answer(chat)) == [["Drive with Google", "Plan refuel"]]
+
+
+@pytest.mark.parametrize("key", [j.key for j in JOURNEYS])
+def test_only_the_answer_offers_plan_refuel(key):
+    _journey, chat, _replay = driven(key)
+
+    answer_ids = {call.message_id for call in chat.sent if "<b>Optimal route:</b>" in call.text}
+    offering = {call.message_id for call in chat.sent if labelled(call, "Plan refuel")}
+    assert offering and offering <= answer_ids, "no part of a split journey offers Plan refuel"
+
+
+def test_the_fastest_route_is_driven_without_a_request():
+    journey = by_key("accepted-first-ask")
+    assert "Fastest" in routes_that_differ(journey)
+
+    async def run():
+        async with Replay() as replay:
+            async with Chat() as chat:
+                await chat.send_location(journey.origin)
+                await chat.send_location(journey.destination)
+                await chat.press_labelled("Fastest")
+                await chat.press_labelled("Drive with Google")
+                return chat, replay
+
+    chat, replay = asyncio.run(run())
+
+    [part] = chat.parts
+    query = parse_qs(urlparse(part.links[-1]).query)
+    assert query["origin"] == ["Current Location"]
+    assert "waypoints" not in query
+    assert replay.spent == 0
+    assert chat.texts()[-2].endswith("\n\nFastest route chosen")
+
+
+@pytest.mark.parametrize("key", ["toll-free", "routes-agree"])
+def test_a_settled_journey_is_sent_without_checking_with_google(key):
+    _journey, chat, _replay = driven(key)
+
+    assert chat.parts
+    assert "⏳ Checking with Google..." not in [call.text for call in chat.sent]
 
 
 # --- what is not covered ------------------------------------------------------

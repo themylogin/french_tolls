@@ -323,6 +323,51 @@ def test_a_route_with_stops_is_not_accepted_on_the_road():
     assert D.accepts(p, google(1.0, booths=None), fits) is None
 
 
+# --- a refuel plan: gas stations are stops without booths ----------------------
+
+def station_at(index):
+    """A gas station on the route of `route()`, at node `index`."""
+    return Stop(location=route()[index], booths=frozenset(), index=index)
+
+
+def test_a_toll_free_plan_is_linked_through_its_stations_with_no_request():
+    p = part(cost=0.0, stops=(station_at(50), station_at(150)))
+
+    outcome, asked = run(p, budget=100, answers=[])
+
+    assert asked == []
+    assert outcome.messages[0].link == (
+        "Current Location|45.000000,1.500000|45.000000,2.500000|45.000000,3.000000")
+    assert D.AVOID_TOLLS in outcome.messages[0].text
+
+
+def test_an_agreed_plan_is_linked_through_its_stations_only():
+    p = part(cost=10.0, waypoints=((1.2, 45.0),), booths=OURS, fast_booths=OURS, stops=(station_at(50),))
+
+    message = D.settle(p, link)
+
+    assert message.link == "Current Location|45.000000,1.500000|45.000000,3.000000"
+    assert message.basis == "our own two routes agreeing"
+
+
+def test_a_superoptimal_part_settles_with_no_waypoints():
+    p = part(cost=0.0, waypoints=((1.2, 45.0),), stops=(stop_at(100),))
+
+    assert D.settle(p, link).link == "Current Location|45.000000,3.000000"
+
+
+def test_a_plan_with_only_stations_and_unknown_tolls_is_judged_on_the_road():
+    p = part(booths=OURS, stops=(station_at(50),))
+
+    assert D.accepts(p, google(0.99, booths=None), fits) == "the road it drives"
+
+
+def test_a_plan_with_a_booth_stop_is_not_accepted_on_the_road():
+    p = part(booths=frozenset({1, 2, 3, 4}), stops=(station_at(50), stop_at(100)))
+
+    assert D.accepts(p, google(1.0, booths=None), fits) is None
+
+
 def halves_asked_for(p):
     """The two `AskRoute` a part makes once Google fails it twice."""
     _outcome, asked = run(p, budget=100, answers=[google(0.50), google(0.55)])

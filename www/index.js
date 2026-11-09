@@ -593,12 +593,28 @@ function markField(name, message) {
     fieldFeedback(field).classList.add("d-block");
 }
 
+function clearFieldMark(name) {
+    const field = refuelField(name);
+    field.classList.remove("is-invalid");
+    fieldFeedback(field).classList.remove("d-block");
+}
+
 function clearFieldMarks() {
-    ["tank-volume", "consume-80", "consume-130", "reserve", "fuel"].forEach(name => {
-        const field = refuelField(name);
-        field.classList.remove("is-invalid");
-        fieldFeedback(field).classList.remove("d-block");
-    });
+    ["tank-volume", "consume-80", "consume-130", "reserve", "reserve-km", "fuel", "range"].forEach(clearFieldMark);
+}
+
+// The fuel and the range are two answers to one question: text in one disables the other.
+function excludeFuelOrRange() {
+    const fuelTyped = refuelField("fuel").value.trim() !== "";
+    const rangeTyped = refuelField("range").value.trim() !== "";
+    refuelField("range").disabled = fuelTyped;
+    refuelField("fuel").disabled = rangeTyped;
+    if (fuelTyped) {
+        clearFieldMark("range");
+    }
+    if (rangeTyped) {
+        clearFieldMark("fuel");
+    }
 }
 
 // The checks of `car.parse_car` and of the endpoint, so a visitor sees the
@@ -611,7 +627,11 @@ function readRefuelForm() {
     const consume80 = parseConsumption(refuelField("consume-80").value);
     const consume130 = parseConsumption(refuelField("consume-130").value);
     const reserve = parseDecimal(refuelField("reserve").value);
-    const fuel = parseDecimal(refuelField("fuel").value);
+    const reserveKm = parseDecimal(refuelField("reserve-km").value);
+    const fuelText = refuelField("fuel").value.trim();
+    const rangeText = refuelField("range").value.trim();
+    const fuel = parseDecimal(fuelText);
+    const range = parseDecimal(rangeText);
 
     let valid = true;
     if (tankVolume === null) {
@@ -634,13 +654,28 @@ function readRefuelForm() {
         markField("reserve", "The reserve must be a number of 0 or more and less than the tank volume.");
         valid = false;
     }
-    if (fuel === null || (tankVolume !== null && fuel > tankVolume)) {
+    if (reserveKm === null || reserveKm > 500) {
+        markField("reserve-km", "The range reserve must be a number from 0 to 500 km.");
+        valid = false;
+    }
+    if (!fuelText && !rangeText) {
+        markField("fuel", "Enter the fuel in the tank or the range.");
+        markField("range", "Enter the fuel in the tank or the range.");
+        valid = false;
+    } else if (fuelText && (fuel === null || (tankVolume !== null && fuel > tankVolume))) {
         markField("fuel", "The fuel in the tank must be a number from 0 to the tank volume.");
+        valid = false;
+    } else if (rangeText && (range === null || range > 3000)) {
+        markField("range", "The range must be a number from 0 to 3000 km.");
         valid = false;
     }
 
     if (!valid) {
         return null;
+    }
+    let start = { range: range };
+    if (fuelText) {
+        start = { fuel: fuel };
     }
     return {
         car: {
@@ -649,8 +684,9 @@ function readRefuelForm() {
             consume_80: consume80,
             consume_130: consume130,
             reserve: reserve,
+            reserve_km: reserveKm,
         },
-        fuel: fuel,
+        start: start,
     };
 }
 
@@ -682,8 +718,18 @@ function showRefuelAnswer(answer) {
         finishPlan(answer);
         return;
     }
+    if (!answer.stop_needed && "range_left" in answer) {
+        showRefuelMessage("No need to refuel: you'll arrive with " + Math.floor(answer.range_left) + " km of range.",
+                          "info");
+        return;
+    }
     if (!answer.stop_needed) {
         showRefuelMessage("No need to refuel: you'll arrive with " + Math.floor(answer.fuel_left) + " L.", "info");
+        return;
+    }
+    if (!answer.stations.length && "range" in refuelRequest.start && !refuelChosen.length) {
+        showRefuelMessage("No gas station sells this fuel within 50 km of the point where the range reaches " +
+                          refuelRequest.car.reserve_km + " km.", "info");
         return;
     }
     if (!answer.stations.length) {
@@ -733,7 +779,10 @@ function openRefuelDialog(routeName) {
     refuelField("consume-80").value = storedText(car.consume_80);
     refuelField("consume-130").value = storedText(car.consume_130);
     refuelField("reserve").value = storedText(car.reserve) || "5";
+    refuelField("reserve-km").value = storedText(car.reserve_km) || "50";
     refuelField("fuel").value = "";
+    refuelField("range").value = "";
+    excludeFuelOrRange();
 
     clearFieldMarks();
     refuelField("result").innerHTML = "";
@@ -783,7 +832,7 @@ function sendRefuel() {
             'to': journey.to,
             'route': refuelRoute,
             'car': refuelRequest.car,
-            'fuel': refuelRequest.fuel,
+            ...refuelRequest.start,
             'chosen': refuelChosen.map(station => ({ latitude: station.latitude, longitude: station.longitude }))
         }),
         signal: controller.signal,
@@ -860,6 +909,8 @@ async function initMap() {
             useStation(parseInt(button.dataset.index, 10));
         }
     });
+    refuelField("fuel").addEventListener("input", excludeFuelOrRange);
+    refuelField("range").addEventListener("input", excludeFuelOrRange);
     refuelField("calculate").addEventListener("click", calculateRefuel);
     refuelField("dialog").addEventListener("hide.bs.modal", closeRefuelDialog);
 

@@ -53,9 +53,9 @@ def candidate_ids(position, fuel_type):
     return [candidate.station.id for candidate in asyncio.run(refuel.candidates(position, fuel_type))]
 
 
-def a_car(consume_80, consume_130, tank_volume=50, fuel_type="diesel", reserve=5):
+def a_car(consume_80, consume_130, tank_volume=50, fuel_type="diesel", reserve=5, reserve_km=50):
     return CarParameters(fuel_type=fuel_type, tank_volume=tank_volume, consume_80=consume_80,
-                         consume_130=consume_130, reserve=reserve)
+                         consume_130=consume_130, reserve=reserve, reserve_km=reserve_km)
 
 
 def a_route(segment_m, segment_s, segments, start=(2.0, 47.0)):
@@ -155,6 +155,31 @@ def test_a_walk_from_a_late_station_can_reach_the_destination():
     assert fuel_left == pytest.approx(45)
 
 
+def test_the_range_search_point_is_where_the_range_first_reaches_the_range_reserve():
+    route = a_route(10_000, 10_000 / (130 / 3.6), 10)
+
+    index, range_left = refuel.range_walk(route, 80, 50)
+
+    assert index == 3
+    assert range_left == pytest.approx(50)
+
+
+@pytest.mark.parametrize("range_km", [50, 40])
+def test_a_range_at_or_below_the_range_reserve_makes_the_origin_the_search_point(range_km):
+    route = a_route(10_000, 10_000 / (130 / 3.6), 10)
+
+    assert refuel.range_walk(route, range_km, 50) == (0, range_km)
+
+
+def test_no_range_search_point_when_the_range_lasts():
+    route = a_route(10_000, 10_000 / (130 / 3.6), 10)
+
+    index, range_left = refuel.range_walk(route, 183.4, 50)
+
+    assert index is None
+    assert range_left == pytest.approx(83.4)
+
+
 def test_a_station_60_km_away_is_not_a_candidate(store):
     insert_station(store, 1, 47.0 + 60 / 111.195, 2.0, DIESEL)
 
@@ -192,7 +217,8 @@ def test_the_price_of_a_station_is_its_lowest_price_for_the_fuel(store):
 
 
 def test_the_station_goes_between_the_stops_before_and_after_the_search_point():
-    stops = (SimpleNamespace(location=(4.1, 44.1), index=10), SimpleNamespace(location=(4.3, 43.9), index=50))
+    stops = (SimpleNamespace(location=(4.1, 44.1), index=10, booths=(11, 12)),
+             SimpleNamespace(location=(4.3, 43.9), index=50, booths=(13, 14)))
 
     assert refuel.detour_vias(stops, 30, (4.2, 44.0)) == [(4.1, 44.1), (4.2, 44.0), (4.3, 43.9)]
 
@@ -202,7 +228,8 @@ def test_on_the_optimal_route_the_station_is_the_only_via():
 
 
 PLANNED_ROUTE = a_route(10_000, 10_000 / (130 / 3.6), 10, start=(2.0, 46.55))
-PLANNED = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE, stops=())
+OPTIMAL_GRAPH = "http://optimal-graph"
+PLANNED = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE, stops=(), router_url=OPTIMAL_GRAPH)
 TOLLS = {PLANNED_ROUTE.node_ids: 10.0}
 
 
@@ -225,8 +252,10 @@ class DetourRouters:
         self.requests = 0
         self.open = 0
         self.most_open = 0
+        self.bases = set()
 
     async def route_via(self, base, start, vias, end):
+        self.bases.add(base)
         self.requests += 1
         self.open += 1
         self.most_open = max(self.most_open, self.open)
@@ -240,7 +269,7 @@ class DetourRouters:
 
 
 def plan(routers, fuel=10, parameters=None):
-    return asyncio.run(refuel.plan(routers, PLANNED, parameters or a_car(10, 10), fuel, toll_cost))
+    return asyncio.run(refuel.plan(routers, PLANNED, parameters or a_car(10, 10), toll_cost, fuel=fuel))
 
 
 def test_no_more_than_4_detour_requests_are_open_at_once():
@@ -343,11 +372,12 @@ def test_each_listed_station_carries_its_keys(store, fixed_rates):
 
 def test_on_a_split_route_the_distance_runs_through_the_stops_before_the_station(store, fixed_rates):
     insert_station(store, 1, 47.01, 2.0, DIESEL)
-    stops = (SimpleNamespace(location=(2.0, 46.70), index=2), SimpleNamespace(location=(2.0, 47.30), index=8))
-    planned = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE, stops=stops)
+    stops = (SimpleNamespace(location=(2.0, 46.70), index=2, booths=(11, 12)),
+             SimpleNamespace(location=(2.0, 47.30), index=8, booths=(13, 14)))
+    planned = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE, stops=stops, router_url=OPTIMAL_GRAPH)
     routers = DetourRouters(default=a_detour(600, 907, leg_distance=(30_000.0, 25_000.0, 45_000.0, 10_000.0)))
 
-    answer = asyncio.run(refuel.plan(routers, planned, a_car(10, 10), 10, toll_cost))
+    answer = asyncio.run(refuel.plan(routers, planned, a_car(10, 10), toll_cost, fuel=10))
 
     assert answer["stations"][0]["distance"] == 55_000.0
     assert answer["stations"][0]["distance_from_previous"] == 55_000.0
@@ -356,6 +386,23 @@ def test_on_a_split_route_the_distance_runs_through_the_stops_before_the_station
 def test_the_station_link_opens_its_position():
     assert refuel.station_link(48.209, -3.818) == (
         "https://www.google.com/maps/search/?api=1&query=48.209000%2C-3.818000")
+
+
+def test_a_lasting_range_gives_the_range_left():
+    routers = DetourRouters()
+
+    answer = asyncio.run(refuel.plan(routers, PLANNED, a_car(6, 6), toll_cost, range_km=183.4))
+
+    assert answer == {"stop_needed": False, "range_left": 83.4}
+    assert routers.requests == 0
+
+
+def test_a_stop_after_a_range_buys_the_tank_volume_less_the_reserve(store, fixed_rates):
+    routers = DetourRouters()
+
+    answer = asyncio.run(refuel.plan(routers, PLANNED, a_car(10, 10, reserve=8), toll_cost, range_km=80))
+
+    assert answer == {"stop_needed": True, "liters": 42.0, "stations": []}
 
 
 def test_no_candidate_gives_an_empty_list(store, fixed_rates):
@@ -423,8 +470,10 @@ class ViaRouters:
         self.answers = answers
         self.detour = detour
         self.asked = []
+        self.bases = set()
 
     async def route_via(self, base, start, vias, end):
+        self.bases.add(base)
         vias = tuple(tuple(via) for via in vias)
         self.asked.append(vias)
         return self.answers.get(vias, self.detour)
@@ -435,7 +484,7 @@ def at(latitude, longitude):
 
 
 def plan_chosen(routers, chosen, planned=PLANNED, link_through=None):
-    return asyncio.run(refuel.plan(routers, planned, a_car(10, 10), 10, toll_cost, chosen=chosen,
+    return asyncio.run(refuel.plan(routers, planned, a_car(10, 10), toll_cost, fuel=10, chosen=chosen,
                                    link_through=link_through))
 
 
@@ -470,6 +519,40 @@ def test_a_chosen_station_restarts_the_walk_with_a_full_tank(store, fixed_rates)
 
     assert routers.asked == [(at(*A),), (at(*A), at(*B))]
     assert station["detour_duration"] == pytest.approx(600)
+
+
+def test_after_a_chosen_station_a_range_plan_walks_by_the_fuel(store, fixed_rates):
+    insert_station(store, 1, B[0], B[1], DIESEL)
+    through_a = a_leg_route(60, (0, 5), base=3100)
+    detour = Route(node_ids=(913,), coordinates=((0.0, 0.0),), segment_distance=(), segment_duration=(),
+                   distance=0.0, duration=through_a.duration + 600, weight=0.0,
+                   leg_distance=(50_000.0, 450_000.0, 100_000.0))
+    TOLLS[detour.node_ids] = 10.0
+    routers = ViaRouters({(at(*A),): through_a}, detour=detour)
+
+    answer = asyncio.run(refuel.plan(routers, PLANNED, a_car(10, 10), toll_cost, range_km=30, chosen=[A]))
+
+    assert routers.asked == [(at(*A),), (at(*A), at(*B))]
+    assert answer["liters"] == 45.0
+
+
+def test_a_station_after_a_lasting_range_is_refused():
+    routers = ViaRouters({})
+
+    with pytest.raises(refuel.UnneededStation):
+        asyncio.run(refuel.plan(routers, PLANNED, a_car(10, 10), toll_cost, range_km=300, chosen=[A]))
+
+    assert routers.asked == []
+
+
+def test_the_chosen_stations_and_the_detours_are_routed_on_the_graph_of_the_planned_route(store, fixed_rates):
+    insert_station(store, 1, B[0], B[1], DIESEL)
+    planned = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE, stops=(), router_url="http://fast-graph")
+    routers = ViaRouters({(at(*A),): a_leg_route(60, (0, 5), base=3200)}, detour=a_detour(600, 914))
+
+    plan_chosen(routers, [A], planned=planned)
+
+    assert routers.bases == {"http://fast-graph"}
 
 
 def test_two_chosen_stations_are_routed_one_at_a_time(store, fixed_rates):
@@ -517,23 +600,46 @@ def test_a_finished_plan_carries_its_route_and_link():
     assert link.calls == [(through_a, [refuel.Via(location=at(*A), index=5, chosen=True)])]
 
 
+def test_a_finished_plan_without_a_link_builder_carries_no_route():
+    through_a = a_leg_route(20, (0, 5), base=7100)
+
+    answer = plan_chosen(ViaRouters({(at(*A),): through_a}), [A])
+
+    assert answer == {"stop_needed": False, "fuel_left": 35.0}
+
+
 def test_the_link_gets_the_split_stops_and_the_chosen_stations():
     split_stop = (2.0, 47.3)
-    planned = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE,
-                              stops=(SimpleNamespace(location=split_stop, index=8),))
+    planned = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE, router_url=OPTIMAL_GRAPH,
+                              stops=(SimpleNamespace(location=split_stop, index=8, booths=(31, 32)),))
     through_both = a_leg_route(20, (0, 5, 12), base=8000)
     link = LinkRecorder()
 
     plan_chosen(ViaRouters({(at(*A), split_stop): through_both}), [A], planned=planned, link_through=link)
 
     assert link.calls[0][1] == [refuel.Via(location=at(*A), index=5, chosen=True),
-                                refuel.Via(location=split_stop, index=12, chosen=False)]
+                                refuel.Via(location=split_stop, index=12, chosen=False, booths=(31, 32))]
+
+
+def test_a_split_stop_keeps_its_booths_after_a_chosen_station():
+    split_stop = (2.0, 47.3)
+    planned = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE, router_url=OPTIMAL_GRAPH,
+                              stops=(SimpleNamespace(location=split_stop, index=8, booths=(31, 32)),))
+    routers = ViaRouters({(at(*A), split_stop): a_leg_route(20, (0, 5, 12), base=8100)})
+
+    _route, vias, start = asyncio.run(
+        refuel.through_chosen(routers, planned, a_car(10, 10), refuel.Start(0, fuel=10), [A]))
+
+    assert vias == [refuel.Via(location=at(*A), index=5, chosen=True, booths=()),
+                    refuel.Via(location=split_stop, index=12, chosen=False, booths=(31, 32))]
+    assert start == refuel.Start(5, fuel=50)
 
 
 def test_without_chosen_stations_the_link_is_not_built():
     link = LinkRecorder()
 
-    answer = asyncio.run(refuel.plan(DetourRouters(), PLANNED, a_car(6, 6), 40, toll_cost, link_through=link))
+    answer = asyncio.run(refuel.plan(DetourRouters(), PLANNED, a_car(6, 6), toll_cost, fuel=40,
+                                     link_through=link))
 
     assert answer == {"stop_needed": False, "fuel_left": 34.0}
     assert link.calls == []
@@ -541,8 +647,8 @@ def test_without_chosen_stations_the_link_is_not_built():
 
 def test_the_distance_from_the_previous_stop_runs_through_a_split_stop_between(store, fixed_rates):
     split_stop = (2.0, 48.0)
-    planned = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE,
-                              stops=(SimpleNamespace(location=split_stop, index=8),))
+    planned = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE, router_url=OPTIMAL_GRAPH,
+                              stops=(SimpleNamespace(location=split_stop, index=8, booths=(31, 32)),))
     insert_station(store, 1, 46.55 + 0.09 * 67 + 0.01, 2.0, DIESEL)
     detour = a_detour(600, 912, leg_distance=(200_000.0, 150_000.0, 180_000.0, 100_000.0))
     routers = ViaRouters({(at(*A), split_stop): a_leg_route(80, (0, 22, 40), base=9000)}, detour=detour)

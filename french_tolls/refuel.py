@@ -10,8 +10,9 @@ from .config import config
 from .models import GasStation
 from .osrm import NoRoute
 
-__all__ = ["Candidate", "UnneededStation", "Via", "candidates", "consumption_at", "detour_vias", "detours",
-           "fuel_walk", "plan", "segment_speed", "station_badge", "station_link", "stop_cost"]
+__all__ = ["Candidate", "Start", "UnneededStation", "Via", "candidates", "consumption_at", "detour_vias", "detours",
+           "fuel_walk", "plan", "range_walk", "segment_speed", "station_badge", "station_link", "stop_cost",
+           "through_chosen"]
 
 RADIUS_KM = 50
 
@@ -21,11 +22,21 @@ class UnneededStation(Exception):
 
 
 @dataclass(frozen=True)
+class Start:
+    """Where a walk starts on the route, with exactly one of the fuel in liters and the range in km."""
+    index: int
+    fuel: float | None = None
+    range_km: float | None = None
+
+
+@dataclass(frozen=True)
 class Via:
     # [longitude, latitude], as the router was sent it.
     location: tuple[float, float]
     index: int
     chosen: bool
+    # The exit booth and the entrance booth of a split stop. Empty for a chosen station.
+    booths: tuple = ()
 
 
 def consumption_at(parameters, speed_kmh):
@@ -54,6 +65,27 @@ def fuel_walk(route, parameters, fuel, start=0):
     if fuel <= parameters.reserve:
         return len(route.segment_distance), fuel
     return None, fuel
+
+
+def range_walk(route, range_km, reserve_km, start=0):
+    """The index of the first node from `start` with `reserve_km` or less of range, and the range left there.
+
+    The index is None when the range left at the destination is more than `reserve_km`.
+    """
+    for index in range(start, len(route.segment_distance)):
+        if range_km <= reserve_km:
+            return index, range_km
+        range_km -= route.segment_distance[index] / 1000
+
+    if range_km <= reserve_km:
+        return len(route.segment_distance), range_km
+    return None, range_km
+
+
+def _walk(route, parameters, start):
+    if start.fuel is None:
+        return range_walk(route, start.range_km, parameters.reserve_km, start.index)
+    return fuel_walk(route, parameters, start.fuel, start.index)
 
 
 def _segment_consumption(parameters, distance, duration):
@@ -117,7 +149,7 @@ async def detours(routers, planned, vias, search_index, found):
         locations = detour_vias(vias, search_index, (station.longitude, station.latitude))
         async with requests:
             try:
-                return await routers.route_via(config.osrm_optimal_url, planned.start, locations, planned.end)
+                return await routers.route_via(planned.router_url, planned.start, locations, planned.end)
             except NoRoute:
                 return None
 
@@ -146,25 +178,35 @@ def station_link(latitude, longitude):
     return f"https://www.google.com/maps/search/?{query}"
 
 
-async def plan(routers, planned, parameters, fuel, toll_cost, chosen=(), link_through=None):
+async def plan(routers, planned, parameters, toll_cost, *, fuel=None, range_km=None, chosen=(), link_through=None):
     """The answer of `POST /api/refuel` for a route that `route.planned_route` gave.
 
+    The walk starts from `fuel` in liters or from `range_km`, never both.
     `chosen` holds the `(latitude, longitude)` of each station chosen so far, in
-    order. `link_through(route, vias)` gives the Maps link of a finished plan. A
-    `RouterUnavailable` or a `NoRoute` of a router request goes out unchanged.
+    order. `link_through(route, vias)` gives the Maps link of a finished plan;
+    without it, a finished plan carries no route. A `RouterUnavailable` or a
+    `NoRoute` of a router request goes out unchanged.
     """
-    route, vias, start, start_fuel = await _through_chosen(routers, planned, parameters, fuel, chosen)
-    search_index, fuel_left = fuel_walk(route, parameters, start_fuel, start)
+    if (fuel is None) == (range_km is None):
+        raise ValueError("a plan takes either fuel or range_km")
+
+    route, vias, start = await through_chosen(routers, planned, parameters, Start(0, fuel, range_km), chosen)
+    search_index, left = _walk(route, parameters, start)
+    if search_index is None and start.fuel is None:
+        return {"stop_needed": False, "range_left": round(left, 2)}
     if search_index is None:
-        answer = {"stop_needed": False, "fuel_left": round(fuel_left, 2)}
-        if chosen:
+        answer = {"stop_needed": False, "fuel_left": round(left, 2)}
+        if chosen and link_through is not None:
             answer["route"] = {
                 "nodes": [list(coordinate) for coordinate in route.coordinates],
                 "google_url": await link_through(route, vias),
             }
         return answer
 
-    liters = parameters.tank_volume - fuel_left
+    # After a walk by the range, the fuel at the search point is not known.
+    liters = parameters.tank_volume - parameters.reserve
+    if start.fuel is not None:
+        liters = parameters.tank_volume - left
     found = await candidates(route.coordinates[search_index], parameters.fuel_type)
     routes = await detours(routers, planned, vias, search_index, found)
 
@@ -193,31 +235,31 @@ async def plan(routers, planned, parameters, fuel, toll_cost, chosen=(), link_th
     }
 
 
-async def _through_chosen(routers, planned, parameters, fuel, chosen):
-    """The route through the chosen stations, its vias, and where the walk goes on from.
+async def through_chosen(routers, planned, parameters, start, chosen):
+    """The route through the chosen stations, its vias, and the `Start` of the walk after the last one.
 
     Each station is placed and routed as `detours` placed and routed it when it
     was listed, so the route is the detour route of the answer that listed it.
+    The tank is full after a chosen station, so the walk after it is by the fuel.
     """
     route = planned.route
-    vias = [Via(location=stop.location, index=stop.index, chosen=False) for stop in planned.stops]
-    start, start_fuel = 0, fuel
+    vias = [Via(location=stop.location, index=stop.index, chosen=False, booths=stop.booths) for stop in planned.stops]
 
     for latitude, longitude in chosen:
-        search_index, _fuel_left = fuel_walk(route, parameters, start_fuel, start)
+        search_index, _left = _walk(route, parameters, start)
         if search_index is None:
-            raise UnneededStation(f"the fuel lasts before the station at {latitude:.6f},{longitude:.6f}")
+            raise UnneededStation(f"the tank lasts before the station at {latitude:.6f},{longitude:.6f}")
 
         place = sum(1 for via in vias if via.index < search_index)
         locations = detour_vias(vias, search_index, (longitude, latitude))
-        kinds = [via.chosen for via in vias]
-        kinds.insert(place, True)
-        route = await routers.route_via(config.osrm_optimal_url, planned.start, locations, planned.end)
-        vias = [Via(location=location, index=route.leg_start[k + 1], chosen=kind)
-                for k, (location, kind) in enumerate(zip(locations, kinds))]
-        start, start_fuel = vias[place].index, parameters.tank_volume
+        kinds = [(via.chosen, via.booths) for via in vias]
+        kinds.insert(place, (True, ()))
+        route = await routers.route_via(planned.router_url, planned.start, locations, planned.end)
+        vias = [Via(location=location, index=route.leg_start[k + 1], chosen=is_chosen, booths=booths)
+                for k, (location, (is_chosen, booths)) in enumerate(zip(locations, kinds))]
+        start = Start(vias[place].index, fuel=parameters.tank_volume)
 
-    return route, vias, start, start_fuel
+    return route, vias, start
 
 
 def _station_entry(candidate, liters, cost, toll_difference, detour_s, distance, distance_from_previous):

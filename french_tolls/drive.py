@@ -65,12 +65,14 @@ class Basis(StrEnum):
 
 @dataclass(frozen=True)
 class Stop:
-    """A junction where the route leaves the tolled road and joins it again at once.
+    """A junction where the route leaves the tolled road and joins it again at once, or a gas station.
+
+    A gas station has no booths, and nothing else tells the two kinds apart.
     """
 
-    # `(longitude, latitude)` of the exit booth, which is the via the route was built through.
+    # `(longitude, latitude)` of the exit booth or of the station, which is the via the route was built through.
     location: tuple
-    # The exit booth and the entrance booth.
+    # The exit booth and the entrance booth. Empty for a gas station.
     booths: frozenset
     # Where in `Part.nodes` the route reaches the exit booth.
     index: int
@@ -211,16 +213,20 @@ def routes_agree(part) -> bool:
 
 
 def settle(part, maps_link, prefix=""):
-    """Rules 1 and 2: the message for a part that needs no request, or None."""
+    """Rules 1 and 2: the message for a part that needs no request, or None.
+
+    The link goes through the gas stations of the part and through nothing else.
+    """
+    stations = tuple(stop.location for stop in part.stops if not stop.booths)
     if pays_no_tolls(part):
         return Message(
             text=(prefix + AVOID_TOLLS).strip(),
-            link=link_from_here(part, (), maps_link))
+            link=link_from_here(part, stations, maps_link))
 
     if routes_agree(part):
         return Message(
             text=prefix.strip(),
-            link=link_from_here(part, (), maps_link),
+            link=link_from_here(part, stations, maps_link),
             basis=Basis.AGREED)
 
     return None
@@ -229,7 +235,7 @@ def settle(part, maps_link, prefix=""):
 def accepts(part, opinion, fits):
     """Which test accepts Google's route for this part, or None if neither.
     """
-    if part.stops:
+    if any(stop.booths for stop in part.stops):
         # A route that stays on the motorway past a junction lies inside the
         # corridor of one that leaves there, so only the booths show a missed stop.
         if opinion.booths is None or part.booths is None:

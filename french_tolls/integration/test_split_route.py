@@ -6,9 +6,11 @@ and the stops are real booths. It reaches no router. The routes are built, and
 the split search that would find them is replaced by its result.
 """
 import asyncio
+from dataclasses import replace
 import urllib.parse
 
 from .. import route, splits
+from ..config import config
 from ..osrm import Route, Snap
 from ..tolls import account
 from ..waypoints import WaypointPlan
@@ -177,3 +179,61 @@ def test_a_stretch_that_misses_the_entrance_booth_is_not_offered(monkeypatch):
     answer = stretch(monkeypatch, routers, [(position(exit_id), frozenset({exit_id, enter_id}))])
 
     assert answer is None
+
+
+class StationRouters:
+    """Routes along `optimal` on both graphs, with legs that start at `leg_start` when asked for vias."""
+
+    def __init__(self, optimal, leg_start):
+        self.optimal_route = optimal
+        self.leg_start = leg_start
+        self.asked = []
+
+    async def snap(self, location, *, reach_m=None):
+        return Snap(location=tuple(location), hint="h", nodes=(1, 2), distance_m=0.0)
+
+    async def fast(self, start, end):
+        self.asked.append(("fast", ()))
+        return self.optimal_route
+
+    async def optimal(self, start, end):
+        return self.optimal_route
+
+    async def route_via(self, base, start, vias, end):
+        self.asked.append((base, tuple(tuple(via) for via in vias)))
+        return replace(self.optimal_route, leg_start=self.leg_start)
+
+
+def test_a_station_stop_has_no_booths_and_is_reached_where_its_leg_starts(monkeypatch):
+    optimal = built_route(range(1, 31))
+    station = position(8)
+    routers = StationRouters(optimal, leg_start=(0, 8))
+
+    answer = stretch(monkeypatch, routers, [(station, frozenset())])
+
+    [stop] = answer["super_optimal"]["stops"]
+    assert stop["booths"] == []
+    assert stop["index"] == 8
+    assert stop["latlon"] == [station[1], station[0]]
+
+
+def test_the_fast_route_of_a_stretch_goes_through_its_stations(monkeypatch):
+    optimal = built_route(range(1, 31))
+    station = position(8)
+    routers = StationRouters(optimal, leg_start=(0, 8))
+
+    stretch(monkeypatch, routers, [(station, frozenset())])
+
+    assert (config.osrm_toll_url, (station,)) in routers.asked
+    assert ("fast", ()) not in routers.asked
+
+
+def test_a_stretch_with_a_station_and_no_booth_stop_is_offered(monkeypatch):
+    optimal = built_route(range(1, 31))
+    station = position(8)
+    routers = StationRouters(optimal, leg_start=(0, 8))
+
+    answer = stretch(monkeypatch, routers, [(station, frozenset())])
+
+    assert answer is not None
+    assert list(station) in answer["super_optimal"]["drive_waypoints"]

@@ -45,11 +45,16 @@ async def refuel(request):
 
     parameters = parse_car(data.get("car"))
     fuel = data.get("fuel")
+    range_km = data.get("range")
     if not _is_point(data.get("from")) or not _is_point(data.get("to")):
         return _refused()
     if data.get("route") not in ("optimal", "super_optimal"):
         return _refused()
-    if parameters is None or not _is_number(fuel) or not 0 <= fuel <= parameters.tank_volume:
+    if parameters is None or (fuel is None) == (range_km is None):
+        return _refused()
+    if fuel is not None and not (_is_number(fuel) and 0 <= fuel <= parameters.tank_volume):
+        return _refused()
+    if range_km is not None and not (_is_number(range_km) and 0 <= range_km <= 3000):
         return _refused()
     chosen = _chosen(data.get("chosen"))
     if chosen is None:
@@ -61,7 +66,7 @@ async def refuel(request):
         if planned is None:
             return web.json_response({"error": "no_split_route"}, status=404)
         answer = await refuel_module.plan(
-            routers, planned, parameters, fuel, toll_cost, chosen=chosen,
+            routers, planned, parameters, toll_cost, fuel=fuel, range_km=range_km, chosen=chosen,
             link_through=lambda finished, vias: link_through(routers, planned, finished, vias))
     except RouteError as e:
         return web.json_response({"error": e.cause}, status=502)
