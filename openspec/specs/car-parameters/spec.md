@@ -43,7 +43,7 @@ When a driver without a car sends `/car`, the bot SHALL ask for the tank volume,
 
 - **GIVEN** the driver has no car
 - **WHEN** the driver sends `/car`, then `50`, then presses `16`, then presses `Diesel`, then sends `5.5`, then `7.2`
-- **THEN** the bot asks, in order, `Enter the tank volume in liters.`, `How many sections does your fuel gauge have?`, `Choose the fuel type.`, `Enter the consumption at 80 km/h in liters per 100 km.`, `Enter the consumption at 130 km/h in liters per 100 km.`, and `At how many kilometers of range do you want to refuel? Enter it, for example 50.`
+- **THEN** the bot asks, in order, `Enter the tank volume in liters.`, `How many sections does your fuel gauge have?`, `Choose the fuel type.`, `Enter the consumption at 80 km/h in liters per 100 km.`, `Enter the consumption at 130 km/h in liters per 100 km.`, and `At how many kilometers of range do you want to refuel? E.g. 50.`
 
 ### Requirement: The tank volume is a whole number of 30 or more
 
@@ -144,7 +144,7 @@ The bot SHALL refuse a consumption at 130 km/h that is less than the consumption
 
 - **GIVEN** the driver answered `6` to the consumption at 80 km/h
 - **WHEN** the driver answers `6` to the consumption at 130 km/h
-- **THEN** the bot asks `At how many kilometers of range do you want to refuel? Enter it, for example 50.`
+- **THEN** the bot asks `At how many kilometers of range do you want to refuel? E.g. 50.`
 
 ### Requirement: The values are saved only after the last valid answer
 

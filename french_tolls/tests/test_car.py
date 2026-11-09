@@ -284,7 +284,7 @@ def test_a_consumption_at_130_equal_to_the_one_at_80_asks_for_the_reserve():
 
     reply = car.answer_text(dialog, "6")
 
-    assert reply.text == "At how many kilometers of range do you want to refuel? Enter it, for example 50."
+    assert reply.text == "At how many kilometers of range do you want to refuel? E.g. 50."
     assert reply.dialog == car.CarDialog(token="c1", step="reserve_km", tank_volume=50, gauge_steps=16,
                                          fuel_type="diesel", consume_80=6.0, consume_130=6.0)
     assert reply.save is None
@@ -428,7 +428,7 @@ def test_the_questions_come_in_order():
         "Choose the fuel type.",
         "Enter the consumption at 80 km/h in liters per 100 km.",
         "Enter the consumption at 130 km/h in liters per 100 km.",
-        "At how many kilometers of range do you want to refuel? Enter it, for example 50.",
+        "At how many kilometers of range do you want to refuel? E.g. 50.",
     ]
 
 

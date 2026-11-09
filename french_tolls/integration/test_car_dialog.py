@@ -74,7 +74,7 @@ def test_six_answers_save_the_car():
         "Fuel type: Diesel",
         "Enter the consumption at 80 km/h in liters per 100 km.",
         "Enter the consumption at 130 km/h in liters per 100 km.",
-        "At how many kilometers of range do you want to refuel? Enter it, for example 50.",
+        "At how many kilometers of range do you want to refuel? E.g. 50.",
         "Your car parameters are saved.\n\n"
         "Tank volume: 50 L\n"
         "Gauge: 16 sections\n"

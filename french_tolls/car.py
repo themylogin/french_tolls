@@ -105,7 +105,7 @@ def answer_text(dialog, text):
                              f"{number_text(dialog.consume_80)} L/100 km. Enter it again.",
                         dialog=dialog)
 
-    return CarReply(text="At how many kilometers of range do you want to refuel? Enter it, for example 50.",
+    return CarReply(text="At how many kilometers of range do you want to refuel? E.g. 50.",
                     dialog=dataclasses.replace(dialog, step="reserve_km", consume_130=consumption))
 
 
