@@ -23,7 +23,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from .. import db, gas_stations
+from .. import car, db, gas_stations
 
 def alembic_config(db_path):
     cfg = Config(__file__.rsplit("/", 3)[0] + "/alembic.ini")
@@ -42,13 +42,17 @@ def store(tmp_path, monkeypatch):
     asyncio.run(engine.dispose())
 
 
-def insert_station(db_path, station_id, latitude, longitude, name="Old", last_updated_at="2026-11-01 10:00:00"):
+VALID_PRICES = json.dumps([["SP95-E10 (E10)", "2026-11-06", "1.999"], ["Gazole (B7)", "2026-11-06", "2.149"]])
+
+
+def insert_station(db_path, station_id, latitude, longitude, name="Old", last_updated_at="2026-11-01 10:00:00",
+                   prices="[]"):
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             "INSERT INTO gas_station"
             " (id, latitude, longitude, name, address, services, prices, last_updated_at)"
-            " VALUES (?, ?, ?, ?, '[]', '[]', '[]', ?)",
-            (station_id, latitude, longitude, name, last_updated_at),
+            " VALUES (?, ?, ?, ?, '[]', '[]', ?, ?)",
+            (station_id, latitude, longitude, name, prices, last_updated_at),
         )
 
 
@@ -253,6 +257,46 @@ def test_the_area_query_reads_the_index(store):
         plan = [detail for (*_, detail) in connection.execute("EXPLAIN QUERY PLAN " + statement, parameters)]
     assert any(detail.startswith("SCAN gas_station_area VIRTUAL TABLE INDEX") for detail in plan)
     assert "SEARCH gas_station USING INTEGER PRIMARY KEY (rowid=?)" in plan
+
+
+def valid_station_count():
+    async def count():
+        async with db.Session() as session:
+            return await gas_stations.valid_station_count(session)
+
+    return asyncio.run(count())
+
+
+@pytest.mark.parametrize("prices, count", [
+    ([["SP95-E10 (E10)", "2026-11-06", "1.999"], ["Gazole (B7)", "2026-11-06", "2.149"]], 1),
+    ([["SP95 (E5)", "2026-11-06", "2.019"], ["Gazole (B7)", "2026-11-06", "2.149"]], 1),
+    ([["SP98 (E5)", "2026-11-06", "2.089"], ["Gazole (B7)", "2026-11-06", "2.149"]], 0),
+    ([["SP95-E10 (E10)", "2026-11-06", "1.999"], ["E85 (E85)", "2026-11-06", "0.877"]], 0),
+    ([["SP95-E10 (E10)", "2026-04-08", "1.899"], ["Gazole (B7)", "2026-11-06", "2.149"]], 1),
+], ids=["diesel and E10", "diesel and E5", "diesel without 95", "95 without diesel", "an old price"])
+def test_a_valid_station_sells_diesel_and_95(store, prices, count):
+    insert_station(store, 1, 48.209, -3.818, prices=json.dumps(prices))
+
+    assert valid_station_count() == count
+
+
+def test_the_count_covers_every_valid_station(store):
+    insert_station(store, 1, 48.209, -3.818, prices=VALID_PRICES)
+    insert_station(store, 2, 44.928, 2.443, prices=VALID_PRICES)
+    insert_station(store, 3, 48.0, -3.0)
+
+    assert valid_station_count() == 2
+
+
+def test_the_fuel_types_decide(store, monkeypatch):
+    monkeypatch.setattr(car, "FUEL_TYPES", (
+        ("diesel", "Diesel", ("Gazole (B7)",)),
+        ("95", "95", ("SP95-E10 (E10)", "SP95 (E5)", "SP95-E15 (E15)")),
+    ))
+    insert_station(store, 1, 48.209, -3.818,
+                   prices=json.dumps([["SP95-E15 (E15)", "2026-11-06", "1.949"], ["Gazole (B7)", "2026-11-06", "2.149"]]))
+
+    assert valid_station_count() == 1
 
 
 def osm_node(latitude, longitude, **tags):
@@ -541,6 +585,62 @@ def test_a_page_with_an_unknown_layout_is_logged_with_its_id(store, caplog, monk
     assert "Station 7 failed: no price table" in caplog.text
 
 
+def e85_only_page():
+    return page(rows='<tr><td><strong>E85 (E85)</strong><br><span class="date">06/11/26</span></td>'
+                     '<td class="prix"><strong>0.877</strong></td></tr>')
+
+
+def insert_valid_stale_stations(db_path, count):
+    for station_id in range(1, count + 1):
+        insert_station(db_path, station_id, 48.209, -3.818, last_updated_at=hours_ago(30), prices=VALID_PRICES)
+    return [stored_row(db_path, station_id) for station_id in range(1, count + 1)]
+
+
+def test_a_drop_to_80_percent_is_refused(store, station_page, caplog, monkeypatch):
+    monkeypatch.setattr(gas_stations.logger, "disabled", False)
+    caplog.set_level("INFO", logger="french_tolls.gas_stations")
+    before = insert_valid_stale_stations(store, 5)
+    pages = {1: station_page, 2: station_page, 3: station_page, 4: station_page, 5: e85_only_page()}
+    source = LocalSource([(station_id, 48.209, -3.818) for station_id in range(1, 6)], pages)
+
+    assert source.run() == 1
+    assert [stored_row(store, station_id) for station_id in range(1, 6)] == before
+    assert "The update is refused: 4 valid stations after it, 5 before it" in caplog.text
+    assert "stations refreshed" not in caplog.text
+
+
+def test_a_drop_to_90_percent_is_stored(store, station_page):
+    insert_valid_stale_stations(store, 10)
+    pages = {station_id: station_page for station_id in range(1, 10)}
+    pages[10] = e85_only_page()
+    source = LocalSource([(station_id, 48.209, -3.818) for station_id in range(1, 11)], pages)
+
+    assert source.run() == 0
+    assert [stored_row(store, station_id)[3] for station_id in range(1, 11)] == ["Leclerc"] * 10
+    assert json.loads(stored_row(store, 10)[6]) == [["E85 (E85)", "2026-11-06", "0.877"]]
+
+
+def test_a_store_without_a_valid_station_accepts_any_run(store):
+    source = LocalSource([(1, 48.209, -3.818)], {1: e85_only_page()})
+
+    assert source.run() == 0
+    assert json.loads(stored_row(store, 1)[6]) == [["E85 (E85)", "2026-11-06", "0.877"]]
+
+
+def test_a_refused_run_with_a_failed_station(store, station_page, caplog, monkeypatch):
+    monkeypatch.setattr(gas_stations.logger, "disabled", False)
+    caplog.set_level("INFO", logger="french_tolls.gas_stations")
+    before = insert_valid_stale_stations(store, 5)
+    pages = {1: station_page, 2: station_page, 3: station_page, 5: e85_only_page()}
+    source = LocalSource([(station_id, 48.209, -3.818) for station_id in range(1, 6)], pages)
+
+    assert source.run() == 1
+    assert sorted(source.requested) == [1, 2, 3, 4, 5]
+    assert [stored_row(store, station_id) for station_id in range(1, 6)] == before
+    assert "The update is refused: 4 valid stations after it, 5 before it" in caplog.text
+    assert "stations refreshed" not in caplog.text
+
+
 def test_no_more_than_four_page_requests_are_open_at_once(store, station_page):
     listed = [(station_id, 48.209, -3.818) for station_id in range(1, 101)]
     source = LocalSource(listed, {station_id: station_page for station_id in range(1, 101)}, delay=0.01)
@@ -550,7 +650,7 @@ def test_no_more_than_four_page_requests_are_open_at_once(store, station_page):
     assert source.most_open == 4
 
 
-def test_an_interrupted_run_keeps_what_it_stored(store, station_page):
+def test_an_interrupted_run_stores_nothing(store, station_page):
     listed = [(station_id, 48.209, -3.818) for station_id in range(1, 6)]
     pages = {station_id: station_page for station_id in range(1, 6)}
     first = LocalSource(listed, pages, hold={5})
@@ -559,20 +659,20 @@ def test_an_interrupted_run_keeps_what_it_stored(store, station_page):
     async def go():
         run = asyncio.create_task(first.update(isodate.parse_duration("PT23H")))
 
-        async def four_stored():
-            while stored_ids(store) != [1, 2, 3, 4]:
+        async def four_answered():
+            while len(first.requested) < 5 or first.open != 1:
                 await asyncio.sleep(0.01)
 
-        await asyncio.wait_for(four_stored(), timeout=10)
+        await asyncio.wait_for(four_answered(), timeout=10)
         run.cancel()
         with pytest.raises(asyncio.CancelledError):
             await run
 
-        return await second.update(isodate.parse_duration("PT23H"))
+        stored_after_the_stop = stored_ids(store)
+        return stored_after_the_stop, await second.update(isodate.parse_duration("PT23H"))
 
-    assert asyncio.run(go()) == 0
-    assert 5 in first.requested
-    assert second.requested == [5]
+    assert asyncio.run(go()) == ([], 0)
+    assert sorted(second.requested) == [1, 2, 3, 4, 5]
 
 
 def test_an_age_that_is_not_iso_8601_is_refused(monkeypatch, capsys):

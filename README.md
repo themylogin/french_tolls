@@ -116,6 +116,16 @@ docker compose run --rm gas-stations PT23H
 The argument is an ISO 8601 duration. It updates stations that had the
 last read more than that duration ago.
 
+The run reads all the selected pages first. Then it writes them in one
+transaction. An interrupted run stores nothing, and the next run reads the
+same pages again.
+
+A valid station sells diesel and 95: its prices have a fuel of the `diesel`
+type and a fuel of the `95` type of `french_tolls/car.py`. When the run leaves
+80% or less of the valid stations that the store had before it, the run
+refuses the update. It then stores nothing, logs both counts, and exits with
+the status 1. A store without a valid station accepts any run.
+
 The run takes the position of each station from the OSM station with the same
 id in `/cache/osm_gas_stations.json` (see "OSM gas stations" below), when one
 matches. Otherwise it takes the position of the prix-carburants list. For a

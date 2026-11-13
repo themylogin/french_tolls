@@ -16,11 +16,12 @@ import shapely
 from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert
 
-from . import db
+from . import car, db
 from .config import config
 from .models import GasStation, GasStationArea
 
-__all__ = ["ParseError", "main", "osm_position", "parse_station_page", "stations_in_area", "update"]
+__all__ = ["ParseError", "main", "osm_position", "parse_station_page", "stations_in_area", "update",
+           "valid_station_count"]
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,17 @@ async def stations_in_area(south, west, north, east):
         return list(await session.scalars(query))
 
 
+async def valid_station_count(session):
+    diesel = set(car.station_fuels("diesel"))
+    petrol = set(car.station_fuels("95"))
+    count = 0
+    for prices in await session.scalars(select(GasStation.prices)):
+        fuels = {fuel for fuel, _date, _price in prices}
+        if fuels & diesel and fuels & petrol:
+            count += 1
+    return count
+
+
 def osm_position(candidates, brand, listed):
     near = []
     for candidate in candidates:
@@ -202,8 +214,26 @@ async def update(max_age, base_url="https://www.prix-carburants.gouv.fr", osm_pa
         ])
 
     failed = refreshed.count("failed")
+    read = [result for result in refreshed if result != "failed"]
+    async with db.Session() as session:
+        before = await valid_station_count(session)
+        if read:
+            upsert = insert(GasStation)
+            upsert = upsert.on_conflict_do_update(
+                index_elements=[GasStation.id],
+                set_={column.name: upsert.excluded[column.name]
+                      for column in GasStation.__table__.columns if not column.primary_key})
+            await session.execute(upsert, [row for _source, row in read])
+        after = await valid_station_count(session)
+        if before > 0 and after * 5 <= before * 4:
+            await session.rollback()
+            logger.error("The update is refused: %d valid stations after it, %d before it", after, before)
+            return 1
+        await session.commit()
+
+    sources = [source for source, _row in read]
     logger.info("%d stations refreshed (%d at the OpenStreetMap position, %d at the list position), %d failed",
-                len(selected) - failed, refreshed.count("osm"), refreshed.count("list"), failed)
+                len(read), sources.count("osm"), sources.count("list"), failed)
     if failed:
         return 1
 
@@ -264,17 +294,10 @@ async def _refresh(http, requests, base_url, station_id, listed, candidates):
             position = listed
             source = "list"
 
-        latitude, longitude = position
-        values = {"latitude": latitude, "longitude": longitude, "last_updated_at": read_at, **fields}
-        async with db.Session() as session:
-            await session.execute(
-                insert(GasStation)
-                .values(id=station_id, **values)
-                .on_conflict_do_update(index_elements=[GasStation.id], set_=values))
-            await session.commit()
-
-    logger.debug("Station %d refreshed", station_id)
-    return source
+    latitude, longitude = position
+    logger.debug("Station %d read", station_id)
+    return source, {"id": station_id, "latitude": latitude, "longitude": longitude, "last_updated_at": read_at,
+                    **fields}
 
 
 def _utcnow():
