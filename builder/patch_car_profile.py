@@ -45,6 +45,10 @@ maximum turn weight. The turn pass reads that weight in the profile's own
 obstacle loop and raises the turn weight to it. The travel time keeps the
 stock penalty.
 
+The last edit removes the `excludable` classes. For each one, osrm-customize
+stores one more full metric set: 457 MB in the France graph, on disk and in the
+memory of each router. Nothing in this project sends `exclude=`.
+
 The pristine profile is left beside the patched one so the two can be compared,
 and the image itself is never touched.
 
@@ -283,6 +287,31 @@ def render(nodes):
     return preamble, check
 
 
+def drop_excludable(source):
+    found = list(re.finditer(r"^[ \t]*excludable\s*=\s*Sequence\s*\{", source, re.M))
+    if len(found) != 1:
+        raise Abort(
+            f"expected exactly one 'excludable = Sequence {{' in the profile,"
+            f" found {len(found)}\n"
+            f"       The profile has changed shape; re-read it before patching.")
+    depth = 0
+    for end in range(found[0].end() - 1, len(source)):
+        if source[end] == "{":
+            depth += 1
+        elif source[end] == "}":
+            depth -= 1
+            if depth == 0:
+                break
+    else:
+        raise Abort("the profile's excludable sequence has no closing brace")
+    end += 1
+    if source.startswith(",", end):
+        end += 1
+    if source.startswith("\n", end):
+        end += 1
+    return source[:found[0].start()] + source[end:]
+
+
 def patch(source, nodes, gates=(), opened=()):
     if BEGIN in source or GATE_BEGIN in source:
         raise Abort("the profile is already patched")
@@ -293,6 +322,7 @@ def patch(source, nodes, gates=(), opened=()):
                 f" found {source.count(hook)}\n"
                 f"       The profile has changed shape; re-read it before patching.")
 
+    source = drop_excludable(source)
     preamble, check = render(nodes)
     gate_preamble, gate_check, obstacle_loop, turn_check = render_gates(gates, opened)
     if not preamble and not gate_preamble:

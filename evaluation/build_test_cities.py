@@ -10,14 +10,12 @@ Writes `data/test_cities.yaml`:
 
 Two decisions are worth knowing before reading the code.
 
-**Mainland is decided by the road network, with ferries excluded.** A latitude
-and longitude box would have to be drawn by hand, would clip somewhere real
-sooner or later, and would assert as geography something the graph already
-knows. But the plain question -- can the router reach it? -- says yes to
-Corsica, because the car profile is happy to take a ferry: measured, Bastia is
-21.3 hours from Paris by road and ferry. Asking with `exclude=ferry` is the
-question actually meant, and it answers unreachable for Bastia while leaving
-Lyon at 5.0 hours either way.
+**Mainland is west of the meridian 8.4°E.** The router reaches Corsica by
+ferry, and the graph declares no excludable class, so the router cannot be
+asked for a route without one. The meridian lies between Lauterbourg (8.23°E),
+the easternmost point of the mainland, and the Sanguinaires (8.53°E), the
+westernmost land of Corsica. The router still drops a candidate it cannot
+reach at all.
 
 The overseas departments need no handling: the Geofabrik France extract this
 project downloads carries none of them. Measured, it holds 0 city or town nodes
@@ -114,12 +112,7 @@ def reachable(candidates):
             [f"{MAINLAND_REFERENCE[0]},{MAINLAND_REFERENCE[1]}"] +
             [f"{c['latlon'][1]},{c['latlon'][0]}" for c in batch]
         )
-        # exclude=ferry is what makes this mean "mainland". The car profile
-        # declares ferry as an excludable class, so the router answers the
-        # question without one rather than being asked to score a route it then
-        # has to be argued out of.
-        url = (f"{TOLL_URL}/table/v1/driving/{coords}"
-               f"?sources=0&annotations=duration&exclude=ferry")
+        url = f"{TOLL_URL}/table/v1/driving/{coords}?sources=0&annotations=duration"
         body = get(url)
         if body.get("code") != "Ok":
             raise SystemExit(f"the router refused a table request: {body.get('code')}")
@@ -240,9 +233,13 @@ def main():
         used.append("town")
     print(f"    drawing from place={'+'.join(used)}: {len(candidates)} candidates")
 
-    print("==> excluding what the router cannot reach by road, ferries excluded")
-    candidates, unreachable = reachable(candidates)
-    print(f"    unreachable without a ferry (Corsica, islands, off-network): {unreachable}")
+    print("==> excluding what lies east of the meridian 8.4°E")
+    mainland = [c for c in candidates if c["latlon"][1] <= 8.4]
+    print(f"    east of the meridian (Corsica): {len(candidates) - len(mainland)}")
+
+    print("==> excluding what the router cannot reach")
+    candidates, unreachable = reachable(mainland)
+    print(f"    unreachable: {unreachable}")
     print(f"    reachable candidates: {len(candidates)}")
 
     if len(candidates) < args.count:

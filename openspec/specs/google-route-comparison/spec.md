@@ -58,37 +58,35 @@ The fifty SHALL be chosen to cover the territory rather than to be the largest: 
 - **WHEN** the step is run twice against the same extract with no existing file
 - **THEN** it produces the same fifty cities in the same order
 
-### Requirement: Mainland is decided by the road network, not by a box
+### Requirement: Mainland is west of the meridian 8.4°E
 
-A candidate SHALL be admitted only if this project's own routing graph can drive to it from a mainland reference point **without taking a ferry**.
+A candidate SHALL be admitted only if its longitude is 8.4°E or less. The step SHALL report how many candidates the meridian excluded.
 
-A latitude and longitude box has to be drawn by hand, has to be redrawn when it is found to clip somewhere real, and states as geography something the network states as fact. But the unqualified question — can the router reach it? — admits Corsica, because the car profile is content to board a ferry. Measured, Bastia is 21.3 hours from Paris by road and ferry, and unreachable when ferries are excluded, while Lyon is 5.0 hours either way.
-
-The exclusion SHALL be asked of the router rather than applied afterwards. The routing profile declares `ferry` an excludable class, so the router can answer the question actually meant instead of being asked a different one and then argued out of the answer.
-
-The overseas departments SHALL need no handling. The France extract this project downloads does not carry them: measured, it holds no city or town node outside mainland Europe and Corsica.
-
-A candidate the router cannot reach SHALL be excluded, and the step SHALL report how many were excluded for that reason.
+The meridian lies between Lauterbourg (8.23°E), the easternmost point of the mainland, and the Sanguinaires (8.53°E), the westernmost land of Corsica. The overseas departments need no rule: the France extract carries no city or town node there.
 
 #### Scenario: Corsica is excluded
 
 - **WHEN** the city set is built
-- **THEN** no city on Corsica appears in it, because no ferry-free route reaches one
+- **THEN** no city on Corsica appears in it, and the step reports the number that the meridian excluded
 
-#### Scenario: A ferry-free route is what is asked for
+#### Scenario: The easternmost mainland towns are kept
 
-- **WHEN** reachability is tested
-- **THEN** the request excludes the ferry class, and a candidate reachable only by ferry is reported unreachable
+- **WHEN** the candidates include Wissembourg at 7.945°E
+- **THEN** the meridian does not exclude it
 
-#### Scenario: The mainland is unaffected by the exclusion
+#### Scenario: The router is not asked to exclude a class
 
-- **WHEN** a mainland candidate is tested
-- **THEN** its reachability and duration are the same with ferries excluded as without
+- **WHEN** the step asks the router for reachability
+- **THEN** the request carries no `exclude` parameter
 
-#### Scenario: The exclusions are reported
+### Requirement: A candidate the router cannot reach is excluded
 
-- **WHEN** the step completes
-- **THEN** it states how many candidates were unreachable
+A candidate west of the meridian SHALL be admitted only if the router can drive to it from a mainland reference point. The step SHALL report how many candidates the router could not reach.
+
+#### Scenario: An unreachable candidate is excluded
+
+- **WHEN** the router returns no duration from the reference point to a candidate
+- **THEN** the candidate is not in the city set, and the count of unreachable candidates includes it
 
 ### Requirement: The city set is built incrementally
 

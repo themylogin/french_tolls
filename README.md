@@ -11,8 +11,8 @@ A tool that helps to save money on French toll roads.
 
 * Linux with Docker, the Compose plugin, and GNU make.
 * 32 GB of RAM. Graph preprocessing is the peak.
-* 30 GB free disk: 4.8 GB for the OSM extract, 9.3 GB for the road graph,
-  9.3 GB for the toll-weighted graph, and transient space for preprocessing.
+* 30 GB free disk: 4.8 GB for the OSM extract, 8.0 GB for the road graph,
+  8.0 GB for the toll-weighted graph, and transient space for preprocessing.
   The Makefile refuses to start without 25 GB free at `OSRM_TOLL_PATH` and
   12 GB free at `OSRM_OPTIMAL_PATH`.
 * Half an hour of preprocessing on 24 cores. Longer on fewer.

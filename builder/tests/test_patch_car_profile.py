@@ -2,6 +2,8 @@
 
 process_turn sets `turn.weight = turn.duration` before the routability block.
 A weight raised above that line is lost, and the locked gate is open again.
+
+The patched profile declares no excludable class, whatever else it injects.
 """
 
 import pytest
@@ -10,6 +12,21 @@ import patch_car_profile as p
 
 
 PROFILE = (
+    "function setup()\n"
+    "  return {\n"
+    "    -- classes to support for exclude flags\n"
+    "    excludable = Sequence {\n"
+    "        Set {'toll'},\n"
+    "        Set {'motorway'},\n"
+    "        Set {'ferry'}\n"
+    "    },\n"
+    "\n"
+    "    avoid = Set {\n"
+    "      'area',\n"
+    "    },\n"
+    "  }\n"
+    "end\n"
+    "\n"
     "function process_node(profile, node, result, relations)\n"
     "  local barrier = node:get_value_by_key('barrier')\n"
     "  if barrier then\n"
@@ -53,3 +70,22 @@ def test_a_profile_without_the_routability_block_is_refused():
     with pytest.raises(p.Abort, match="expected exactly one"
                        " \"if profile.properties.weight_name == 'routability' then\""):
         p.patch(profile, [], {7}, {7})
+
+
+def test_the_patched_profile_declares_no_excludable_class():
+    patched = p.patch(PROFILE, [], set(), set())
+
+    assert "excludable" not in patched
+    assert ("    -- classes to support for exclude flags\n"
+            "\n"
+            "    avoid = Set {\n") in patched
+
+
+@pytest.mark.parametrize("profile, found", [
+    (PROFILE.replace("    excludable = Sequence {\n", "    kept = Sequence {\n"), 0),
+    (PROFILE.replace("    avoid = Set {\n", "    excludable = Sequence {\n    },\n    avoid = Set {\n"), 2),
+])
+def test_a_profile_without_exactly_one_excludable_sequence_is_refused(profile, found):
+    with pytest.raises(p.Abort, match=f"expected exactly one 'excludable = Sequence {{' in the profile,"
+                                      f" found {found}"):
+        p.patch(profile, [], set(), set())
