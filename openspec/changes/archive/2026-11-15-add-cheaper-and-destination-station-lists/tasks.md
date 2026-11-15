@@ -1,0 +1,51 @@
+# Tasks
+
+Unit tests run with `make test`. Integration tests run with `docker compose --profile test run --rm --no-TTY integration`.
+
+## 1. Shared price rule and pricing helper
+
+- [x] 1.1 In `french_tolls/gas_stations.py`, add `fuel_price(prices, fuel_type)`. It gives `(price, fuel)` for the lowest price among `car.station_fuels(fuel_type)`, or None. Make `refuel.candidates` use it. In `french_tolls/tests/test_gas_stations.py`, test a 95 car at a station with `SP95-E10 (E10)` at `1.799` and `SP95 (E5)` at `1.859`: it gives `(1.799, "SP95-E10 (E10)")`. Test a diesel car at a station with only `SP95-E10 (E10)`: it gives None. Verify with `make test`, with the candidate tests of `test_refuel.py` unchanged.
+- [x] 1.2 In `french_tolls/refuel.py`, make `detours(routers, planned, vias, placed)` take `(candidate, index)` pairs. Move the pricing loop of `plan` into a helper over the same pairs. It takes `station_leg` and `after_chosen` from the index of each pair, and returns the entries in input order without the unreachable ones. `plan` passes the search index for every candidate. Update the `detours` call of `test_no_more_than_4_detour_requests_are_open_at_once` to the new signature. Verify with `make test`, with no other test edited.
+
+## 2. Stations at the destination in the planner
+
+- [x] 2.1 Add the keyword `for_bot=False` to `plan`. With it, a no-stop walk without chosen stations takes the destination index as the search point. It lists up to 10 stations with the helper, and adds `liters` and `stations` to the answer. Each destination entry gets `route_index`, the destination index. Use the liters rule of the design. In `french_tolls/tests/test_refuel.py`, add tests for these cases: A 2 km from the destination is listed and B 2 km from the origin is not; a stop of 33 L with 17 L left; a stop of 45 L after a range walk with `consume_130` `10`; A at `1.800` with 600 s before B at `1.750` with 1,800 s; each entry has the destination index as `route_index`; no candidate gives an empty list and no detour request. Verify with `make test`.
+- [x] 2.2 Verify that `test_the_fuel_lasts_to_the_destination` and `test_a_lasting_range_gives_the_range_left` pass unchanged without `for_bot`. Add a test that `plan` without `for_bot` sends no detour request on a no-stop walk. Verify with `make test` and the integration test `test_refuel_endpoint.py`.
+
+## 3. Reference price and share
+
+- [x] 3.1 In `french_tolls/gas_stations.py`, add `count_below(fuel_type, price)` from the design. In `test_gas_stations.py`, test these cases: 3 of 20 stored diesel stations below the price give `(3, 20)`; a station that sells only `SP95-E10 (E10)` counts in neither number for a diesel car. Verify with `make test`.
+- [x] 3.2 Add the frozen dataclass `CheaperQuery` to `refuel.py`. With `for_bot`, give a stop answer or a no-stop answer with stations `cheaper_share` and `cheaper_query`. The share is `(100 * below + total - 1) // total`, from the lowest price of the list. In `test_refuel.py`, test these cases: the reference `1.750` when A at `1.800` comes first; the reference `1.790` of a destination list with A at `1.820` and B at `1.790`, and its query has the destination as the search point; the share 15 for 3 of 20 below; the share 4 for 1 of 30; a cheaper station 300 km from the route counts; no cheaper keys and no count for an empty list. Also test that a station 1 km from the route below the reference gets no detour request. Assert literal prices, ids, and shares. Verify with `make test`.
+
+## 4. Cheaper search and chosen stations
+
+- [x] 4.1 In `refuel.py`, add `route_stations(route, walk_start, search_index, fuel_type)` with the box, the 0.1° grid, and the nearest route point within 5 km. In `test_refuel.py`, test these stations: one 4 km from a route point is kept; one 6 km from every point is not; one 1 km from a point after the search point is not; one 1 km from a point before `walk_start` is not; one without the fuel is not; one 1 km from the halfway point is kept when the search point is the destination. Verify with `make test`.
+- [x] 4.2 Add `cheaper_stations(routers, query, parameters, toll_cost)`. It keeps the stations with `price < reference`, sorts them by `(-route index, price, station id)`, and keeps 10. It prices them with the helper at their route index, and sorts by `(cost, station id)`. Each entry gets `route_index`. In `test_refuel.py`, test these cases: A at `1.700` with 60 s before B at `1.690` with 1,800 s; a station at `1.800` with the reference `1.800` is left out; 12 below give the 10 latest, asserted as a set of ids; an unreachable one gives 2 of 3; a split route with A at 300 km and B at 500 km routes a station at 200 km as station, A, B; after a chosen station C, `distance` `300000` and `distance_from_previous` `80000`. Also test that a search with 10 stations sends 10 requests, no planned route, with no more than four open at once. Verify with `make test`.
+- [x] 4.3 Make `through_chosen` accept `(latitude, longitude, route_index)`. It places that station at `route_index` with no walk. A two-part entry keeps the walk, the search point, and `UnneededStation`. Do not use a ternary. In `test_refuel.py`, test these cases: a chosen cheaper station D before the split stop A gives a route through D, then A; a three-part entry at the destination index after a lasting fuel gives a route through the station, and `plan` with `for_bot` then needs no stop; a two-part entry after a lasting fuel still raises `UnneededStation`. Verify with `make test`, with the chosen-station tests unchanged.
+
+## 5. Texts of the dialog
+
+- [x] 5.1 In `french_tolls/refuel_chat.py`, make `no_stop_text(answer)` add the destination header and `station_list`, the singular header, or the empty-list line after the sentence. In `french_tolls/tests/test_refuel_chat.py`, update `test_enough_fuel` and `test_enough_range` to `"stations": []` and the empty-list texts. Add tests for 10 stations with 12.7 L, 3 stations with 83.4 km, and 1 station. Assert the literal texts of the spec. Verify with `make test`.
+
+## 6. Bot
+
+- [x] 6.1 In `french_tolls/bot.py`, make `plan_stops` pass `for_bot=True`. Give `plan_and_answer` the user id, and update its three callers. Send the no-stop text as HTML without a link preview. With stations, store a `StationList` with `drive_token`, and give it the number rows and `Drive with Google` as the last row. In `french_tolls/integration/test_refuel_flow.py`, give the no-stop answers of `test_no_stop_needed_offers_drive_with_google` `"stations": []` and the empty-list texts. Add tests for these cases: 3 destination stations with the share 0 give the header, HTML, no link preview, and the rows `1 2 3` and `Drive with Google`; 1 station gives the singular; a router failure gives the error text and no button. Verify with the integration tests.
+- [x] 6.2 Add `CheaperOffer`, `ChatState.cheaper_offers`, `StationList.cheaper`, and `cheaper_stops(query, parameters)`. When the share is above 0, add the row `Cheaper? (<p>% of gas stations)` with `s<n>:cheaper`, and store the offer of the user. On a destination list, the row goes before `Drive with Google`. Add the cheaper handler for `^s\d+:cheaper$` from the design. In `test_refuel_flow.py`, replace `bot.cheaper_stops` with a recording fake. Test these cases: the rows for 10 stations with the share 6; `1 2 3` and the cheaper row for 3 stations with the share 15; no row with the share 0; the row on the list after a chosen station; the four rows of a destination list of 10 stations with the share 6; no `cheaper_stops` call before the press. Verify with the integration tests.
+- [x] 6.3 In `test_refuel_flow.py`, test a press on the cheaper button. Assert these results: the stop list keeps the rows `1 2 3 4 5` and `6 7 8 9 10`; `⏳ Finding gas stations...` turns into the list of 3 with `1 2 3`; the replay counts no Google request. On a destination list of 3, the press keeps the rows `1 2 3` and `Drive with Google`. With no cheaper station, the bot shows `None of them is within 5 km of your route.` without buttons, and `2` of the stop list still plans. With a raised `RouterUnavailable`, the bot shows the error text, and `2` of the stop list still plans. Verify with the integration tests.
+- [x] 6.4 Make the station handler accept `^s\d+:c?\d+$`. A `c<k>` press takes cheaper station `k`. A press on a destination entry or a cheaper entry chooses `(latitude, longitude, route_index)`. A press on either list pops the one `StationList`, pops its `drive_token` from `state.pending`, and drops the cheaper offer of that token. Make `drive_button_handler` pop the `StationList` with its token, and its cheaper offer. In `test_refuel_flow.py`, test these cases:
+  - `2` on the cheaper list keeps only its paragraph, and `plan_stops` gets the three-part entry.
+  - `2` on the destination list gets the three-part entry with the destination index. A finished plan then puts `Drive with Google` on that paragraph, and no other message follows.
+  - `2` on the cheaper list of a destination list gets its three-part entry.
+  - `2` on the cheaper list, then `5` on the stop list, gets the expired text. So does `5` on the stop list, then `2` on the cheaper list.
+  - `2` on the destination list, then an old copy of its `Drive with Google`, gets the expired text, and the replay counts no Google request.
+  - `Drive with Google` on the destination list, then an old copy of its `2`, gets the expired text, and `plan_stops` is not called.
+  - The cheaper button after a choice gets the expired text.
+  - The cheaper button of an earlier journey gets the expired text, with no `cheaper_stops` call.
+
+  Verify with the integration tests.
+
+## 7. Integration
+
+- [ ] 7.1 Run `make test` and the integration tests. Verify that every test passes.
+- [x] 7.2 Run `openspec validate add-cheaper-and-destination-station-lists --strict`. Verify that it reports no error.
+- [x] 7.3 Start the bot with `make bot`. Ask the user to check two journeys in Telegram. A long journey must show the cheaper button, its list, and a choice from it. A short journey must show the stations at the destination, its cheaper button, and a choice of a destination station that ends with `Drive with Google`.

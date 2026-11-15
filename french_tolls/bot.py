@@ -63,6 +63,8 @@ class ChatState:
         self.fuel_questions = {}
         # Open `StationList`s, by the token their number buttons carry.
         self.station_lists = {}
+        # The `CheaperOffer` of the latest list of each driver, by user id.
+        self.cheaper_offers = {}
         self._tokens = itertools.count(1)
 
     def remember(self, parts):
@@ -129,10 +131,21 @@ class StationList:
     offer: RefuelOffer
     car: CarParameters
     start: refuel.Start
-    # `(latitude, longitude)` of each station chosen before this list, in order.
+    # Each station chosen before this list, in order, as `refuel.through_chosen` takes it.
     chosen: tuple
     # The entries of the plan answer, in the order of the list.
     stations: tuple
+    # The entries of its cheaper list, once the driver asked for it.
+    cheaper: tuple = ()
+    # The `Drive with Google` of a destination list, which a choice spends.
+    drive_token: str | None = None
+
+
+@dataclass(frozen=True)
+class CheaperOffer:
+    # The token of the list with the cheaper button.
+    token: str
+    query: refuel.CheaperQuery
 
 
 def state_of(context) -> ChatState:
@@ -400,6 +413,9 @@ async def drive_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.edit_message_reply_markup(reply_markup=None)
     for token in [token for token, offer in state.refuel_offers.items() if offer.drive_token == query.data]:
         del state.refuel_offers[token]
+    for token in [token for token, listed in state.station_lists.items() if listed.drive_token == query.data]:
+        del state.station_lists[token]
+        drop_cheaper_offer(state, token)
 
     head, rest = parts[0], parts[1:]
     settled = drive_rules.settle(head, google_maps_link)
@@ -482,7 +498,7 @@ async def gauge_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     del state.fuel_questions[user_id]
     await query.message.delete()
     start = refuel.Start(0, fuel=question.car.tank_volume * int(step) / question.car.gauge_steps)
-    await plan_and_answer(query.message, state, question.offer, question.car, start, ())
+    await plan_and_answer(query.message, state, user_id, question.offer, question.car, start, ())
 
 
 async def handle_range(message, context, state):
@@ -494,7 +510,8 @@ async def handle_range(message, context, state):
 
     question = state.fuel_questions.pop(user_id)
     await context.bot.delete_message(chat_id=question.chat_id, message_id=question.message_id)
-    await plan_and_answer(message, state, question.offer, question.car, refuel.Start(0, range_km=range_km), ())
+    await plan_and_answer(message, state, user_id, question.offer, question.car, refuel.Start(0, range_km=range_km),
+                          ())
 
 
 async def station_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -502,17 +519,85 @@ async def station_button_handler(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
 
     state = state_of(context)
-    token, _, number = query.data.partition(":")
+    token, _, label = query.data.partition(":")
     listed = state.station_lists.pop(token, None)
-    if listed is None or not 1 <= int(number) <= len(listed.stations):
+    if listed is None:
         await expire_refuel_button(query)
         return
 
-    station = listed.stations[int(number) - 1]
-    paragraph = station_paragraph(int(number), station)
+    stations = listed.stations
+    if label.startswith("c"):
+        stations = listed.cheaper
+    number = int(label.removeprefix("c"))
+    if not 1 <= number <= len(stations):
+        await expire_refuel_button(query)
+        return
+
+    # One stop has one choice: the list, its cheaper list, and its `Drive with Google` close together.
+    state.pending.pop(listed.drive_token, None)
+    drop_cheaper_offer(state, token)
+    station = stations[number - 1]
+    paragraph = station_paragraph(number, station)
     await query.edit_message_text(paragraph, parse_mode="HTML", disable_web_page_preview=True)
-    chosen = (*listed.chosen, (station["latitude"], station["longitude"]))
-    await plan_and_answer(query.message, state, listed.offer, listed.car, listed.start, chosen, paragraph)
+    chosen = (*listed.chosen, chosen_entry(station))
+    await plan_and_answer(query.message, state, query.from_user.id, listed.offer, listed.car, listed.start, chosen,
+                          paragraph)
+
+
+def chosen_entry(station):
+    """A listed station as `refuel.through_chosen` takes it: at its route point where its list gave one."""
+    if "route_index" in station:
+        return station["latitude"], station["longitude"], station["route_index"]
+    return station["latitude"], station["longitude"]
+
+
+def drop_cheaper_offer(state, token):
+    for user_id in [user_id for user_id, offer in state.cheaper_offers.items() if offer.token == token]:
+        del state.cheaper_offers[user_id]
+
+
+async def cheaper_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    state = state_of(context)
+    user_id = query.from_user.id
+    token = query.data.partition(":")[0]
+    offer = state.cheaper_offers.get(user_id)
+    listed = state.station_lists.get(token)
+    if offer is None or offer.token != token or listed is None:
+        await expire_refuel_button(query)
+        return
+
+    del state.cheaper_offers[user_id]
+    await query.edit_message_reply_markup(reply_markup=list_markup(token, listed))
+    working = await query.message.reply_text("⏳ Finding gas stations...")
+    try:
+        stations = await cheaper_stops(offer.query, listed.car)
+    except Exception as e:
+        logger.warning("Error searching cheaper gas stations: %r", e, exc_info=True)
+        await working.edit_text("Error finding gas stations. I am very sorry for that 😞")
+        return
+
+    if not stations:
+        await working.edit_text("None of them is within 5 km of your route.")
+        return
+
+    # A choice on the list during the search closed it, and its cheaper list with it.
+    markup = None
+    if token in state.station_lists:
+        state.station_lists[token] = replace(state.station_lists[token], cheaper=tuple(stations))
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton(label, callback_data=f"{token}:c{label}") for label in row]
+            for row in station_rows(len(stations))
+        ])
+    await working.edit_text(station_list(stations), parse_mode="HTML", reply_markup=markup,
+                            disable_web_page_preview=True)
+
+
+async def cheaper_stops(query, parameters):
+    """The cheaper stations of a list, as `refuel.cheaper_stations` gives them."""
+    return await refuel.cheaper_stations(Routers(), query, parameters, toll_cost)
 
 
 async def plan_stops(offer, parameters, start, chosen):
@@ -528,7 +613,7 @@ async def plan_stops(offer, parameters, start, chosen):
         raise RouteError("no_route", "the journey has no split route any more")
 
     answer = await refuel.plan(routers, planned, parameters, toll_cost, fuel=start.fuel, range_km=start.range_km,
-                               chosen=chosen)
+                               chosen=chosen, for_bot=True)
     if answer["stop_needed"] or not chosen:
         return answer, None
 
@@ -559,7 +644,7 @@ def fast_plan_part(part, finished, vias):
                    waypoints=tuple(stop.location for stop in stops), booths=booths, fast_booths=booths, stops=stops)
 
 
-async def plan_and_answer(message, state, offer, parameters, start, chosen, paragraph=None):
+async def plan_and_answer(message, state, user_id, offer, parameters, start, chosen, paragraph=None):
     """Plan, and send the answer: a list to choose from, or what to drive.
 
     After a station press, `message` is that station's `paragraph`, which a finished plan offers to drive.
@@ -573,8 +658,9 @@ async def plan_and_answer(message, state, offer, parameters, start, chosen, para
         return
 
     if not answer["stop_needed"] and not chosen:
-        await working.edit_text(no_stop_text(answer),
-                                reply_markup=keyboard("Drive with Google", state.remember([offer.part])))
+        listed = StationList(offer=offer, car=parameters, start=start, chosen=(), stations=tuple(answer["stations"]),
+                             drive_token=state.remember([offer.part]))
+        await show_list(working, state, user_id, listed, no_stop_text(answer), answer)
         return
     if not answer["stop_needed"] and part is None:
         await working.edit_text("The refuel plan has too many stops for one Google Maps link.")
@@ -588,15 +674,37 @@ async def plan_and_answer(message, state, offer, parameters, start, chosen, para
         await working.edit_text(no_station_text(parameters))
         return
 
+    listed = StationList(offer=offer, car=parameters, start=start, chosen=tuple(chosen),
+                         stations=tuple(answer["stations"]))
+    await show_list(working, state, user_id, listed, station_list(answer["stations"]), answer)
+
+
+async def show_list(working, state, user_id, listed, text, answer):
+    """Edit `working` into `text`, with the buttons of `listed` and the cheaper button of `answer`.
+
+    The list replaces the cheaper button of the driver's earlier lists.
+    """
     token = state.new_list_token()
-    state.station_lists[token] = StationList(offer=offer, car=parameters, start=start, chosen=tuple(chosen),
-                                             stations=tuple(answer["stations"]))
-    markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton(label, callback_data=f"{token}:{label}") for label in row]
-        for row in station_rows(len(answer["stations"]))
-    ])
-    await working.edit_text(station_list(answer["stations"]), parse_mode="HTML", reply_markup=markup,
+    state.cheaper_offers.pop(user_id, None)
+    cheaper_share = answer.get("cheaper_share", 0)
+    if cheaper_share > 0:
+        state.cheaper_offers[user_id] = CheaperOffer(token=token, query=answer["cheaper_query"])
+    if listed.stations:
+        state.station_lists[token] = listed
+    await working.edit_text(text, parse_mode="HTML", reply_markup=list_markup(token, listed, cheaper_share),
                             disable_web_page_preview=True)
+
+
+def list_markup(token, listed, cheaper_share=0):
+    """The number rows of a list, then its cheaper button where `cheaper_share` is above 0, then its drive button."""
+    rows = [[InlineKeyboardButton(label, callback_data=f"{token}:{label}") for label in row]
+            for row in station_rows(len(listed.stations))]
+    if cheaper_share > 0:
+        rows.append([InlineKeyboardButton(f"Cheaper? ({cheaper_share}% of gas stations)",
+                                          callback_data=f"{token}:cheaper")])
+    if listed.drive_token is not None:
+        rows.append([InlineKeyboardButton("Drive with Google", callback_data=listed.drive_token)])
+    return InlineKeyboardMarkup(rows)
 
 
 async def remaining_budget():
@@ -710,7 +818,8 @@ def build(token, *, request=None, get_updates_request=None):
     application.add_handler(CallbackQueryHandler(car_button_handler, pattern=r"^car:"))
     application.add_handler(CallbackQueryHandler(plan_refuel_button_handler, pattern=r"^p\d+$"))
     application.add_handler(CallbackQueryHandler(gauge_button_handler, pattern=r"^g\d+:\d+$"))
-    application.add_handler(CallbackQueryHandler(station_button_handler, pattern=r"^s\d+:\d+$"))
+    application.add_handler(CallbackQueryHandler(station_button_handler, pattern=r"^s\d+:c?\d+$"))
+    application.add_handler(CallbackQueryHandler(cheaper_button_handler, pattern=r"^s\d+:cheaper$"))
 
     return application
 

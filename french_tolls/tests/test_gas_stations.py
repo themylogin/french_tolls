@@ -259,6 +259,32 @@ def test_the_area_query_reads_the_index(store):
     assert "SEARCH gas_station USING INTEGER PRIMARY KEY (rowid=?)" in plan
 
 
+def test_the_fuel_price_is_the_lowest_price_for_the_fuel_type():
+    prices = [["SP95-E10 (E10)", "2026-11-06", "1.799"], ["SP95 (E5)", "2026-11-06", "1.859"]]
+
+    assert gas_stations.fuel_price(prices, "95") == (1.799, "SP95-E10 (E10)")
+
+
+def test_a_station_without_the_fuel_has_no_fuel_price():
+    assert gas_stations.fuel_price([["SP95-E10 (E10)", "2026-11-06", "1.799"]], "diesel") is None
+
+
+def test_the_count_below_a_price_counts_every_station_with_the_fuel(store):
+    for station_id in range(1, 4):
+        insert_station(store, station_id, 48.0, -3.0, prices=json.dumps([["Gazole (B7)", "2026-11-06", "1.700"]]))
+    for station_id in range(4, 21):
+        insert_station(store, station_id, 48.0, -3.0, prices=json.dumps([["Gazole (B7)", "2026-11-06", "1.800"]]))
+
+    assert asyncio.run(gas_stations.count_below("diesel", 1.8)) == (3, 20)
+
+
+def test_a_station_without_the_fuel_counts_in_neither_number(store):
+    insert_station(store, 1, 48.0, -3.0, prices=json.dumps([["SP95-E10 (E10)", "2026-11-06", "1.500"]]))
+    insert_station(store, 2, 48.0, -3.0, prices=json.dumps([["Gazole (B7)", "2026-11-06", "1.700"]]))
+
+    assert asyncio.run(gas_stations.count_below("diesel", 1.8)) == (1, 1)
+
+
 def valid_station_count():
     async def count():
         async with db.Session() as session:

@@ -152,8 +152,46 @@ def a_station(number):
     }
 
 
-def a_list(count=10):
-    return {"stop_needed": True, "liters": 45.0, "stations": [a_station(n) for n in range(1, count + 1)]}, None
+def with_share(answer, share):
+    if share == 0:
+        return answer
+    return {**answer, "cheaper_share": share, "cheaper_query": f"the query of a {share}% share"}
+
+
+def a_list(count=10, share=0):
+    answer = {"stop_needed": True, "liters": 45.0, "stations": [a_station(n) for n in range(1, count + 1)]}
+    return with_share(answer, share), None
+
+
+def a_destination_list(count=3, share=0):
+    stations = [{**a_station(n), "route_index": 500} for n in range(1, count + 1)]
+    answer = {"stop_needed": False, "fuel_left": 12.7, "liters": 37.3, "stations": stations}
+    return with_share(answer, share), None
+
+
+def a_cheaper_station(number):
+    return {**a_station(number), "name": f"Cheaper {number}", "price": 1.7, "route_index": 100 * number}
+
+
+class CheaperSearch:
+    """`bot.cheaper_stops`, answering from a list, and recording each query."""
+
+    def __init__(self, answers=()):
+        self.answers = list(answers)
+        self.calls = []
+
+    async def __call__(self, query, parameters):
+        self.calls.append(query)
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def search_cheaper(monkeypatch, answers=()):
+    search = CheaperSearch(answers)
+    monkeypatch.setattr(bot, "cheaper_stops", search)
+    return search
 
 
 async def ask(chat, journey, choice):
@@ -431,8 +469,11 @@ def test_a_plan_shows_that_it_is_busy_and_then_its_answer(monkeypatch):
 
 
 @pytest.mark.parametrize("answer,text", [
-    ({"stop_needed": False, "fuel_left": 12.7}, "No need to refuel: you'll arrive with 12 L."),
-    ({"stop_needed": False, "range_left": 83.4}, "No need to refuel: you'll arrive with 83 km of range."),
+    ({"stop_needed": False, "fuel_left": 12.7, "liters": 37.3, "stations": []},
+     "No need to refuel: you'll arrive with 12 L. No gas station sells this fuel within 50 km of your destination."),
+    ({"stop_needed": False, "range_left": 83.4, "liters": 45.0, "stations": []},
+     "No need to refuel: you'll arrive with 83 km of range. "
+     "No gas station sells this fuel within 50 km of your destination."),
 ])
 def test_no_stop_needed_offers_drive_with_google(monkeypatch, answer, text):
     store_car()
@@ -450,7 +491,8 @@ def test_no_stop_needed_drives_the_route_without_a_station(monkeypatch):
         await half_a_tank(chat)
         await chat.press_labelled("Drive with Google")
 
-    chat, _planner, replay = talk(monkeypatch, [({"stop_needed": False, "fuel_left": 12.7}, None)], scenario)
+    no_stop = {"stop_needed": False, "fuel_left": 12.7, "liters": 37.3, "stations": []}
+    chat, _planner, replay = talk(monkeypatch, [(no_stop, None)], scenario)
 
     [part] = chat.parts
     query = parse_qs(urlparse(part.links[-1]).query)
@@ -642,3 +684,285 @@ def test_a_finished_plan_is_driven_through_its_stations(monkeypatch):
     assert query["waypoints"] == ["45.000000,1.500000|45.000000,2.500000"]
     assert query["destination"] == ["45.000000,3.000000"]
     assert replay.spent == 0
+
+
+# --- the stations at the destination ------------------------------------------------
+
+def test_the_destination_list_has_numbers_and_drive_with_google(monkeypatch):
+    store_car()
+
+    chat, _planner, _replay = talk(monkeypatch, [a_destination_list(3)], half_a_tank)
+
+    listed = chat.messages[-1]
+    assert listed.text.split("\n")[0] == (
+        "No need to refuel: you'll arrive with 12 L. Still, these are the 3 cheapest gas stations at your destination:")
+    assert listed.parameters["parse_mode"] == "HTML"
+    assert listed.parameters["link_preview_options"] == {"is_disabled": True}
+    assert labels(listed) == [["1", "2", "3"], ["Drive with Google"]]
+
+
+def test_one_destination_station_uses_the_singular(monkeypatch):
+    store_car()
+
+    chat, _planner, _replay = talk(monkeypatch, [a_destination_list(1)], half_a_tank)
+
+    assert chat.texts()[-1].split("\n")[0] == (
+        "No need to refuel: you'll arrive with 12 L. Still, this is the cheapest gas station at your destination:")
+
+
+# --- the cheaper button ---------------------------------------------------------------
+
+CHEAPER_6 = "Cheaper? (6% of gas stations)"
+NUMBERS_10 = [["1", "2", "3", "4", "5"], ["6", "7", "8", "9", "10"]]
+
+
+def test_ten_stations_with_a_share_of_6_offer_the_cheaper_button(monkeypatch):
+    store_car()
+
+    chat, _planner, _replay = talk(monkeypatch, [a_list(10, share=6)], half_a_tank)
+
+    assert labels(chat.messages[-1]) == [*NUMBERS_10, [CHEAPER_6]]
+
+
+def test_three_stations_with_a_share_of_15_offer_the_cheaper_button(monkeypatch):
+    store_car()
+
+    chat, _planner, _replay = talk(monkeypatch, [a_list(3, share=15)], half_a_tank)
+
+    assert labels(chat.messages[-1]) == [["1", "2", "3"], ["Cheaper? (15% of gas stations)"]]
+
+
+def test_the_list_after_a_chosen_station_offers_the_cheaper_button(monkeypatch):
+    store_car()
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        await chat.press_labelled("3")
+
+    chat, _planner, _replay = talk(monkeypatch, [a_list(), a_list(7, share=4)], scenario)
+
+    assert labels(chat.messages[-1]) == [["1", "2", "3", "4", "5"], ["6", "7"], ["Cheaper? (4% of gas stations)"]]
+
+
+def test_a_destination_list_with_a_share_of_6_has_four_rows(monkeypatch):
+    store_car()
+
+    chat, _planner, _replay = talk(monkeypatch, [a_destination_list(10, share=6)], half_a_tank)
+
+    assert labels(chat.messages[-1]) == [*NUMBERS_10, [CHEAPER_6], ["Drive with Google"]]
+
+
+def test_no_cheaper_search_before_the_press(monkeypatch):
+    store_car()
+    search = search_cheaper(monkeypatch)
+
+    talk(monkeypatch, [a_list(10, share=6)], half_a_tank)
+
+    assert search.calls == []
+
+
+def markup_edits(chat, message_id):
+    return [call for call in chat.sent if call.method == "editMessageReplyMarkup" and call.message_id == message_id]
+
+
+def test_a_press_on_the_cheaper_button_lists_the_cheaper_stations(monkeypatch):
+    store_car()
+    search = search_cheaper(monkeypatch, [[a_cheaper_station(n) for n in (1, 2, 3)]])
+    lists = []
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        lists.append(chat.messages[-1])
+        await chat.press_labelled(CHEAPER_6)
+
+    chat, _planner, replay = talk(monkeypatch, [a_list(10, share=6)], scenario)
+
+    [stop_list] = lists
+    assert [labels(call) for call in markup_edits(chat, stop_list.message_id)] == [NUMBERS_10]
+    [busy] = [call for call in chat.sent if call.text == "⏳ Finding gas stations..." and
+              call.message_id != stop_list.message_id]
+    cheaper_list = chat.messages[-1]
+    assert cheaper_list.message_id == busy.message_id
+    assert cheaper_list.text.startswith(
+        '1. <a href="https://www.google.com/maps/search/?api=1&amp;query=45.010000%2C4.000000">Cheaper 1</a>')
+    assert labels(cheaper_list) == [["1", "2", "3"]]
+    assert search.calls == ["the query of a 6% share"]
+    assert replay.spent == 0
+
+
+def test_a_press_on_the_cheaper_button_of_a_destination_list_keeps_drive_with_google(monkeypatch):
+    store_car()
+    search_cheaper(monkeypatch, [[a_cheaper_station(1)]])
+    lists = []
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        lists.append(chat.messages[-1])
+        await chat.press_labelled("Cheaper? (8% of gas stations)")
+
+    chat, _planner, _replay = talk(monkeypatch, [a_destination_list(3, share=8)], scenario)
+
+    [destination_list] = lists
+    assert [labels(call) for call in markup_edits(chat, destination_list.message_id)] == [
+        [["1", "2", "3"], ["Drive with Google"]]]
+
+
+@pytest.mark.parametrize("found,text", [
+    ([], "None of them is within 5 km of your route."),
+    (RouterUnavailable("the router is down"), "Error finding gas stations. I am very sorry for that 😞"),
+], ids=["no cheaper station", "a router failure"])
+def test_the_stop_list_stays_open_after_a_cheaper_search_without_stations(monkeypatch, found, text):
+    store_car()
+    search_cheaper(monkeypatch, [found])
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        stop_list = chat.messages[-1]
+        await chat.press_labelled(CHEAPER_6)
+        assert chat.texts()[-1] == text
+        assert labels(chat.messages[-1]) == []
+        await chat.press(labelled(stop_list, "2"), stop_list.message_id)
+
+    _chat, planner, _replay = talk(monkeypatch, [a_list(10, share=6), a_list()], scenario)
+
+    second = a_station(2)
+    assert planner.calls[1][2] == ((second["latitude"], second["longitude"]),)
+
+
+# --- a choice on a cheaper list or a destination list ---------------------------------
+
+def test_a_choice_on_the_cheaper_list_places_the_station_at_its_route_point(monkeypatch):
+    store_car()
+    search_cheaper(monkeypatch, [[a_cheaper_station(n) for n in (1, 2, 3)]])
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        await chat.press_labelled(CHEAPER_6)
+        await chat.press_labelled("2")
+
+    chat, planner, _replay = talk(monkeypatch, [a_list(10, share=6), a_list()], scenario)
+
+    assert any(message.text.startswith('2. <a href="') and ">Cheaper 2</a>" in message.text
+               and labels(message) == [] for message in chat.messages)
+    second = a_cheaper_station(2)
+    assert planner.calls[1][2] == ((second["latitude"], second["longitude"], 200),)
+
+
+def test_a_choice_on_the_destination_list_finishes_the_plan(monkeypatch):
+    store_car()
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        await chat.press_labelled("2")
+
+    finished = ({"stop_needed": False, "fuel_left": 40.0}, a_finished_part())
+    chat, planner, replay = talk(monkeypatch, [a_destination_list(3), finished], scenario)
+
+    second = a_station(2)
+    assert planner.calls[1][2] == ((second["latitude"], second["longitude"], 500),)
+    assert chat.texts()[-1].startswith("2. <a ")
+    assert labels(chat.messages[-1]) == [["Drive with Google"]]
+    assert "⏳ Finding gas stations..." not in chat.texts()
+    assert replay.spent == 0
+
+
+def test_a_choice_on_the_cheaper_list_of_a_destination_list(monkeypatch):
+    store_car()
+    search_cheaper(monkeypatch, [[a_cheaper_station(n) for n in (1, 2)]])
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        await chat.press_labelled("Cheaper? (8% of gas stations)")
+        await chat.press_labelled("2")
+
+    finished = ({"stop_needed": False, "fuel_left": 40.0}, a_finished_part())
+    _chat, planner, _replay = talk(monkeypatch, [a_destination_list(3, share=8), finished], scenario)
+
+    second = a_cheaper_station(2)
+    assert planner.calls[1][2] == ((second["latitude"], second["longitude"], 200),)
+
+
+@pytest.mark.parametrize("first,second", [("cheaper", "stop"), ("stop", "cheaper")])
+def test_a_choice_on_one_list_closes_the_other(monkeypatch, first, second):
+    store_car()
+    search_cheaper(monkeypatch, [[a_cheaper_station(n) for n in (1, 2, 3)]])
+    numbers = {"cheaper": "2", "stop": "5"}
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        stop_list = chat.messages[-1]
+        await chat.press_labelled(CHEAPER_6)
+        lists = {"stop": stop_list, "cheaper": chat.messages[-1]}
+        await chat.press(labelled(lists[first], numbers[first]), lists[first].message_id)
+        await chat.press(labelled(lists[second], numbers[second]), lists[second].message_id)
+
+    chat, planner, _replay = talk(monkeypatch, [a_list(10, share=6), a_list()], scenario)
+
+    assert chat.texts()[-1] == EXPIRED
+    assert len(planner.calls) == 2
+
+
+def test_a_choice_on_the_destination_list_spends_its_drive_with_google(monkeypatch):
+    store_car()
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        destination_list = chat.messages[-1]
+        drive_token = labelled(destination_list, "Drive with Google")
+        await chat.press(labelled(destination_list, "2"), destination_list.message_id)
+        await chat.press(drive_token, destination_list.message_id)
+
+    finished = ({"stop_needed": False, "fuel_left": 40.0}, a_finished_part())
+    chat, _planner, replay = talk(monkeypatch, [a_destination_list(3), finished], scenario)
+
+    assert chat.texts()[-1] == EXPIRED
+    assert chat.parts == []
+    assert replay.spent == 0
+
+
+def test_drive_with_google_closes_the_destination_list(monkeypatch):
+    store_car()
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        destination_list = chat.messages[-1]
+        await chat.press(labelled(destination_list, "Drive with Google"), destination_list.message_id)
+        await chat.press(labelled(destination_list, "2"), destination_list.message_id)
+
+    chat, planner, _replay = talk(monkeypatch, [a_destination_list(3)], scenario)
+
+    assert chat.texts()[-1] == EXPIRED
+    assert len(planner.calls) == 1
+
+
+def test_a_cheaper_button_after_a_choice_has_expired(monkeypatch):
+    store_car()
+    search = search_cheaper(monkeypatch)
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        stop_list = chat.messages[-1]
+        await chat.press(labelled(stop_list, "3"), stop_list.message_id)
+        await chat.press(labelled(stop_list, CHEAPER_6), stop_list.message_id)
+
+    chat, _planner, _replay = talk(monkeypatch, [a_list(10, share=6), a_list()], scenario)
+
+    assert chat.texts()[-1] == EXPIRED
+    assert search.calls == []
+
+
+def test_the_cheaper_button_of_an_earlier_journey_has_expired(monkeypatch):
+    store_car()
+    search = search_cheaper(monkeypatch)
+
+    async def scenario(chat):
+        await half_a_tank(chat)
+        first_list = chat.messages[-1]
+        await ask(chat, by_key("toll-free"), "Optimal")
+        await half_a_tank(chat)
+        await chat.press(labelled(first_list, CHEAPER_6), first_list.message_id)
+
+    chat, _planner, _replay = talk(monkeypatch, [a_list(10, share=6), a_destination_list(3, share=8)], scenario)
+
+    assert chat.texts()[-1] == EXPIRED
+    assert search.calls == []

@@ -2,6 +2,7 @@
 import asyncio
 from dataclasses import replace
 import json
+import math
 import sqlite3
 from types import SimpleNamespace
 
@@ -10,7 +11,7 @@ from alembic.config import Config
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from .. import db, refuel
+from .. import db, gas_stations, refuel
 from ..car import CarParameters
 from ..config import config
 from ..osrm import NoRoute, Route, RouterUnavailable
@@ -306,7 +307,7 @@ def test_no_more_than_4_detour_requests_are_open_at_once():
              for k in range(1, 11)]
     routers = DetourRouters(default=a_detour(600, 900))
 
-    asyncio.run(refuel.detours(routers, PLANNED, (), 5, found))
+    asyncio.run(refuel.detours(routers, PLANNED, (), [(candidate, 5) for candidate in found]))
 
     assert routers.requests == 10
     assert routers.most_open == 4
@@ -476,6 +477,300 @@ def test_a_listed_station_carries_its_badge(store, fixed_rates):
     assert station["badge"] == "24"
 
 
+def plan_for_bot(routers, **fuel):
+    return asyncio.run(refuel.plan(routers, PLANNED, a_car(10, 10), toll_cost, for_bot=True, **fuel))
+
+
+def test_a_lasting_fuel_lists_the_stations_near_the_destination(store, fixed_rates):
+    insert_station(store, 1, 47.45 + 2 / 111.195, 2.0, DIESEL, name="A")
+    insert_station(store, 2, 46.55 - 2 / 111.195, 2.0, DIESEL, name="B")
+    routers = DetourRouters(default=a_detour(600, 920))
+
+    answer = plan_for_bot(routers, fuel=27)
+
+    assert answer["fuel_left"] == 17.0
+    assert [station["name"] for station in answer["stations"]] == ["A"]
+
+
+def test_the_stop_at_the_destination_buys_the_tank_less_the_fuel_left(store, fixed_rates):
+    insert_station(store, 1, 47.46, 2.0, DIESEL)
+
+    answer = plan_for_bot(DetourRouters(default=a_detour(600, 921)), fuel=27)
+
+    assert answer["liters"] == 33.0
+    assert answer["stations"][0]["fuel_cost"] == 59.4
+
+
+def test_the_stop_at_the_destination_after_a_range_buys_the_tank_less_the_reserve_fuel(store, fixed_rates):
+    insert_station(store, 1, 47.46, 2.0, DIESEL)
+
+    answer = plan_for_bot(DetourRouters(default=a_detour(600, 922)), range_km=183.4)
+
+    assert answer["range_left"] == 83.4
+    assert answer["liters"] == 45.0
+
+
+def test_the_cost_decides_the_order_at_the_destination(store, fixed_rates):
+    insert_station(store, 1, 47.46, 2.0, [["Gazole (B7)", "2026-11-06", "1.800"]], name="A")
+    insert_station(store, 2, 47.47, 2.0, [["Gazole (B7)", "2026-11-06", "1.750"]], name="B")
+    routers = DetourRouters({(2.0, 47.46): a_detour(600, 923), (2.0, 47.47): a_detour(1800, 924)})
+
+    answer = plan_for_bot(routers, range_km=183.4)
+
+    assert [(station["name"], station["cost"]) for station in answer["stations"]] == [("A", 84.33), ("B", 88.75)]
+
+
+def test_each_station_at_the_destination_carries_the_destination_index(store, fixed_rates):
+    insert_station(store, 1, 47.46, 2.0, DIESEL)
+
+    [station] = plan_for_bot(DetourRouters(default=a_detour(600, 925)), fuel=27)["stations"]
+
+    assert station["route_index"] == 10
+
+
+def test_no_station_near_the_destination_gives_an_empty_list(store, fixed_rates):
+    routers = DetourRouters()
+
+    answer = plan_for_bot(routers, fuel=27)
+
+    assert answer == {"stop_needed": False, "fuel_left": 17.0, "liters": 33.0, "stations": []}
+    assert routers.requests == 0
+
+
+def test_a_router_failure_at_the_destination_fails_the_plan(store, fixed_rates):
+    insert_station(store, 1, 47.46, 2.0, DIESEL)
+
+    with pytest.raises(RouterUnavailable):
+        plan_for_bot(DetourRouters(default=RouterUnavailable("the router is down")), fuel=27)
+
+
+def test_without_for_bot_a_lasting_fuel_routes_no_detour(store, fixed_rates):
+    insert_station(store, 1, 47.46, 2.0, DIESEL)
+    routers = DetourRouters(default=a_detour(600, 926))
+
+    assert plan(routers, fuel=27) == {"stop_needed": False, "fuel_left": 17.0}
+    assert routers.requests == 0
+
+
+def test_the_reference_price_is_the_lowest_price_of_the_list(store, fixed_rates):
+    insert_station(store, 1, 47.01, 2.0, [["Gazole (B7)", "2026-11-06", "1.800"]], name="A")
+    insert_station(store, 2, 47.02, 2.0, [["Gazole (B7)", "2026-11-06", "1.750"]], name="B")
+    routers = DetourRouters({(2.0, 47.01): a_detour(600, 930), (2.0, 47.02): a_detour(1800, 931)})
+
+    answer = plan_for_bot(routers, fuel=10)
+
+    assert [station["name"] for station in answer["stations"]] == ["A", "B"]
+    assert answer["cheaper_query"].reference == 1.75
+
+
+def test_the_reference_price_of_a_destination_list(store, fixed_rates):
+    insert_station(store, 1, 47.46, 2.0, [["Gazole (B7)", "2026-11-06", "1.820"]], name="A")
+    insert_station(store, 2, 47.47, 2.0, [["Gazole (B7)", "2026-11-06", "1.790"]], name="B")
+    routers = DetourRouters({(2.0, 47.46): a_detour(600, 932), (2.0, 47.47): a_detour(1800, 933)})
+
+    answer = plan_for_bot(routers, fuel=27)
+
+    assert [station["name"] for station in answer["stations"]] == ["A", "B"]
+    assert answer["cheaper_query"].reference == 1.79
+    assert answer["cheaper_query"].search_index == 10
+
+
+def insert_far_stations(store, first_id, count, price):
+    for station_id in range(first_id, first_id + count):
+        insert_station(store, station_id, 43.9, 2.0, [["Gazole (B7)", "2026-11-06", price]])
+
+
+def test_the_share_counts_the_stored_stations_below_the_reference_price(store, fixed_rates):
+    insert_station(store, 1, 47.01, 2.0, DIESEL)
+    insert_far_stations(store, 2, 3, "1.700")
+    insert_far_stations(store, 5, 16, "1.800")
+
+    answer = plan_for_bot(DetourRouters(default=a_detour(600, 934)), fuel=10)
+
+    assert answer["cheaper_share"] == 15
+
+
+def test_the_share_is_rounded_up(store, fixed_rates):
+    insert_station(store, 1, 47.01, 2.0, DIESEL)
+    insert_far_stations(store, 2, 1, "1.700")
+    insert_far_stations(store, 3, 28, "1.800")
+
+    answer = plan_for_bot(DetourRouters(default=a_detour(600, 935)), fuel=10)
+
+    assert answer["cheaper_share"] == 4
+
+
+def test_a_cheaper_station_300_km_from_the_route_counts_in_the_share(store, fixed_rates):
+    insert_station(store, 1, 47.01, 2.0, DIESEL)
+    insert_station(store, 2, 46.55 - 300 / 111.195, 2.0, [["Gazole (B7)", "2026-11-06", "1.700"]])
+
+    answer = plan_for_bot(DetourRouters(default=a_detour(600, 936)), fuel=10)
+
+    assert answer["cheaper_share"] == 50
+
+
+def test_an_empty_list_has_no_share_and_counts_nothing(store, fixed_rates, monkeypatch):
+    async def no_count(fuel_type, price):
+        raise AssertionError("the store was counted")
+
+    monkeypatch.setattr(gas_stations, "count_below", no_count)
+
+    assert plan_for_bot(DetourRouters(), fuel=10) == {"stop_needed": True, "liters": 45.0, "stations": []}
+
+
+def test_a_cheaper_station_near_the_route_gets_no_detour(store, fixed_rates):
+    insert_station(store, 1, 47.46, 2.0, DIESEL)
+    insert_station(store, 2, 46.55, 2.0 + 1 / 75.8, [["Gazole (B7)", "2026-11-06", "1.500"]])
+    routers = DetourRouters(default=a_detour(600, 937))
+
+    answer = plan_for_bot(routers, fuel=15)
+
+    assert answer["stop_needed"]
+    assert answer["cheaper_share"] == 50
+    assert routers.requests == 1
+
+
+def beside(index, km):
+    longitude, latitude = PLANNED_ROUTE.coordinates[index]
+    return latitude, longitude + km / (111.195 * math.cos(math.radians(latitude)))
+
+
+def route_station_ids(walk_start, search_index):
+    return [(candidate.station.id, index) for candidate, index
+            in asyncio.run(refuel.route_stations(PLANNED_ROUTE, walk_start, search_index, "diesel"))]
+
+
+def test_a_station_4_km_from_the_route_is_a_route_station(store):
+    insert_station(store, 1, *beside(3, 4), DIESEL)
+
+    assert route_station_ids(0, 5) == [(1, 3)]
+
+
+def test_a_station_6_km_from_every_route_point_is_not_a_route_station(store):
+    insert_station(store, 1, *beside(3, 6), DIESEL)
+
+    assert route_station_ids(0, 5) == []
+
+
+def test_a_station_after_the_search_point_is_not_a_route_station(store):
+    insert_station(store, 1, *beside(8, 1), DIESEL)
+
+    assert route_station_ids(0, 5) == []
+
+
+def test_a_station_before_the_last_chosen_station_is_not_a_route_station(store):
+    insert_station(store, 1, *beside(2, 1), DIESEL)
+
+    assert route_station_ids(5, 9) == []
+
+
+def test_a_station_at_the_last_chosen_station_is_not_a_route_station(store):
+    insert_station(store, 1, *beside(5, 1), DIESEL)
+
+    assert route_station_ids(5, 9) == []
+
+
+def test_a_station_without_the_fuel_is_not_a_route_station(store):
+    insert_station(store, 1, *beside(3, 1), [["SP95-E10 (E10)", "2026-11-06", "1.500"]])
+
+    assert route_station_ids(0, 5) == []
+
+
+def test_with_the_destination_as_search_point_a_station_halfway_is_a_route_station(store):
+    insert_station(store, 1, *beside(5, 1), DIESEL)
+
+    assert route_station_ids(0, 10) == [(1, 5)]
+
+
+def diesel_at(price):
+    return [["Gazole (B7)", "2026-11-06", price]]
+
+
+def cheaper_query(**fields):
+    return refuel.CheaperQuery(**{"planned": PLANNED, "route": PLANNED_ROUTE, "vias": (), "walk_start": 0,
+                                  "search_index": 10, "liters": 45.0, "reference": 1.8, **fields})
+
+
+def cheaper(routers, query=None):
+    return asyncio.run(refuel.cheaper_stations(routers, query or cheaper_query(), a_car(10, 10), toll_cost))
+
+
+def test_the_cost_orders_the_cheaper_stations(store, fixed_rates):
+    a, b = beside(3, 1), beside(6, 1)
+    insert_station(store, 1, *a, diesel_at("1.700"), name="A")
+    insert_station(store, 2, *b, diesel_at("1.690"), name="B")
+    routers = DetourRouters({(a[1], a[0]): a_detour(60, 940), (b[1], b[0]): a_detour(1800, 941)})
+
+    stations = cheaper(routers)
+
+    assert [(station["name"], station["cost"], station["route_index"]) for station in stations] == [
+        ("A", 76.83, 3), ("B", 86.05, 6)]
+
+
+def test_an_equal_price_is_not_cheaper(store, fixed_rates):
+    insert_station(store, 1, *beside(3, 1), diesel_at("1.800"))
+    routers = DetourRouters(default=a_detour(60, 942))
+
+    assert cheaper(routers) == []
+    assert routers.requests == 0
+
+
+def test_the_10_latest_of_12_cheaper_stations_are_kept(store, fixed_rates):
+    for index in range(11):
+        insert_station(store, index + 1, *beside(index, 1), diesel_at("1.700"))
+    insert_station(store, 12, *beside(0, 2), diesel_at("1.700"))
+
+    stations = cheaper(DetourRouters(default=a_detour(60, 943)))
+
+    assert len(stations) == 10
+    assert {station["route_index"] for station in stations} == set(range(1, 11))
+
+
+def test_an_unreachable_cheaper_station_is_left_out(store, fixed_rates):
+    positions = [beside(index, 1) for index in (2, 4, 6)]
+    for station_id, (latitude, longitude) in enumerate(positions, start=1):
+        insert_station(store, station_id, latitude, longitude, diesel_at("1.700"))
+    unreachable = positions[1]
+    routers = DetourRouters({(unreachable[1], unreachable[0]): NoRoute("no road")}, default=a_detour(60, 944))
+
+    assert [station["route_index"] for station in cheaper(routers)] == [2, 6]
+
+
+def test_a_cheaper_station_goes_before_the_split_stops_after_its_route_point(store, fixed_rates):
+    stop_a, stop_b = (2.0, 46.55 + 0.09 * 3), (2.0, 46.55 + 0.09 * 8)
+    vias = (refuel.Via(location=stop_a, index=3, chosen=False, booths=(11, 12)),
+            refuel.Via(location=stop_b, index=8, chosen=False, booths=(13, 14)))
+    latitude, longitude = beside(2, 1)
+    insert_station(store, 1, latitude, longitude, diesel_at("1.700"))
+    routers = ViaRouters({}, detour=a_detour(60, 945, leg_distance=(20_000.0, 15_000.0, 50_000.0, 20_000.0)))
+
+    cheaper(routers, cheaper_query(vias=vias, search_index=7))
+
+    assert routers.asked == [((longitude, latitude), stop_a, stop_b)]
+
+
+def test_the_distance_of_a_cheaper_station_runs_from_the_chosen_station(store, fixed_rates):
+    vias = (refuel.Via(location=(2.0, 46.55 + 0.09 * 3), index=3, chosen=True),)
+    insert_station(store, 1, *beside(6, 1), diesel_at("1.700"))
+    routers = ViaRouters({}, detour=a_detour(60, 946, leg_distance=(220_000.0, 80_000.0, 50_000.0)))
+
+    [station] = cheaper(routers, cheaper_query(vias=vias, walk_start=3))
+
+    assert station["distance"] == 300_000.0
+    assert station["distance_from_previous"] == 80_000.0
+
+
+def test_the_cheaper_search_routes_only_its_detours_with_no_more_than_4_open(store, fixed_rates):
+    for index in range(10):
+        insert_station(store, index + 1, *beside(index, 1), diesel_at("1.700"))
+    routers = DetourRouters(default=a_detour(60, 947))
+
+    cheaper(routers)
+
+    assert routers.requests == 10
+    assert routers.most_open == 4
+
+
 A = (47.0, 2.0)
 B = (51.06, 2.0)
 
@@ -610,6 +905,42 @@ def test_a_station_that_the_plan_does_not_need_is_refused():
 
     with pytest.raises(refuel.UnneededStation):
         plan_chosen(routers, [A, B])
+
+
+def test_a_chosen_cheaper_station_goes_at_its_route_point():
+    split_stop = (2.0, 47.27)
+    planned = SimpleNamespace(start="start", end="end", route=PLANNED_ROUTE, router_url=OPTIMAL_GRAPH,
+                              stops=(SimpleNamespace(location=split_stop, index=8, booths=(31, 32)),))
+    d = (46.55 + 0.09 * 2, 2.01)
+    routers = ViaRouters({(at(*d), split_stop): a_leg_route(20, (0, 2, 9), base=9100)})
+
+    _route, vias, start = asyncio.run(
+        refuel.through_chosen(routers, planned, a_car(10, 10), refuel.Start(0, fuel=15), [(*d, 2)]))
+
+    assert routers.asked == [(at(*d), split_stop)]
+    assert vias[0] == refuel.Via(location=at(*d), index=2, chosen=True)
+    assert start == refuel.Start(2, fuel=50)
+
+
+def test_a_chosen_destination_station_is_accepted_when_the_fuel_lasts():
+    e = (47.46, 2.0)
+    routers = ViaRouters({(at(*e),): a_leg_route(10, (0, 10), base=9200)})
+
+    answer = asyncio.run(refuel.plan(routers, PLANNED, a_car(10, 10), toll_cost, fuel=27, chosen=[(*e, 10)],
+                                     for_bot=True))
+
+    assert routers.asked == [(at(*e),)]
+    assert answer == {"stop_needed": False, "fuel_left": 50.0}
+
+
+def test_a_station_without_a_route_index_after_a_lasting_fuel_is_still_refused():
+    routers = ViaRouters({})
+
+    with pytest.raises(refuel.UnneededStation):
+        asyncio.run(refuel.plan(routers, PLANNED, a_car(10, 10), toll_cost, fuel=27, chosen=[(47.46, 2.0)],
+                                for_bot=True))
+
+    assert routers.asked == []
 
 
 class LinkRecorder:

@@ -137,13 +137,47 @@ def test_the_keyboard_of_seven_stations():
 
 
 def test_enough_fuel():
-    assert refuel_chat.no_stop_text({"stop_needed": False, "fuel_left": 12.7}) == (
-        "No need to refuel: you'll arrive with 12 L.")
+    assert refuel_chat.no_stop_text({"stop_needed": False, "fuel_left": 12.7, "stations": []}) == (
+        "No need to refuel: you'll arrive with 12 L. No gas station sells this fuel within 50 km of your destination.")
 
 
 def test_enough_range():
-    assert refuel_chat.no_stop_text({"stop_needed": False, "range_left": 83.4}) == (
-        "No need to refuel: you'll arrive with 83 km of range.")
+    assert refuel_chat.no_stop_text({"stop_needed": False, "range_left": 83.4, "stations": []}) == (
+        "No need to refuel: you'll arrive with 83 km of range. "
+        "No gas station sells this fuel within 50 km of your destination.")
+
+
+def test_ten_stations_at_the_destination():
+    stations = [a_station(name=f"S{number}") for number in range(1, 11)]
+
+    text = refuel_chat.no_stop_text({"stop_needed": False, "fuel_left": 12.7, "stations": stations})
+
+    first_line, empty_line, *_ = text.split("\n")
+    assert first_line == (
+        "No need to refuel: you'll arrive with 12 L. Still, these are the 10 cheapest gas stations at your destination:")
+    assert empty_line == ""
+    assert [block.split(".")[0] for block in text.split("\n\n")[1:]] == [str(number) for number in range(1, 11)]
+
+
+def test_three_stations_at_the_destination_with_a_range():
+    stations = [a_station(name=f"S{number}") for number in range(1, 4)]
+
+    text = refuel_chat.no_stop_text({"stop_needed": False, "range_left": 83.4, "stations": stations})
+
+    assert text.split("\n")[0] == ("No need to refuel: you'll arrive with 83 km of range. "
+                                   "Still, these are the 3 cheapest gas stations at your destination:")
+
+
+def test_one_station_at_the_destination():
+    text = refuel_chat.no_stop_text({"stop_needed": False, "fuel_left": 12.7, "stations": [a_station()]})
+
+    assert text.split("\n") == [
+        "No need to refuel: you'll arrive with 12 L. Still, this is the cheapest gas station at your destination:",
+        "",
+        '1. <a href="https://www.google.com/maps/search/?api=1&amp;query=47.010000%2C2.000000">Leclerc</a>'
+        " · 235 km",
+        "1.799 €/L · +7 min",
+    ]
 
 
 def a_car(reserve_km):

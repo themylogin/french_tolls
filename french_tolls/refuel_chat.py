@@ -54,9 +54,20 @@ def parse_range(text):
 
 
 def no_stop_text(answer):
+    """The answer without a stop, with the stations at the destination, in HTML."""
     if "range_left" in answer:
-        return f"No need to refuel: you'll arrive with {math.floor(answer['range_left'])} km of range."
-    return f"No need to refuel: you'll arrive with {math.floor(answer['fuel_left'])} L."
+        sentence = f"No need to refuel: you'll arrive with {math.floor(answer['range_left'])} km of range."
+    else:
+        sentence = f"No need to refuel: you'll arrive with {math.floor(answer['fuel_left'])} L."
+
+    stations = answer["stations"]
+    if not stations:
+        return f"{sentence} No gas station sells this fuel within 50 km of your destination."
+    if len(stations) == 1:
+        header = "Still, this is the cheapest gas station at your destination:"
+    else:
+        header = f"Still, these are the {len(stations)} cheapest gas stations at your destination:"
+    return f"{sentence} {header}\n\n{station_list(stations)}"
 
 
 def no_station_text(parameters):

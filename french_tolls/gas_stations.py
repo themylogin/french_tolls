@@ -20,8 +20,8 @@ from . import car, db
 from .config import config
 from .models import GasStation, GasStationArea
 
-__all__ = ["ParseError", "main", "osm_position", "parse_station_page", "stations_in_area", "update",
-           "valid_station_count"]
+__all__ = ["ParseError", "count_below", "fuel_price", "main", "osm_position", "parse_station_page", "stations_in_area",
+           "update", "valid_station_count"]
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +126,31 @@ async def stations_in_area(south, west, north, east):
 
     async with db.Session() as session:
         return list(await session.scalars(query))
+
+
+def fuel_price(prices, fuel_type):
+    """`(price, fuel)` of the lowest stored price among the station fuels of `fuel_type`, or None."""
+    fuels = car.station_fuels(fuel_type)
+    offers = [(float(price), fuel) for fuel, _date, price in prices if fuel in fuels]
+    if not offers:
+        return None
+    return min(offers)
+
+
+async def count_below(fuel_type, price):
+    """The stored stations with a `fuel_price` below `price`, and all stored stations with a `fuel_price`."""
+    below = 0
+    total = 0
+    async with db.Session() as session:
+        for prices in await session.scalars(select(GasStation.prices)):
+            offer = fuel_price(prices, fuel_type)
+            if offer is None:
+                continue
+
+            total += 1
+            if offer[0] < price:
+                below += 1
+    return below, total
 
 
 async def valid_station_count(session):
